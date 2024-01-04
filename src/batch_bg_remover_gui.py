@@ -5,7 +5,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.core.window import Window
 import threading
-from modules import Background_Remover
+from modules import background_remover
 import tkinter as tk
 from tkinter import filedialog
 import pathlib
@@ -88,11 +88,11 @@ class RootWidget(BoxLayout):
         output_dir = self.output_layout.text_input.text
         self.start_button.text = "Processing files..."
         thread = threading.Thread(
-            target=Background_Remover.batch_process_images, args=(input_dir, output_dir)
+            target=background_remover.batch_process_images, args=(input_dir, output_dir)
         )
         thread.start()
         thread.join()
-        files_processed = Background_Remover.get_files_processed()
+        files_processed = background_remover.get_files_processed()
         if files_processed:
             self.start_button.text = f"Processed {files_processed} files."
         else:

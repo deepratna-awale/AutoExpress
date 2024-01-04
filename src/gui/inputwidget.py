@@ -2,33 +2,49 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.dropdown import DropDown
 from kivy.uix.slider import Slider
-from kivy.uix.button import Button  # Import Button
+from kivy.uix.button import Button
+from kivy.uix.accordion import Accordion, AccordionItem
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.checkbox import CheckBox
 from kivy.core.window import Window
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.scrollview import ScrollView
+import sys, os
+import json
+
+import requests
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "modules"))
+import image_parser
+import a1111_api
 
 
-class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
+class InputWidget(ScrollView):  # Use FloatLayout instead of FormLayout
     def __init__(self, **kwargs):
         super(InputWidget, self).__init__(**kwargs)
+        self.size_hint = (0.8, 0.6)
+        self.file_path = None
+        self.do_scroll_x = False
 
-        input_grid = BoxLayout(
-            orientation="vertical",
+        # Single block GridLayout
+        input_grid = GridLayout(
+            cols=1,
             spacing=10,
-            size_hint=(0.8, 0.8),
+            # size_hint=(0.8, 0.8),
+            height = 300,
             pos_hint={"center_x": 0.5, "center_y": 0.5},
         )
 
+        # Positive Quality Checkbox
         positive_quality_layout = BoxLayout(
             orientation="horizontal", spacing=5, height=30
         )
-
         self.positive_quality = CheckBox()
         positive_quality_layout.add_widget(self.positive_quality)
         self.positive_quality_label = Label(text="Use Quality Prompt")
         positive_quality_layout.add_widget(self.positive_quality_label)
-        input_grid.add_widget(positive_quality_layout)
 
+        # Negative Quality CheckBox
         negative_quality_layout = BoxLayout(
             orientation="horizontal", spacing=5, height=30
         )
@@ -36,31 +52,64 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         negative_quality_layout.add_widget(self.negative_quality)
         self.negative_quality_label = Label(text="Use Negative Quality Prompt")
         negative_quality_layout.add_widget(self.negative_quality_label)
-        input_grid.add_widget(negative_quality_layout)
 
+        # Prompt Layout
         # Create a horizontal BoxLayout for "Prompt" elements
-        prompt_layout = BoxLayout(orientation="horizontal", spacing=5, height=30)
+        prompt_layout = BoxLayout(orientation="horizontal", size=(200,400))
         prompt_layout.add_widget(Label(text="Prompt"))
         self.prompt_input = TextInput(
-            multiline=False,
             background_color=(0.1, 0.1, 0.1, 1),
             foreground_color=(1, 1, 1, 1),
             do_wrap=True,
-            hint_text="(Optional) Enter Character specific eye and lips (only) details here.",
+            multiline=True,
+            hint_text="(Optional) Enter Character comma (,) seperated face details here.",
         )
-        prompt_layout.add_widget(self.prompt_input)
-        input_grid.add_widget(prompt_layout)
 
-        neg_prompt_layout = BoxLayout(orientation="horizontal", spacing=5, height=30)
+        print("Prompt Height", self.prompt_input.height)
+        prompt_layout.add_widget(self.prompt_input)
+
+        neg_prompt_layout = BoxLayout(orientation="horizontal")
         neg_prompt_layout.add_widget(Label(text="Negative Prompt"))
         self.negative_prompt_input = TextInput(
-            multiline=False,
             background_color=(0.1, 0.1, 0.1, 1),
             foreground_color=(1, 1, 1, 1),
+            do_wrap=True,
+            height=400,
+            multiline=True,
             hint_text="(Optional) Enter Negative Prompt here",
         )
         neg_prompt_layout.add_widget(self.negative_prompt_input)
-        input_grid.add_widget(neg_prompt_layout)
+
+        # Model Selecter
+        model_selecter_layout = BoxLayout(
+            orientation="horizontal", spacing=5, height=30
+        )
+        model_selecter_layout.add_widget(Label(text="Models"))
+
+        self.model_selecter_dropdown = DropDown()
+        try:
+            models = a1111_api.get_models()
+        except requests.exceptions.ConnectionError:
+            models = []
+
+        for method in models:
+            btn = Button(
+                text=method,
+                size_hint_y=None,
+                height=30,
+                background_color=(0.1, 0.1, 0.1, 1),
+            )
+            btn.bind(
+                on_release=lambda btn: self.model_selecter_dropdown.select(btn.text)
+            )
+            self.model_selecter_dropdown.add_widget(btn)
+            # Bind a function to update the button text when an item is selected
+            btn.bind(on_release=self.update_model_selecter_text)
+
+        self.model_selecter_button = Button(text="Select Model", height=30)
+        self.model_selecter_button.bind(on_release=self.model_selecter_dropdown.open)
+
+        model_selecter_layout.add_widget(self.model_selecter_button)
 
         sampling_method_layout = BoxLayout(
             orientation="horizontal", spacing=5, height=30
@@ -68,8 +117,17 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         sampling_method_layout.add_widget(Label(text="Sampling Method"))
 
         self.sampling_method_dropdown = DropDown()
-
-        sampling_methods = ["DPM++ 2M Karras", "Method 2", "Method 3"]
+        try:
+            sampling_methods = a1111_api.get_samplers()
+        except requests.exceptions.ConnectionError:
+            sampling_methods = [
+                "DPM++ 2M Karras",
+                "DPM++ SDE Karras",
+                "DPM++ 2M SDE Exponential",
+                "DPM++ 2M SDE Karras",
+                "Euler a",
+                "Euler",
+            ]
 
         for method in sampling_methods:
             btn = Button(
@@ -89,14 +147,13 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         self.sampling_method_button.bind(on_release=self.sampling_method_dropdown.open)
 
         sampling_method_layout.add_widget(self.sampling_method_button)
-        input_grid.add_widget(sampling_method_layout)
 
         seed_dropdown_layout = BoxLayout(orientation="horizontal", spacing=5, height=30)
         seed_dropdown_layout.add_widget(Label(text="Seed"))
 
         self.seed_dropdown = DropDown()
-        seeds = ["-1", "constant"]
-        for seed in seeds:
+        self.seeds = ["-1", "constant"]
+        for seed in self.seeds:
             btn = Button(
                 text=seed,
                 size_hint_y=None,
@@ -111,7 +168,6 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         self.seed_button.bind(on_release=self.seed_dropdown.open)
 
         seed_dropdown_layout.add_widget(self.seed_button)
-        input_grid.add_widget(seed_dropdown_layout)
 
         # Create text inputs for slider values
         self.width_text = TextInput(
@@ -192,13 +248,11 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         width_slider_layout.add_widget(Label(text="Width"))
         width_slider_layout.add_widget(self.width_slider)
         width_slider_layout.add_widget(self.width_text)
-        input_grid.add_widget(width_slider_layout)
 
         height_slider_layout = BoxLayout(orientation="horizontal", spacing=5, height=30)
         height_slider_layout.add_widget(Label(text="Height"))
         height_slider_layout.add_widget(self.height_slider)
         height_slider_layout.add_widget(self.height_text)
-        input_grid.add_widget(height_slider_layout)
 
         cfg_scale_slider_layout = BoxLayout(
             orientation="horizontal", spacing=5, height=30
@@ -206,7 +260,6 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         cfg_scale_slider_layout.add_widget(Label(text="CFG Scale"))
         cfg_scale_slider_layout.add_widget(self.cfg_scale_slider)
         cfg_scale_slider_layout.add_widget(self.cfg_scale_text)
-        input_grid.add_widget(cfg_scale_slider_layout)
 
         denoising_strength_slider_layout = BoxLayout(
             orientation="horizontal", spacing=5, height=30
@@ -214,7 +267,6 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         denoising_strength_slider_layout.add_widget(Label(text="Denoising Strength"))
         denoising_strength_slider_layout.add_widget(self.denoising_strength_slider)
         denoising_strength_slider_layout.add_widget(self.denoising_strength_text)
-        input_grid.add_widget(denoising_strength_slider_layout)
 
         generate_button_layout = BoxLayout(
             orientation="horizontal", spacing=5, height=30
@@ -222,7 +274,7 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         generate_button = Button(
             text="Generate Expressions",
             size_hint_y=None,
-            height=30,
+            height=50,
             background_color=(0.56, 0.93, 0.56, 1),
             color=(1, 1, 1, 1),
         )
@@ -230,20 +282,50 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         generate_button.bind(on_release=self.send_params)
         generate_button_layout.add_widget(generate_button)
 
+        input_grid.add_widget(positive_quality_layout)
+        input_grid.add_widget(negative_quality_layout)
+        input_grid.add_widget(prompt_layout)
+        input_grid.add_widget(neg_prompt_layout)
+        input_grid.add_widget(model_selecter_layout)
+        input_grid.add_widget(sampling_method_layout)
+        input_grid.add_widget(seed_dropdown_layout)
+        input_grid.add_widget(width_slider_layout)
+        input_grid.add_widget(height_slider_layout)
+        input_grid.add_widget(cfg_scale_slider_layout)
+        input_grid.add_widget(denoising_strength_slider_layout)
         input_grid.add_widget(generate_button_layout)
 
         self.add_widget(input_grid)
 
+    def get_expression_list():
+        with open(r"src\resources\expressions.json", "r") as exp_file:
+            expressions = json.load(exp_file)
+        return [*expressions]
+
+    def set_file_path(self, file_path):
+        self.file_path = file_path
+        print(self.file_path)
+        if self.file_path:
+            parsed_data = image_parser.get_parsed_data(file_path)
+            if parsed_data:
+                self.prompt_input.text = image_parser.get_prompt(parsed_data)
+                self.negative_prompt_input.text = image_parser.get_negative_prompt(
+                    parsed_data
+                )
+
+                self.seed_button
+
     def send_params(self, instance):
         params = {
-            "use_quality": self.positive_quality.active,
-            "use_negative_quality": self.negative_quality.active,
-            "prompt": self.prompt_input.text,
-            "negative_prompt": self.negative_prompt_input.text,
+            "use_quality": bool(self.positive_quality.active),
+            "use_negative_quality": bool(self.negative_quality.active),
+            "prompt": list(self.prompt_input.text.split(",")),
+            "negative_prompt": list(self.negative_prompt_input.text.split(",")),
             "sampler": self.sampling_method_button.text,
-            "seed": self.seed_button.text,
-            "width": self.width_text.text,
-            "height": self.height_text.text,
+            "cfg_scale": int(self.cfg_scale_text.text),
+            "seed": int(self.seed_button.text),
+            "width": int(self.width_text.text),
+            "height": int(self.height_text.text),
         }
 
         print(params)
@@ -257,7 +339,8 @@ class InputWidget(BoxLayout):  # Use FloatLayout instead of FormLayout
         # Update the button text with the selected item
         self.sampling_method_button.text = instance.text
 
-        # Function to show tooltip
+    def update_model_selecter_text(self, instance):
+        self.model_selecter_button.text = instance.text
 
     def on_width_text_enter(self, instance):
         # Update slider value when Enter is pressed in text input

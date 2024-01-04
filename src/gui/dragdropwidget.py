@@ -6,16 +6,16 @@ from kivy.uix.image import Image
 from tkinter import filedialog, Tk
 from kivy.core.image import Image as CoreImage
 
-# from modules import SD_Api_Handler
 
 class DragDropWidget(BoxLayout):
-    def __init__(self, **kwargs):
+    def __init__(self, on_file=None, **kwargs):
         super(DragDropWidget, self).__init__(**kwargs)
+
+        self.on_file = on_file
 
         self.drop_area = Label(
             text="Drop image here",
             size_hint=(1, None),
-            height=100,
             pos_hint={"top": 1},  # Align to the top
             color=(0, 1, 1, 1),
         )
@@ -25,6 +25,7 @@ class DragDropWidget(BoxLayout):
 
         # Bind to the on_drop_file event of the window
         Window.bind(on_drop_file=self.on_drop_file)
+
 
     def on_touch_down(self, touch):
         # Check if the touch is within the bounds of the drop area and if it's a single click
@@ -37,11 +38,15 @@ class DragDropWidget(BoxLayout):
     def on_drop_file(self, window, file_path, *args):
         self.display_image(file_path.decode("utf-8"))
 
+        if self.on_file:
+            self.on_file(file_path)
+
+
     def display_image(self, file_path):
         app = App.get_running_app()  # Get the instance of the running app
 
         if not self.image:
-            self.image = Image(size_hint=(1, 0.9), allow_stretch=True)
+            self.image = Image(size_hint=(1, 0.9))
             self.add_widget(self.image)
         self.image.source = file_path
 
@@ -67,4 +72,6 @@ class DragDropWidget(BoxLayout):
         )
         if file_path:
             self.display_image(file_path)
+            if self.on_file:
+                self.on_file(file_path)
         root.destroy()
