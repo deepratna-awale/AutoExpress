@@ -38,12 +38,13 @@ class NoColorFormatter(logging.Formatter):
 def setup_logging():
     rootLogger = logging.getLogger()
     rootLogger.setLevel(logging.INFO)
+    rootLogger.propagate = False
 
     fileLogFormat = "%(asctime)s [%(levelname)-7.7s]  %(message)s"
     dateFormat = "%Y/%m/%d %H:%M:%S"
     fileLogFormatter = NoColorFormatter(fileLogFormat, dateFormat)
 
-    consoleLogFormat = "[%(levelname)s]  %(message)s"
+    consoleLogFormat = "[%(name)s] [%(levelname)s]  %(message)s"
     dateFormat = "%H:%M:%S"
     consoleLogFormatter = ColorFormatter(consoleLogFormat, dateFormat)
 
@@ -59,3 +60,5 @@ def setup_logging():
     consoleHandler = logging.StreamHandler()
     consoleHandler.setFormatter(consoleLogFormatter)
     rootLogger.addHandler(consoleHandler)
+
+    return rootLogger

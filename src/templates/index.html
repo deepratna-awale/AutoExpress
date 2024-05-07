@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payload Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='fountain_pen.png') }}">
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+</head>
+
+<body>
+      
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h1>Parameters</h1>
+
+            <!-- A1111 API Url -->
+
+            <div class="input-container">
+                <label for="ip-input">A1111 Api</label>
+                <input id="ip-input" name="ip-input" type="text" placeholder="127.0.0.1:7860"></input>
+                <button class="material-symbols-outlined sd-connect">link</button>
+            </div>
+
+
+            <!-- Model Dropdown -->
+            <div class="input-container">
+                <label for="model-input">Model</label>
+                <select id="model-input" name="model">
+                    <!-- Add more options as needed -->
+                </select>
+            </div>
+        
+            <!-- Sampler Dropdown -->
+            <div class="input-container">
+                <label for="sampler-input">Sampler</label>
+                <select id="sampler-input" name="sampler">
+                    <!-- Add more options as needed -->
+                </select>
+            </div>
+
+            <!-- lora Dropdown -->
+            <div class="input-container">
+                <label for="lora-input">Lora</label>
+                <select id="lora-input" name="lora">
+                    <!-- Add more options as needed -->
+                </select>
+            </div>
+
+            <!-- Clip skip Input -->
+            <div class="input-container">
+                <label for="clip-skip-input">Clip Skip</label>
+                <input type="number" id="clip-skip-input" name="clip-skip" value="2">
+            </div>
+
+        
+            <!-- Seed Input -->
+            <div class="input-container">
+                <label for="seed-input">Seed</label>
+                <input type="number" id="seed-input" name="seed-input" value="-1" min="-1">
+            </div>
+
+            <!-- Steps Slider + Input -->
+            <div class="input-container">
+                <label for="steps">Steps</label>
+                <input type="range" id="steps-slider" name="steps-slider" min="0" max="40" step="1"
+                    oninput="updateInput('steps')">
+                <input type="number" id="steps-input" name="steps-input" value="32" min="0" oninput="updateSlider('steps')">
+            </div>
+        
+            <!-- Width Slider + Input -->
+            <div class="input-container">
+                <label for="width">Width</label>
+                <input type="range" id="width-slider" name="width-slider" min="0" max="2048" step="1"
+                    oninput="updateInput('width')">
+                <input type="number" id="width-input" name="width-input" value="512" min="0" oninput="updateSlider('width')">
+            </div>
+        
+            <!-- Height Slider + Input -->
+            <div class="input-container">
+                <label for="height">Height</label>
+                <input type="range" id="height-slider" name="height-slider" min="0" max="2048" step="1"
+                    oninput="updateInput('height')">
+                <input type="number" id="height-input" name="height-input" value="768" min="0" oninput="updateSlider('height')">
+            </div>
+        
+            <!-- CFG Scale Slider + Input -->
+            <div class="input-container">
+                <label for="cfg-scale">CFG Scale</label>
+                <input type="range" id="cfg-scale-slider" name="cfg-scale-slider" min="0" max="20" step="0.5"
+                    oninput="updateInput('cfg-scale')">
+                <input type="number" id="cfg-scale-input" name="cfg-scale-input" value="7" min="0" oninput="updateSlider('cfg-scale')">
+            </div>
+        
+            <!-- Denoising Strength Slider + Input -->
+            <div class="input-container">
+                <label for="denoising-strength">Denoising Strength</label>
+                <input type="range" id="denoising-strength-slider" name="denoising-strength-slider" min="0" max="1" step="0.05"
+                    oninput="updateInput('denoising-strength')">
+                <input type="number" id="denoising-strength-input" name="denoising-strength-input" min="0" value="0.5"
+                    oninput="updateSlider('denoising-strength')">
+            </div>
+        </div>
+        <!-- End of Sidebar -->
+
+        <div class = image_and_prompt_creator>
+            <div class="drop-zone">
+                <span class="drop-zone__prompt">Drop file here or click to upload</span>
+                <input type="file" name="image" class="drop-zone__input">
+            </div>
+            <div class="input-container">
+                <textarea type="text" id="prompt" name="prompt" placeholder="Enter your after detailer prompt..."></textarea>
+            </div>
+            <div class="input-container">
+                <textarea type="text" id="negative_prompt" name="negative_prompt" placeholder="Enter your after detailer negative prompt..."></textarea>
+            </div>
+            <div class="input-container">
+                <button type="submit" class="generate-button">Generate</button>
+            </div>
+        </div>
+
+        <div class = "output-container">
+            <div class = "input-container">
+                <input type="text" class= "output-directory" id="output-directory" name="output-directory" placeholder="Output/New_Character"></input>
+                <button class="material-symbols-outlined load-images" onclick="loadImages()">frame_reload</button>
+            </div>
+            <div class="display-container">
+                <button class="nav-button nav-left" onclick="navigate(-1)">&#10094;</button> <!-- Left arrow -->
+                <img id="image-display" src="" alt="">
+                <button class="nav-button nav-right" onclick="navigate(1)">&#10095;</button> <!-- Right arrow -->
+                <div id="image-name"></div>
+            </div>
+        </div>
+    </div>
+        
+
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+
+</html>
