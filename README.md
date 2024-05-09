@@ -1,4 +1,4 @@
-# <img src="src\static\fountain_pen.png" alt="Example Image" width="25"> AutoExpress
+# <img autoexpress="autoexpress\static\fountain_pen.png" alt="Example Image" width="25"> AutoExpress
 
 
 Automatically creates 28 different expressions from a given image using [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui). The application uses Inpainting with [After Detailer Extension](https://github.com/Bing-su/adetailer) to inpaint the following expressions on the face:
@@ -18,23 +18,23 @@ Automatically creates 28 different expressions from a given image using [Automat
 
 ### Anime
 
-![Anime Image Grid](src/resources/images/anime_grid.png)
+![Anime Image Grid](autoexpress/resources/images/anime_grid.png)
 
 The above is an example anime expressions on the following image without cherry picking results.
 
 <div style="text-align:center">
-    <img src="src\resources\images\anime_input.png" alt="Example Image" width="512">
+    <img autoexpress="autoexpress\resources\images\anime_input.png" alt="Example Image" width="512">
 </div>
 
 
 ### Realistic
 
-![Realistic Grid](src/resources/images/realistic_grid.png)
+![Realistic Grid](autoexpress/resources/images/realistic_grid.png)
 
 The above is an example realistic expressions on the following image without cherry picking results.
 
 <div style="text-align:center">
-    <img src="src\resources\images\realistic_input.png" alt="Example Image" height="512">
+    <img autoexpress="autoexpress\resources\images\realistic_input.png" alt="Example Image" height="512">
 </div>
 
 
@@ -65,12 +65,12 @@ python3 -m venv .venv
 
 - Install Requirements
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 - Launch App
 ```bash
-python app.py
+flask --app autoexpress run
 ```
 
 - Launch A1111 Stable Diffusion WebUI Api
@@ -81,7 +81,7 @@ python app.py
 [http://127.0.0.1:5000](http:127.0.0.1:5000)
 
 ## Usage
-![UI Description](src/resources/images/UI.png)
+![UI Description](autoexpress/resources/images/UI.png)
 
 It's pretty Straight forward. Keep an eye on the logs in the console. Dropping an image will auto populate all attributes in the UI if the image has Stable Diffusion info text. Only supports A1111 WebUI API for now. 
 
@@ -98,7 +98,3 @@ PS: This is a very handy tool to use with[Silly Tavern](https://github.com/Silly
 # Special Thanks
 [SD Parsers by d3x-at](https://github.com/d3x-at/sd-parsers)
 [SD API Examples](https://github.com/AUTOMATIC1111/stable-diffusion-webui/discussions/3734)
-
-
-
-
