@@ -1,6 +1,6 @@
 <h1> <img src="autoexpress\static\ico\favicon-rounded.png" alt="Favicon" width="25px"> AutoExpress</h1>
 
-## Introduction
+# Introduction
 Automatically creates 28 different expressions from a given image using [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui). The application uses Inpainting with [After Detailer Extension](https://github.com/Bing-su/adetailer) to inpaint the following expressions on the face:
 
 <p align="center">
@@ -18,36 +18,48 @@ Automatically creates 28 different expressions from a given image using [Automat
 </p>
 
 
-## Examples
+# Examples
 
 ### Anime
 
 ![Anime Image Grid](autoexpress/resources/images/anime_grid.png)
-
+<p align="center">
+Anime Image Emotion Grid
+</p>
 The above is an example anime expressions on the following image without cherry picking results.
 
 <div style="text-align:center">
-    <img autoexpress="autoexpress\resources\images\anime_input.png" alt="Anime Input Image" width="512">
+    <figure>
+        <img src="autoexpress\resources\images\anime_input.png" alt="Realistic Input Image" width="512">
+        <figcaption>Anime input image</figcaption>
+    </figure>
 </div>
 
 
 ### Realistic
 
 ![Realistic Grid](autoexpress/resources/images/realistic_grid.png)
+<p align="center">
+Realistic Image Emotion Grid
+</p>
 
 The above is an example realistic expressions on the following image without cherry picking results.
 
 <div style="text-align:center">
-    <img autoexpress="autoexpress\resources\images\realistic_input.png" alt="Realistic Input Image" height="512">
+    <figure>
+        <img src="autoexpress\resources\images\realistic_input.png" alt="Realistic Input Image" height="512">
+        <figcaption>Realistic input image</figcaption>
+    </figure>
 </div>
 
+---
 
-## Requirements
+# Requirements
 - [Python3](https://www.python.org/downloads/)
 - [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
 - [After Detailer Extension](https://github.com/Bing-su/adetailer)
 
-## Installation
+# Installation
 
 - Clone Github Repo  
 ```bash
@@ -84,15 +96,15 @@ flask --app autoexpress run
 - Connect to the UI at
 [http://127.0.0.1:5000](http:127.0.0.1:5000)
 
-## Usage
+# Usage
 ![UI Description](autoexpress/resources/images/UI.png)
 
 It's pretty Straight forward. Keep an eye on the logs in the console. Dropping an image will auto populate all attributes in the UI if the image has Stable Diffusion info text. Only supports A1111 WebUI API for now. 
 
-PS: This is a very handy tool to use with[Silly Tavern](https://github.com/SillyTavern/SillyTavern) to **generate character expressions sprites** for any bot.
+PS: This is a very handy tool to use with [Silly Tavern](https://github.com/SillyTavern/SillyTavern) to **generate character expressions sprites** for any bot.
 
 
-## Future Work (Need contributers)
+# Future Work (Need contributers)
 - Change pose along with expression keeping consistent clothes and background. (Probably via Controlnets and ADetailer)
 - Better Expressions for Realistic Images.
 - Support for Comfy UI, Next, etc.
