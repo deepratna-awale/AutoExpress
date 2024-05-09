@@ -119,4 +119,5 @@ PS: This is a very handy tool to use with [Silly Tavern](https://github.com/Sill
 
 # Special Thanks
 [SD Parsers by d3x-at](https://github.com/d3x-at/sd-parsers)
+
 [SD API Examples](https://github.com/AUTOMATIC1111/stable-diffusion-webui/discussions/3734)
