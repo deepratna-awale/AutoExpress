@@ -1,6 +1,10 @@
+# Introduction
+
 <img src="autoexpress\static\ico\favicon-rounded.png" alt="Favicon" width="25px">&nbsp;&nbsp;&nbsp;&nbsp;<h1>AutoExpress</h1>
 
 Automatically creates 28 different expressions from a given image using [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui). The application uses Inpainting with [After Detailer Extension](https://github.com/Bing-su/adetailer) to inpaint the following expressions on the face:
+
+
 
 | Emotion       | Emotion        | Emotion     | Emotion     |
 | ------------- | -------------- | ----------- | ----------- |
@@ -13,7 +17,7 @@ Automatically creates 28 different expressions from a given image using [Automat
 | Relief        | Remorse        | Sadness     | Surprise    |
 
 
-## Examples
+# Examples
 
 ### Anime
 
@@ -22,7 +26,7 @@ Automatically creates 28 different expressions from a given image using [Automat
 The above is an example anime expressions on the following image without cherry picking results.
 
 <div style="text-align:center">
-    <img autoexpress="autoexpress\resources\images\anime_input.png" alt="Example Image" width="512">
+    <img autoexpress="autoexpress/resources/images/anime_input.png" alt="Example Image" width="512">
 </div>
 
 
@@ -33,7 +37,7 @@ The above is an example anime expressions on the following image without cherry 
 The above is an example realistic expressions on the following image without cherry picking results.
 
 <div style="text-align:center">
-    <img autoexpress="autoexpress\resources\images\realistic_input.png" alt="Example Image" height="512">
+    <img autoexpress="autoexpress/resources/images/realistic_input.png" alt="Example Image" height="512">
 </div>
 
 
