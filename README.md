@@ -1,4 +1,4 @@
-<img src="autoexpress\static\ico\favicon.png" alt="Favicon" width="25px" margin-right="20px" border-radius="5px"> #  AutoExpress
+<img src="autoexpress\static\ico\favicon-rounded.png" alt="Favicon" width="25px">&nbsp;&nbsp;&nbsp;&nbsp;<h1>AutoExpress</h1>
 
 Automatically creates 28 different expressions from a given image using [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui). The application uses Inpainting with [After Detailer Extension](https://github.com/Bing-su/adetailer) to inpaint the following expressions on the face:
 
