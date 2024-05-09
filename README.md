@@ -22,10 +22,14 @@ Automatically creates 28 different expressions from a given image using [Automat
 
 ### Anime
 
-![Anime Image Grid](autoexpress/resources/images/anime_grid.png)
-<p align="center">
-Anime Image Emotion Grid
-</p>
+<div style="text-align:center">
+    <figure>
+        <img src ="autoexpress/resources/images/anime_grid.png" alt="Anime Image Grid" width="100%">
+        <figcaption>Anime Image Emotion Grid</figcaption>
+    </figure>
+</div>
+
+
 The above is an example anime expressions on the following image without cherry picking results.
 
 <div style="text-align:center">
@@ -38,10 +42,12 @@ The above is an example anime expressions on the following image without cherry 
 
 ### Realistic
 
-![Realistic Grid](autoexpress/resources/images/realistic_grid.png)
-<p align="center">
-Realistic Image Emotion Grid
-</p>
+<div style="text-align:center">
+    <figure>
+        <img src ="autoexpress/resources/images/realistic_grid.png" alt="Realistic Image Grid" width="100%">
+        <figcaption>Realistic Image Emotion Grid</figcaption>
+    </figure>
+</div>
 
 The above is an example realistic expressions on the following image without cherry picking results.
 
