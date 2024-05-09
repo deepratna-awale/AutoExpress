@@ -30,7 +30,7 @@ The above is an example anime expressions on the following image without cherry 
 
 <div style="text-align:center">
     <figure>
-        <img src="autoexpress\resources\images\anime_input.png" alt="Realistic Input Image" width="512">
+        <img src="autoexpress\resources\images\anime_input.png" alt="Realistic Input Image" width="100%">
         <figcaption>Anime input image</figcaption>
     </figure>
 </div>
@@ -47,7 +47,7 @@ The above is an example realistic expressions on the following image without che
 
 <div style="text-align:center">
     <figure>
-        <img src="autoexpress\resources\images\realistic_input.png" alt="Realistic Input Image" height="512">
+        <img src="autoexpress\resources\images\realistic_input.png" alt="Realistic Input Image" width="100%">
         <figcaption>Realistic input image</figcaption>
     </figure>
 </div>
