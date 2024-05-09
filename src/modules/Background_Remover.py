@@ -3,6 +3,9 @@ from PIL import Image, ImageFilter
 from pathlib import Path
 import io
 from glob import glob
+from .logger import setup_logging
+
+log = setup_logging()
 
 global files_processed
 files_processed = None
@@ -39,16 +42,16 @@ def batch_process_images(input_dir, output_dir):
     # Process each image in the input directory
     images = list(input_dir_path.glob("*.png")) + list(input_dir_path.glob("*.jpg"))
     if images:
-        print("Found the following images: ", [img.stem for img in images])
+        log("Found the following images: ", [img.stem for img in images])
         files_processed = len(images)
         for image_path in images:
             output_image_path = output_dir_path / image_path.name
-            print(f"Processing {image_path}...")
+            log(f"Processing {image_path}...")
             remove_background_and_feather(image_path, output_image_path)
-            print(f"Saved to {output_image_path}")
+            log(f"Saved to {output_image_path}")
         return files_processed
     else:
-        print("No Images in this Directory")
+        log("No Images in this Directory")
         return None
 
 

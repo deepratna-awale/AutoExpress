@@ -1,10 +1,10 @@
 # Read Image Data using sd_parsers
 from sd_parsers import ParserManager
-from modules import logger
+from .logger import setup_logging
+
 
 # Setup logging as per logger.py configuration
-logger.setup_logging()
-log = logger.logging.getLogger(__name__)
+log = setup_logging()
 
 def get_parsed_data(file_path):
     parser_manager = ParserManager()
@@ -122,7 +122,7 @@ def main():
     metadata = get_metadata(parsed_data)
 
     log.info("Acquired Metadata.")
-    print(metadata)
+    log(metadata)
 
 if __name__ == "__main__":
 

@@ -219,6 +219,7 @@ textarea:focus {
 
 h1{
     font-family: "Quicksand", sans-serif;
+    color:white;
     text-align: center;
     margin:10px;
     padding: 10px;
@@ -347,3 +348,4 @@ h1{
     color:white;
     background-color:#222222;
 }
+

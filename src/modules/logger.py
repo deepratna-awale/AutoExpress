@@ -36,29 +36,30 @@ class NoColorFormatter(logging.Formatter):
 
 
 def setup_logging():
-    rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.INFO)
-    rootLogger.propagate = False
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:  # Ensure handlers are added only once
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
 
-    fileLogFormat = "%(asctime)s [%(levelname)-7.7s]  %(message)s"
-    dateFormat = "%Y/%m/%d %H:%M:%S"
-    fileLogFormatter = NoColorFormatter(fileLogFormat, dateFormat)
+        fileLogFormat = "%(asctime)s [%(levelname)-7.7s]  %(message)s"
+        dateFormat = "%Y/%m/%d %H:%M:%S"
+        fileLogFormatter = NoColorFormatter(fileLogFormat, dateFormat)
 
-    consoleLogFormat = "[%(name)s] [%(levelname)s]  %(message)s"
-    dateFormat = "%H:%M:%S"
-    consoleLogFormatter = ColorFormatter(consoleLogFormat, dateFormat)
+        consoleLogFormat = "[%(name)s] [%(levelname)s]  %(message)s"
+        dateFormat = "%H:%M:%S"
+        consoleLogFormatter = ColorFormatter(consoleLogFormat, dateFormat)
 
-    log_path = "Output"
-    log_name = "log"
-    log_file_path = pathlib.Path(log_path, f"{log_name}.log")
-    log_file_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path = "Output"
+        log_name = "log"
+        log_file_path = pathlib.Path(log_path, f"{log_name}.log")
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fileHandler = logging.FileHandler(log_file_path)
-    fileHandler.setFormatter(fileLogFormatter)
-    rootLogger.addHandler(fileHandler)
+        fileHandler = logging.FileHandler(log_file_path)
+        fileHandler.setFormatter(fileLogFormatter)
+        logger.addHandler(fileHandler)
 
-    consoleHandler = logging.StreamHandler()
-    consoleHandler.setFormatter(consoleLogFormatter)
-    rootLogger.addHandler(consoleHandler)
+        consoleHandler = logging.StreamHandler()
+        consoleHandler.setFormatter(consoleLogFormatter)
+        logger.addHandler(consoleHandler)
 
-    return rootLogger
+    return logger

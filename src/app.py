@@ -2,19 +2,21 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from werkzeug.utils import secure_filename
 import os
 import pathlib
-from modules import image_parser
+from modules import (
+    image_parser,
+)  # Adjust if specific functions/classes need to be imported
 from modules import a1111_api as sd
-from modules import logger 
+from modules.logger import setup_logging
+from modules import auto_express
 import requests
 import re
-import json
 from termcolor import colored
 
+
 # Setup logging as per logger.py configuration
-log = logger.setup_logging()
+log = setup_logging()
 
 app = Flask(__name__)
-
 
 uploaded = False
 filepath = None
@@ -35,7 +37,6 @@ def index():
 def get_models():
     # Simulate fetching models from an API
     try:
-        log.info(sd.url)
         models = sd.get_models()
     except requests.exceptions.ConnectionError:
         models = []
@@ -78,7 +79,6 @@ def upload_file():
         file.save(filepath)
 
         params = generate_parameters(filepath)
-        log.info(params)
 
         return (
             jsonify(params),
@@ -107,26 +107,27 @@ def get_lora_from_prompt(text):
 def generate_parameters(image_path):
     parser_manager = image_parser.ParserManager()
     parsed_data = parser_manager.parse(image_path)
-    
-    lora = get_lora_from_prompt(image_parser.get_prompt(parsed_data))[0]
-    
+    prompt = image_parser.get_prompt(parsed_data)
+    if prompt not in ['']:
+        lora = get_lora_from_prompt()[0]
+
     if not parsed_data:
         return None
 
     meta_data = get_image_parameters(image_path)
     params = {
-        "prompt": image_parser.get_prompt(parsed_data),
-        "negative_prompt": image_parser.get_negative_prompt(parsed_data),
-        "model": image_parser.get_model(meta_data),
-        "sampler": image_parser.get_sampler(meta_data),
-        "lora": image_parser.get_lora(meta_data)
-        or lora[0],
-        "clip_skip": "2",
         "seed": image_parser.get_seed(meta_data),
-        "width": image_parser.get_width(meta_data),
-        "height": image_parser.get_height(meta_data),
-        "cfg_scale": image_parser.get_cfg_scale(meta_data),
-        "denoising_strength": "0.5",
+        "lora": image_parser.get_lora(meta_data) or lora[0],
+
+        "ad_prompt": image_parser.get_prompt(parsed_data),
+        "ad_negative_prompt": image_parser.get_negative_prompt(parsed_data),
+        "ad_checkpoint": image_parser.get_model(meta_data),
+        "ad_sampler": image_parser.get_sampler(meta_data),
+        "ad_clip_skip": "2",
+        "ad_inpaint_width": image_parser.get_width(meta_data),
+        "ad_inpaint_height": image_parser.get_height(meta_data),
+        "ad_cfg_scale": image_parser.get_cfg_scale(meta_data),
+        "ad_denoising_strength": "0.5",
     }
     return params
 
@@ -145,17 +146,19 @@ def receive_data():
     data = request.json
     url = data["text"]
     
-    if url not in [''] and url[-1] not in ["/"]:
-        url += "/"
+    if url not in [''] and url[-1] in ["/"]:
+        url = url[:-1]
 
     if url in ['']:
-        sd.url = "http://127.0.0.1:7860/"
+        sd.url = "http://127.0.0.1:7860"
+
     elif 'http' in url:
         sd.url = url
+        
     else:
-        sd.url = "http://" + url + "/"
+        sd.url = "http://" + url
 
-    log.info("SD URL set to: " + sd.url)  # Print or process the data as needed
+    log.info("SD URL set to: " + sd.url)
     
     return jsonify({"status": "success"})
 
@@ -164,34 +167,46 @@ def receive_data():
 def generate():
     data = request.json
 
-    matches = get_lora_from_prompt(data["prompt"])
+    adetailer_exists = sd.is_extension()
     
-    if not matches:
-        data["prompt"] += f" <lora: {data['lora']}: 0.8>"
+    if not adetailer_exists:
+        return
     
-    img_str = data["init_images"]
+    matches = get_lora_from_prompt(data.get("ad_prompt"))
+    img_str = data.get("init_images")
     
+    output_dir = data.get("output_dir") or "New_Character"
+
+    if not matches and data.get('lora') not in ['']:
+        data["ad_prompt"] += f" <lora: {data.get('lora')}: 0.8>"
+
+
+    data.pop("output_dir")
     data.pop("lora")
     data.pop("init_images")
+
+    log.info(colored("Using the following generation parameters:\n", "cyan") + str(data))
+
+    try:
+        auto_express.generate_expressions(
+            image_str=img_str, 
+            output_path=f"Output/{output_dir}", 
+            settings=data
+        )
+    except KeyboardInterrupt:
+        sd.interrupt()
     
-    log.info(colored("Using the following generation parameters:\n", "cyan") + colored(str(data), "green"))
-    sd.generate_expressions(
-        image_str=img_str, 
-        output_path="Output/Hina", 
-        settings=data
-    )
     # Process data here, e.g., generate text based on the model and prompt
     return jsonify({"status": "success", "message": "Data processed successfully"})
 
 
 def get_lora_from_prompt(text):
-
+    if not text:
+        return []
     # Regular expression pattern to find text and strength
     pattern = r"<lora:(.*?):(.*?)>"
-
     # Find all matches
     matches = re.findall(pattern, text)
-
     return matches
 
 
@@ -199,7 +214,7 @@ def get_lora_from_prompt(text):
 def list_images(subpath):
     root = pathlib.Path(app.root_path).parent
     directory = os.path.join(root, "Output", subpath)
-    print("Attempting to list images from:", directory)  # Debugging statement
+    log("Attempting to list images from:", directory)  # Debugging statement
     try:
         files = [
             f
@@ -208,7 +223,7 @@ def list_images(subpath):
         ]
         return jsonify(files)
     except FileNotFoundError:
-        print("Directory not found:", directory)  # Debugging statement
+        log("Directory not found:", directory)  # Debugging statement
         return jsonify({"error": "Directory not found"}), 404
 
 

@@ -1,4 +1,6 @@
-document.querySelector('.sd-connect').addEventListener('click', function () {
+let image_data = null;
+
+document.querySelector('.sd-connect').addEventListener('click', function () {;
     var inputText = document.querySelector('#ip-input').value;  // Get the input value
     var button = this;
 
@@ -17,6 +19,7 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
             }
         }
     };
+
     var data = JSON.stringify({ text: inputText });
     xhr.send(data);
 
@@ -31,6 +34,12 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
         if (models.length === 0) {
             button.style.backgroundColor = 'red';  // Set button background to red
         }
+
+        // Create 1 blank option
+        const option = document.createElement('option');
+        option.value = "";
+        option.textContent = "";
+        dropdown.appendChild(option);
         
         // Populate dropdown with new data
         models.forEach(model => {
@@ -69,11 +78,17 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
         .then(response => response.json())
         .then(models => {
             handleEmptyData(models, 'lora-input');
+            if (image_data != null){
+                document.getElementById('lora-input').value = image_data.lora;
+                document.getElementById('model-input').value = image_data.ad_checkpoint;
+                document.getElementById('sampler-input').value = image_data.ad_sampler;
+            }
         })
         .catch(error => {
             console.error('Error loading models:', error);
             button.style.backgroundColor = 'red';  // Set button background to red
         });
+    
 });
 
 
@@ -156,6 +171,7 @@ function uploadImage(file) {
         .then(response => response.json())
         .then(data => {
             console.log('Upload successful. Recieved metadata for the image:', data)
+            image_data = data;
             updateUI(data);
         })
         .catch(error => console.error('Error uploading file:', error));
@@ -163,17 +179,18 @@ function uploadImage(file) {
 
 
 function updateUI(data){
-    document.getElementById('prompt').value = data.prompt;
-    document.getElementById('negative_prompt').value = data.negative_prompt;
-    document.getElementById('model-input').value = data.model;
     document.getElementById('lora-input').value = data.lora;
-    document.getElementById('sampler-input').value = data.sampler;
     document.getElementById('seed-input').value = data.seed;
-    document.getElementById('clip-skip-input').value = data.clip_skip;
-    document.getElementById('width-input').value = data.width;
-    document.getElementById('height-input').value = data.height;
-    document.getElementById('cfg-scale-input').value = data.cfg_scale;
-    document.getElementById('denoising-strength-input').value = data.denoising_strength;
+
+    document.getElementById('prompt').value = data.ad_prompt;
+    document.getElementById('negative_prompt').value = data.ad_negative_prompt;
+    document.getElementById('model-input').value = data.ad_checkpoint;
+    document.getElementById('sampler-input').value = data.ad_sampler;
+    document.getElementById('clip-skip-input').value = data.ad_clip_skip;
+    document.getElementById('width-input').value = data.ad_inpaint_width;
+    document.getElementById('height-input').value = data.ad_inpaint_height;
+    document.getElementById('cfg-scale-input').value = data.ad_cfg_scale;
+    document.getElementById('denoising-strength-input').value = data.ad_denoising_strength;
 
 }
 
@@ -213,16 +230,17 @@ document.querySelector('.generate-button').addEventListener('click', function ()
 
     var data = JSON.stringify({
         init_images: thumbnailSrc,
-        prompt: document.getElementById('prompt').value,
-        negative_prompt: document.getElementById('negative_prompt').value,
-        steps: document.getElementById('steps-input').value,
+        output_dir:document.getElementById('output-directory').value,
+        ad_inpaint_width: document.getElementById('width-input').value,
+        ad_inpaint_height: document.getElementById('height-input').value,
         lora: document.getElementById('lora-input').value,
+        seed: document.getElementById('seed-input').value,
+        ad_prompt: document.getElementById('prompt').value,
+        ad_negative_prompt: document.getElementById('negative_prompt').value,
+        ad_steps: document.getElementById('steps-input').value,
         ad_checkpoint: document.getElementById('model-input').value,
         ad_sampler: document.getElementById('sampler-input').value,
-        seed: document.getElementById('seed-input').value,
         ad_clip_skip: document.getElementById('clip-skip-input').value,
-        width: document.getElementById('width-input').value,
-        height: document.getElementById('height-input').value,
         ad_cfg_scale: document.getElementById('cfg-scale-input').value,
         ad_denoising_strength: document.getElementById('denoising-strength-input').value,
     });
