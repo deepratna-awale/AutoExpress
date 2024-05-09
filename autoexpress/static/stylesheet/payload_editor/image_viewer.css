@@ -1,0 +1,84 @@
+.output-container {
+    height: 100vh;
+}
+
+.output-directory {
+    font-family: "Quicksand", sans-serif;
+    width: 50vh;
+    height: 30px;
+    background-color: #222222;
+    color: #ffffff;
+    border: 1px solid #33a2f6;
+    border-radius: 4px;
+    font-size: 16px;
+    resize: vertical;
+    transition: box-shadow 0.3s ease-in-out;
+    margin-left: 20px;
+    margin-right: 10px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+
+.display-container {
+    display: flex;
+    position: relative;
+    width: 100%;
+    /* Ensures the container takes the full width of its parent */
+    height: 90vh;
+    /* Adjust the container height as needed */
+    display: flex;
+    /* Using Flexbox to center the image */
+    align-items: center;
+    /* Centers the image vertically */
+    justify-content: center;
+    /* Centers the image horizontally */
+    text-align: center;
+    flex-direction: column;
+}
+
+
+.nav-button {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    font-size: 24px;
+    color: white;
+    background-color: rgba(0, 0, 0, 0.5);
+    /* Semi-transparent black */
+    border: none;
+    padding: 10px;
+    /* user-select: none; */
+}
+
+.nav-left {
+    left: 0;
+}
+
+.nav-right {
+    right: 0;
+}
+
+
+.load-images {
+    color: white;
+    background-color: #222222;
+}
+
+#image-display {
+    width: auto;
+    height: 80vh;
+    display: block;
+}
+
+#image-name {
+    font-family: "Quicksand", sans-serif;
+    color: #ffffff;
+    background-color: #222222;
+    /* Color for the text */
+    font-size: 16px;
+    /* Size of the text */
+    margin-top: 8px;
+    /* Space above the text */
+}

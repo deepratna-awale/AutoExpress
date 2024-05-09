@@ -1,0 +1,53 @@
+.sidebar {
+    flex: 2;
+    padding: 20px;
+    margin-left: 10px;
+    margin-right: 10px;
+    max-width: 50vh;
+    background-color: #373737;
+    color: white;
+}
+
+.input-container {
+    padding-top: 10px;
+    color: #ffffff;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+
+}
+
+.sd-connect:click {
+    background-color: #373737;
+}
+
+#ip-input {
+    font-family: "Quicksand", sans-serif;
+    color: rgb(101, 222, 101);
+    background-color: #222222;
+    width: 50%;
+    outline: none;
+    border: none;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-left: 10px;
+    margin-right: 10px;
+}
+
+.material-symbols-outlined {
+    width: 40px;
+    height: 30px;
+    border-radius: 10px;
+    border: none;
+
+    font-variation-settings:
+        'FILL' 0,
+        'wght' 400,
+        'GRAD' 0,
+        'opsz' 24
+}
+
+.material-symbols-outlined:hover {
+    color: white;
+    background-color: rgb(119, 214, 119);
+}
