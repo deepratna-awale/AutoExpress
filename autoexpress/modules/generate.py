@@ -28,7 +28,8 @@ def generate_expressions(
     if is_realistic:
         log.info("Using clip prompts since realistic is set to true.")
         expressions = json_handler.get_clip_expression_list()
-    expressions = json_handler.get_expression_list()
+    else:
+        expressions = json_handler.get_expression_list()
 
     log.info(f"Output Directory: {colored(str(output_path.absolute()), 'cyan')}")
 
