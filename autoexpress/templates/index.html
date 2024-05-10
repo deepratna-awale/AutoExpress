@@ -5,18 +5,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payload Editor</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/payload_editor/main.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/payload_editor/sidebar.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/payload_editor/image_and_prompt.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/payload_editor/image_viewer.css') }}">
-    <link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/sidebar.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/image_and_prompt.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/image_viewer.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/toggle.css') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon-rounded.png') }}">
     <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
 
 </head>
 
 <body>
-    <h1><img src="{{ url_for('static', filename='ico/favicon.png') }}" alt="Logo" class="logo-on-page">AutoExpress</h1>
+    <h1><img src="{{ url_for('static', filename='ico/favicon-rounded.png') }}" alt="Logo" class="logo-on-page">AutoExpress</h1>
       
     <div class="container">
         <!-- Sidebar -->
@@ -109,6 +110,16 @@
                 <input type="number" id="denoising-strength-input" name="denoising-strength-input" min="0" value="0.5"
                     oninput="updateSlider('denoising-strength')">
             </div>
+
+            <div class="anime-realistic-switcher">
+                <label>Anime</label>
+                <label class="switch">
+                    <input type="checkbox" id="toggleButton">
+                    <span class="slider round"></span>
+                </label>
+                <label>Realistic</label>
+            </div>
+    
         </div>
         <!-- End of Sidebar -->
 
@@ -142,11 +153,12 @@
         </div>
     </div>
         
-    <script src="{{ url_for('static', filename='js/payload_editor/main.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/payload_editor/connect.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/payload_editor/image_drag_and_drop.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/payload_editor/generate.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/payload_editor/image_viewer.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/connect.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/image_drag_and_drop.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/generate.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/image_viewer.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/anime_toggle.js') }}"></script>
 
 </body>
 

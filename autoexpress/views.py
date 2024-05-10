@@ -21,6 +21,7 @@ autoexpress = Flask(__name__)
 
 uploaded = False
 filepath = None
+is_realistic = False
 
 # Assuming you want to save uploaded files in a folder called 'uploads'
 UPLOAD_FOLDER = "uploads"
@@ -81,15 +82,12 @@ def upload_file():
         filepath = os.path.join(autoexpress.config["UPLOAD_FOLDER"], filename)
         file.save(filepath)
 
-        # Remove the oldest files if the total number exceeds MAX_FILES
-        files = sorted(os.listdir(autoexpress.config["UPLOAD_FOLDER"]), key=os.path.getctime)
-        if len(files) > MAX_FILES:
-            for i in range(len(files) - MAX_FILES):
-                os.remove(os.path.join(autoexpress.config["UPLOAD_FOLDER"], files[i]))
-
         params = generate_parameters(filepath)
 
-        return jsonify(params), 200
+        return (
+            jsonify(params),
+            200,
+        )
 
 
 def allowed_file(filename):
@@ -197,7 +195,7 @@ def generate():
 
     try:
         generate.generate_expressions(
-            image_str=img_str, output_path=f"Output/{output_dir}", settings=data
+            image_str=img_str, output_path=f"Output/{output_dir}", settings=data, is_realistic= is_realistic
         )
     except KeyboardInterrupt:
         sd.interrupt()
@@ -238,3 +236,14 @@ def get_image(filename):
     """Endpoint to serve images from the entire 'Output' directory."""
     root_path = pathlib.Path(autoexpress.root_path).parent
     return send_from_directory(os.path.join(root_path, "Output"), filename)
+
+
+@autoexpress.route("/toggle", methods=["POST"])
+def handle_toggle():
+    data = request.get_json()
+    is_realistic = data.get("isRealistic")
+    
+    # Process the data (e.g., save to a database, perform an action, etc.)
+    # You can customize this part based on your requirements
+
+    return jsonify({"message": "Data received successfully"})

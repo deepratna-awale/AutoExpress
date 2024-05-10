@@ -26,7 +26,7 @@ def load_images_from_directory(directory):
 
 def main():
     input_dir = r"D:\Workspace\AI\stable-diffusion-webui\outputs\img2img-images\2024-05-09"
-    output_file = r"src\resources\anime_grid.png"
+    output_file = r"autoexpress\resources\anime_grid.png"
     rows,cols = 4, 7
 
     labels = get_expression_list().keys()

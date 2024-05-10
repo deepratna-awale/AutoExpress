@@ -5,21 +5,21 @@ from .logger import setup_logging
 log = setup_logging()
 
 def get_opaque_payload():
-    with open(r"src\resources\empty_bg.json", "r") as payload_file:
+    with open(r"autoexpress\resources\empty_bg.json", "r") as payload_file:
         return json.load(payload_file)
 
 def get_expression_list():
-    with open(r"src\resources\expressions.json", "r") as exp_file:
+    with open(r"autoexpress\resources\expressions.json", "r") as exp_file:
         return json.load(exp_file)
 
 
 def get_clip_expression_list():
-    with open(r"src\resources\clip_expressions.json", "r") as exp_file:
+    with open(r"autoexpress\resources\clip_expressions.json", "r") as exp_file:
         return json.load(exp_file)
 
 
 def get_img2img_payload():
-    with open(r"src\resources\payload.json", "r") as payload_file:
+    with open(r"autoexpress\resources\payload.json", "r") as payload_file:
         return json.load(payload_file)
 
 def update_nested_key(data, key_to_update, new_value):
@@ -96,4 +96,3 @@ def edit_payload_body(b64_image_str: str, payload, settings=None, expression_tag
 if __name__ == "__main__":
     expression = get_expression_list()
     print(expression.keys())
-    

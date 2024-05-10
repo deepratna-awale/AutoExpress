@@ -17,13 +17,17 @@ def generate_expressions(
     settings: dict,
     image_str: str = None,
     input_image_path: str = None,
+    is_realistic: bool = False
 ):
 
     image_str = utils.is_image_valid(input_image_path, image_str)
 
     output_path = pathlib.Path(output_path)
     pathlib.Path(output_path).mkdir(parents=True, exist_ok=True)
-
+    
+    if is_realistic:
+        log.info("Using clip prompts since realistic is set to true.")
+        expressions = json_handler.get_clip_expression_list()
     expressions = json_handler.get_expression_list()
 
     log.info(f"Output Directory: {colored(str(output_path.absolute()), 'cyan')}")
