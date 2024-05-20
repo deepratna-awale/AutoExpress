@@ -175,7 +175,7 @@ def generate():
     adetailer_exists = sd.is_extension()
 
     if not adetailer_exists:
-        return
+        return jsonify({"status": "Failed", "message": "Could not find adetailer"})
 
     matches = get_lora_from_prompt(data.get("ad_prompt"))
     img_str = data.get("init_images")

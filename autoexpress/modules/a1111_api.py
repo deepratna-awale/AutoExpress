@@ -63,7 +63,8 @@ def get_extensions():
 def is_extension(ext="adetailer"):
 
     extensions = get_extensions()
-
+    log.debug(f"Found following extensions: {extensions}")
+    
     if ext in extensions:
         log.info(f"Found {ext} extension.")
 
