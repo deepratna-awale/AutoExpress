@@ -8,7 +8,7 @@ from autoexpress.modules import (
 )  # Adjust if specific functions/classes need to be imported
 from autoexpress.modules import a1111_api as sd
 from autoexpress.modules.logger import setup_logging
-from autoexpress.modules import generate
+from autoexpress.modules import generate as expression_generator
 import requests
 import re
 from termcolor import colored
@@ -194,8 +194,11 @@ def generate():
     )
 
     try:
-        generate.generate_expressions(
-            image_str=img_str, output_path=f"Output/{output_dir}", settings=data, is_realistic= is_realistic
+        expression_generator.generate_expressions(
+            image_str=img_str,
+            output_path=f"Output/{output_dir}",
+            settings=data,
+            is_realistic=is_realistic,
         )
     except KeyboardInterrupt:
         sd.interrupt()
