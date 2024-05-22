@@ -48,7 +48,7 @@ dependencies = [
     "pywin32==306",
     "referencing==0.32.0",
     "rembg==2.0.53",
-    "requests==2.31.0",
+    "requests==2.32.2",
     "rpds-py==0.16.2",
     "scikit-image==0.22.0",
     "scipy==1.11.4",
