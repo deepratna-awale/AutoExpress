@@ -1,5 +1,5 @@
 # Read Image Data using sd_parsers
-from sd_parsers import ParserManager
+from sdparsers import ParserManager
 from .logger import setup_logging
 
 

@@ -87,7 +87,7 @@ python3 -m venv .venv
 
 - Install Requirements
 ```bash
-pip install -e .
+pip install -r reqiurements.txt
 ```
 
 - Launch App
