@@ -3,7 +3,7 @@
 # Introduction
 Automatically creates 28 different expressions from a given image using [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui). The application uses Inpainting with [After Detailer Extension](https://github.com/Bing-su/adetailer) to inpaint the following expressions on the face:
 
-### [Change Log]("Changelog.md")
+### For the latest changes, goto: [Change Log](Changelog.md)
 
 <p align="center">
 
