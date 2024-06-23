@@ -6,7 +6,6 @@ import io
 import base64
 import pathlib
 
-from termcolor import colored
 from PIL import Image, PngImagePlugin
 
 def generate_expressions(
@@ -28,11 +27,11 @@ def generate_expressions(
     else:
         expressions = json_handler.get_expression_list()
 
-    log.info(f"Output Directory: {colored(str(output_path.absolute()), 'cyan')}")
+    log.info(f"Output Directory: {output_path.absolute()}")
 
     for expression_name, tags in expressions.items():
         log.info(
-            f"Generating image for {colored(expression_name, 'green')} expression."
+            f"Generating image for {expression_name} expression."
         )
 
         default_request_body = json_handler.get_img2img_payload()
@@ -51,9 +50,9 @@ def generate_expressions(
         r = response.json()
         image = Image.open(io.BytesIO(base64.b64decode(r["images"][0])))
         image.save(output_image_path)
-        log.info(colored("Done.", "green"))
+        log.info("Done.")
 
-    log.info(colored(f"Generated all Expressions in {output_path.absolute()}", "green"))
+    log.info(f"Generated all Expressions in {output_path.absolute()}")
 
 
 def opaque(input_image_path, image_str, output_path, settings=None):
@@ -87,10 +86,7 @@ def opaque(input_image_path, image_str, output_path, settings=None):
     log.info(f"Image Saved")
 
     log.info(
-        colored(
-            f"Enforced an opaque background on image. Temp file at {output_image_path.absolute()}",
-            "yellow",
-        )
+            f"Enforced an opaque background on image. Temp file at {output_image_path.absolute()}"
     )
 
     return (output_image_path, gen_info)

@@ -74,7 +74,6 @@ smmap==5.0.1
 soupsieve==2.5
 st-annotated-text==4.0.1
 st-theme==1.2.3
-streamlit==1.35.0
 streamlit-camera-input-live==0.2.0
 streamlit-card==1.0.2
 streamlit-embedcode==0.1.2
@@ -87,7 +86,6 @@ streamlit-vertical-slider==2.5.5
 streamlit_carousel==1.0.0
 sympy==1.12
 tenacity==8.4.1
-termcolor==2.4.0
 tifffile==2024.5.10
 toml==0.10.2
 toolz==0.12.1
