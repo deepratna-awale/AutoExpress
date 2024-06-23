@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html id="bg" lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payload Editor</title>
+    <title>Auto Express UI</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/main.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/sidebar.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/image_and_prompt.css') }}">
@@ -17,8 +17,8 @@
 </head>
 
 <body>
-    <h1><img src="{{ url_for('static', filename='ico/favicon-rounded.png') }}" alt="Logo" class="logo-on-page">AutoExpress</h1>
-      
+    <!-- <h1><img src="{{ url_for('static', filename='ico/favicon-rounded.png') }}" alt="Logo" class="logo-on-page">AutoExpress</h1> -->
+    
     <div class="container">
         <!-- Sidebar -->
         <div class="sidebar">
@@ -125,7 +125,13 @@
 
         <div class = image_and_prompt_creator>
             <div class="drop-zone">
-                <span class="drop-zone__prompt">Drop file here or click to upload</span>
+                <div class="drop-zone-prompt">
+                    <svg xmlns="http://www.w3.org/2000/svg" height="48px" viewBox="0 -960 960 960" width="48px" fill="#e8eaed">
+                        <path
+                            d="M450-313v-371L330-564l-43-43 193-193 193 193-43 43-120-120v371h-60ZM220-160q-24 0-42-18t-18-42v-143h60v143h520v-143h60v143q0 24-18 42t-42 18H220Z" />
+                    </svg>
+                    <span class="drop-zone__prompt">Drop file here or click to upload</span>
+                </div>
                 <input type="file" name="image" class="drop-zone__input">
             </div>
             <div class="input-container">
@@ -135,7 +141,10 @@
                 <textarea type="text" id="negative_prompt" name="negative_prompt" placeholder="Enter your after detailer negative prompt..."></textarea>
             </div>
             <div class="input-container">
-                <button type="submit" class="generate-button">Generate</button>
+                <button type="submit" class="generate-button"><svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed">
+                    <path
+                        d="m480-420 240-160-240-160v320Zm33 220h219q-6 24-24 41.5T664-138L228-85q-33 4-59.5-16T138-154L86-592q-4-33 16.5-59t53.5-30l45-5v80l-36 4 54 438 294-36Zm-152-80q-33 0-56.5-23.5T281-360v-440q0-33 23.5-56.5T361-880h440q33 0 56.5 23.5T881-800v440q0 33-23.5 56.5T801-280H361Zm0-80h440v-440H361v440ZM219-164Zm362-416Z" />
+                </svg>Generate</button>
             </div>
         </div>
 
@@ -145,14 +154,15 @@
                 <button class="material-symbols-outlined load-images" onclick="loadImages()">frame_reload</button>
             </div>
             <div class="display-container">
-                <button class="nav-button nav-left" onclick="navigate(-1)">&#10094;</button> <!-- Left arrow -->
-                <img id="image-display" src="" alt="">
-                <button class="nav-button nav-right" onclick="navigate(1)">&#10095;</button> <!-- Right arrow -->
-                <div id="image-name"></div>
+                <div id="image-and-name">
+                    <img id="image-display" src="" alt="">
+                    <button class="nav-button nav-left" onclick="navigate(-1)">&#10094;</button> <!-- Left arrow -->
+                    <div id="image-name"></div>
+                    <button class="nav-button nav-right" onclick="navigate(1)">&#10095;</button> <!-- Right arrow -->
+                </div>
             </div>
         </div>
     </div>
-        
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/connect.js') }}"></script>
     <script src="{{ url_for('static', filename='js/image_drag_and_drop.js') }}"></script>

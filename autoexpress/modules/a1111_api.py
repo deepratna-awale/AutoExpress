@@ -164,8 +164,7 @@ def get_image_info(b64_image):
     log.error(f"Request failed with code: {response.status_code} {response.json()}")
     return False
 
-
-if __name__ == "__main__":
+def main():
     import utils
     file_path = r"D:\Workspace\AI\stable-diffusion-webui\outputs\txt2img-images\2024-04-15\00018-4139222450.png"
     file_path = pathlib.Path(file_path)
@@ -246,3 +245,8 @@ if __name__ == "__main__":
             pnginfo = PngImagePlugin.PngInfo()
             pnginfo.add_text("parameters", info_response.json().get("info"))
             image.save("Output/output.png", pnginfo=pnginfo)
+
+
+if __name__ == "__main__":
+    main()
+    
