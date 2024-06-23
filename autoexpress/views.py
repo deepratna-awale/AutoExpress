@@ -11,7 +11,6 @@ from loguru import logger as log
 from autoexpress.modules import generate as expression_generator
 import requests
 import re
-from termcolor import colored
 
 
 autoexpress = Flask(__name__)
@@ -187,7 +186,7 @@ def generate():
     data.pop("init_images")
 
     log.info(
-        colored("Using the following generation parameters:\n", "cyan") + str(data)
+        "Using the following generation parameters:\n" + str(data)
     )
 
     try:
