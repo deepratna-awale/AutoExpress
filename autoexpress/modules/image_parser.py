@@ -1,10 +1,6 @@
 # Read Image Data using sd_parsers
 from sdparsers import ParserManager
-from .logger import setup_logging
-
-
-# Setup logging as per logger.py configuration
-log = setup_logging()
+from loguru import logger as log
 
 def get_parsed_data(file_path):
     parser_manager = ParserManager()

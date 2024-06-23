@@ -1,10 +1,9 @@
 import io
 import base64
 from PIL import Image, PngImagePlugin
-from .logger import setup_logging
+from loguru import logger as log
 import pathlib
 
-log = setup_logging()
 
 
 def raw_b64_img(input_image):

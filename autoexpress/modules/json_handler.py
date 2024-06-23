@@ -1,8 +1,5 @@
 import json
-from .logger import setup_logging
-
-
-log = setup_logging()
+from loguru import logger as log
 
 def get_opaque_payload():
     with open(r"autoexpress\resources\empty_bg.json", "r") as payload_file:

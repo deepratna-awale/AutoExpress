@@ -1,6 +1,6 @@
 from . import utils, json_handler
 from . import a1111_api as sd
-from .logger import setup_logging
+from loguru import logger as log
 
 import io
 import base64
@@ -8,9 +8,6 @@ import pathlib
 
 from termcolor import colored
 from PIL import Image, PngImagePlugin
-
-
-log = setup_logging()
 
 def generate_expressions(
     output_path: str,

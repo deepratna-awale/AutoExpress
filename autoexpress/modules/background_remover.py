@@ -3,9 +3,7 @@ from PIL import Image, ImageFilter
 from pathlib import Path
 import io
 from glob import glob
-from .logger import setup_logging
-
-log = setup_logging()
+from loguru import logger as log
 
 global files_processed
 files_processed = None
@@ -42,22 +40,25 @@ def batch_process_images(input_dir, output_dir):
     # Process each image in the input directory
     images = list(input_dir_path.glob("*.png")) + list(input_dir_path.glob("*.jpg"))
     if images:
-        log("Found the following images: ", [img.stem for img in images])
+        log.info("Found the following images: ", [img.stem for img in images])
         files_processed = len(images)
         for image_path in images:
             output_image_path = output_dir_path / image_path.name
-            log(f"Processing {image_path}...")
+            log.info(f"Processing {image_path}...")
             remove_background_and_feather(image_path, output_image_path)
-            log(f"Saved to {output_image_path}")
+            log.info(f"Saved to {output_image_path}")
         return files_processed
     else:
-        log("No Images in this Directory")
+        log.info("No Images in this Directory")
         return None
 
 
-# Usage: Specify your input and output directories
-if __name__ == "__main__":
+def main():
     input_path = input("Enter the directory your images are in: ")
     output_path = input("Output Directory: ")
 
     batch_process_images(input_path, output_path)
+
+# Usage: Specify your input and output directories
+if __name__ == "__main__":
+    main()
