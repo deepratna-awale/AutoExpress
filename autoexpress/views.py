@@ -7,15 +7,12 @@ from autoexpress.modules import (
     image_parser,
 )  # Adjust if specific functions/classes need to be imported
 from autoexpress.modules import a1111_api as sd
-from autoexpress.modules.logger import setup_logging
+from loguru import logger as log
 from autoexpress.modules import generate as expression_generator
 import requests
 import re
 from termcolor import colored
 
-
-# Setup logging as per logger.py configuration
-log = setup_logging()
 
 autoexpress = Flask(__name__)
 

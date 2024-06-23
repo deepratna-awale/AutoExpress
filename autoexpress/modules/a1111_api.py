@@ -2,12 +2,8 @@ import requests
 import io
 import base64
 from PIL import Image, PngImagePlugin
-from .logger import setup_logging
+from loguru import logger as log
 import pathlib
-
-
-# Setup logging as per logger.py configuration
-log = setup_logging()
 
 use_https = False
 if use_https:
@@ -249,4 +245,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
