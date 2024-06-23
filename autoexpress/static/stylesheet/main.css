@@ -1,16 +1,36 @@
-html,
+html {
+    background: linear-gradient(-45deg, #5fe691, #f28e8e, #44c4f3, #ff43bd);
+    background-size: 200% 200%;
+    animation: gradient 120s ease infinite;
+    height: 100vh;
+    overflow: hidden;
+}
+
+@keyframes gradient {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+
 body {
-    height: 100%;
-    /* Ensures the body can expand to the content size */
-    min-height: 100vh;
-    /* Ensures at least full viewport height */
     margin: 0;
     /* Adds padding at the top if needed, could replace margin-top */
     justify-content: center;
     /* Centers content horizontally */
     align-items: center;
     /* Centers content vertically */
-    background: #222222;
+    background-color: rgba(5, 5, 5, 0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     /* Background color */
 }
 
@@ -18,24 +38,34 @@ h1 {
     font-family: "Quicksand", sans-serif;
     color: white;
     text-align: center;
-    margin: 10px;
+    margin: 0px;
     padding: 10px;
 }
+
 
 .container {
     display: flex;
-    height: 90%;
-    width: 90%;
     padding: 10px;
-    margin: 10px;
+    justify-content: space-evenly;
+    height: 100vh;
 }
 
+input[type="number"] {
+    background-color: rgba(5, 5, 5, 0.6);
+    /* Dark grey input background */
+    /* Blue border */
+    color: rgb(255, 255, 255);
+    border: none;
+    border-radius: 10px;
+    /* White text color */
+    font-size: 12px;
+    width: 20%;
+}
 
 /* Input styling */
-input[type="number"],
-input[type="range"],
+
 select {
-    background-color: #444;
+    background-color: rgba(5, 5, 5, 0.6);
     /* Dark grey input background */
     /* Blue border */
     color: white;
@@ -43,16 +73,30 @@ select {
     /* White text color */
     font-size: 14px;
     width: 70%;
+    border-radius: 10px;
+}
+
+select:hover {
+    box-shadow: 0 0 5px #51a1df;
+    border: 1px solid #51a1df;
+    outline: none;
+}
+
+input:hover {
+    box-shadow: 0 0 5px #51a1df;
+    border: 1px solid #51a1df;
+    outline: none;
 }
 
 /* Adjust slider appearance */
 input[type="range"] {
+    background-color: rgba(5, 5, 5, 0.6);
     width: 50%;
-    height: 20px;
+    min-height: 20px;
     margin-left: 10px;
     margin-right: 10px;
     padding-left: 10px;
-    padding-right: 10px ;
+    padding-right: 10px;
 
 }
 
@@ -60,8 +104,8 @@ input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 20px;
-    height: 20px;
-    background: #0074D9;
+    min-height: 20px;
+    background-color: rgba(5, 5, 5, 0.6);
     /* Blue thumb color */
     cursor: pointer;
     margin-left: 10px;
@@ -72,7 +116,8 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Adjust input number appearance */
 input[type="number"] {
-    width: 80px;
+    width: 40%;
+    min-height: 20px;
     margin-left: 10px;
     margin-right: 10px;
     padding-left: 10px;
@@ -80,19 +125,18 @@ input[type="number"] {
 }
 
 input:focus {
-    box-shadow: 0 0 5px #33a2f6;
-    border: 1px solid #33a2f6;
+    box-shadow: 0 0 5px #51a1df;
+    border: 1px solid #51a1df;
     outline: none;
 }
 
 label {
     font-family: "Quicksand", sans-serif;
-    color: #ffffff;
+    color: #e0e0e0;
     font-size: 14px;
-    width: 50px;
-    margin-left: 10px;
+    font-weight: 500;
+    width: 30%;
     margin-right: 10px;
-    padding-left: 10px;
     padding-right: 10px;
 }
 
@@ -102,9 +146,9 @@ textarea {
     height: 70px;
     margin: 10px;
     padding: 10px;
-    background-color: #222222;
-    border: 1px solid #33a2f6;
-    border-radius: 4px;
+    background-color: rgba(5, 5, 5, 0.6);
+    border: none;
+    border-radius: 10px;
     font-size: 16px;
     resize: vertical;
     transition: box-shadow 0.3s ease-in-out;
@@ -116,9 +160,8 @@ textarea:focus {
     outline: none;
 }
 
-.logo-on-page{
+.logo-on-page {
     align-self: center;
-    height:30px;
+    height: 30px;
     margin-right: 20px;
-
 }

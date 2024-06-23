@@ -1,14 +1,29 @@
 .image_and_prompt_creator {
     display: flex;
     width: 70vh;
-    height: 100%;
+    height: 95vh;
     flex-direction: column;
     padding-left: 10px;
     margin-left: 10px;
     padding-right: 10px;
     margin-right: 10px;
+}
+
+.drop-zone-prompt {
+    display: flex;
+    flex-direction: column;
     justify-content: center;
-    justify-items: center;
+    align-items: center;
+}
+
+.drop-zone:hover {
+    box-shadow: 0 0 5px #51a1df;
+    border: 1px solid #51a1df;
+    outline: none;
+    .drop-zone-prompt {
+        transform: scale(1.2);
+        transition: 0.4s;
+    }
 }
 
 .drop-zone {
@@ -17,6 +32,7 @@
     padding: 10px;
     margin: 10px;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
@@ -25,9 +41,13 @@
     font-size: 15px;
     cursor: pointer;
     color: #cccccc;
-    border: 2px dashed #444444;
-    border-radius: 5px;
+    border: 1px solid #ffffff;
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+    transition: background-color 0.3s ease;
 }
+
 
 .drop-zone--over {
     border-style: solid;
@@ -61,8 +81,11 @@
 }
 
 .generate-button {
-    background-color: rgb(74, 159, 74);
-    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(74, 159, 74, 0.8);
+    color: rgb(229, 229, 229);
     border: none;
     width: 100%;
     height: 40px;
@@ -72,8 +95,21 @@
 }
 
 .generate-button:hover {
-    background-color: #096330;
+    background-color: rgb(90, 192, 90);
+    transform: scale(1.02);
+    transition: 0.4s;
     /* Changes the background color on hover for a simple effect */
+}
+
+.generate-button svg {
+    margin-right: 10px;
+    /* Adjust the spacing between the icon and text */
+}
+
+.generate-button:hover svg {
+    transform: rotateZ(-15deg);
+    transition: 0.4s;
+    /* Adjust the spacing between the icon and text */
 }
 
 #prompt {
@@ -81,7 +117,19 @@
     padding: 10px;
 }
 
+#prompt:hover {
+    box-shadow: 0 0 5px #51a1df;
+    border: 1px solid #51a1df;
+    outline: none;
+}
+
 #negative_prompt {
     color: rgb(161, 10, 10);
     padding: 10px;
+}
+
+#negative_prompt:hover {
+    box-shadow: 0 0 5px #51a1df;
+    border: 1px solid #51a1df;
+    outline: none;
 }
