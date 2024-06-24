@@ -1,14 +1,16 @@
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from werkzeug.utils import secure_filename
-# from autoexpress import app
+
 import os
 import pathlib
+
 from autoexpress.modules import (
     image_parser,
-)  # Adjust if specific functions/classes need to be imported
-from autoexpress.modules import a1111_api as sd
+    expression_generator,
+    a1111_api as sd,
+)
+
 from loguru import logger as log
-from autoexpress.modules import generate as expression_generator
 import requests
 import re
 
@@ -28,11 +30,14 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 
+# AutoExpress UI
 @autoexpress.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
 
 
+
+# Stable diffusion API Calls
 @autoexpress.route("/get-models")
 def get_models():
     # Simulate fetching models from an API
@@ -62,7 +67,10 @@ def get_loras():
         loras = []
     return jsonify(loras)
 
+# End of Stable diffusion API Calls
 
+
+# Image uploaded
 @autoexpress.route("/upload", methods=["POST"])
 def upload_file():
     if "file" not in request.files:
@@ -78,7 +86,7 @@ def upload_file():
         filepath = os.path.join(autoexpress.config["UPLOAD_FOLDER"], filename)
         file.save(filepath)
 
-        params = generate_parameters(filepath)
+        params = image_parser.generate_parameters(filepath)
 
         return (
             jsonify(params),
@@ -94,54 +102,7 @@ def allowed_file(filename):
         "gif",
     }
 
-
-def get_lora_from_prompt(text):
-
-    # Regular expression pattern to find text and strength
-    pattern = r"<lora:(.*?):(.*?)>"
-
-    # Find all matches
-    matches = re.findall(pattern, text)
-
-    return matches
-
-
-def generate_parameters(image_path):
-    parser_manager = image_parser.ParserManager()
-    parsed_data = parser_manager.parse(image_path)
-    prompt = image_parser.get_prompt(parsed_data)
-    if prompt not in [""]:
-        lora = get_lora_from_prompt(prompt)[0]
-
-    if not parsed_data:
-        return None
-
-    meta_data = get_image_parameters(image_path)
-    params = {
-        "seed": image_parser.get_seed(meta_data),
-        "lora": image_parser.get_lora(meta_data) or lora[0],
-        "ad_prompt": image_parser.get_prompt(parsed_data),
-        "ad_negative_prompt": image_parser.get_negative_prompt(parsed_data),
-        "ad_checkpoint": image_parser.get_model(meta_data),
-        "ad_sampler": image_parser.get_sampler(meta_data),
-        "ad_clip_skip": "2",
-        "ad_inpaint_width": image_parser.get_width(meta_data),
-        "ad_inpaint_height": image_parser.get_height(meta_data),
-        "ad_cfg_scale": image_parser.get_cfg_scale(meta_data),
-        "ad_denoising_strength": "0.5",
-    }
-    return params
-
-
-def get_image_parameters(filepath):
-
-    parser_manager = image_parser.ParserManager()
-    parsed_data = parser_manager.parse(filepath)
-    meta_data = image_parser.get_metadata(parsed_data)
-
-    return meta_data
-
-
+# Try connecting to SD
 @autoexpress.route("/receive_data", methods=["POST"])
 def receive_data():
     data = request.json
@@ -151,6 +112,7 @@ def receive_data():
         url = url[:-1]
 
     if url in [""]:
+        log.info("No url found.")
         sd.url = "http://127.0.0.1:7860"
 
     elif "http" in url:
@@ -163,7 +125,7 @@ def receive_data():
 
     return jsonify({"status": "success"})
 
-
+# Generate Images
 @autoexpress.route("/generate", methods=["POST"])
 def generate():
     data = request.json
@@ -185,9 +147,7 @@ def generate():
     data.pop("lora")
     data.pop("init_images")
 
-    log.info(
-        "Using the following generation parameters:\n" + str(data)
-    )
+    log.info("Using the following generation parameters:\n" + str(data))
 
     try:
         expression_generator.generate_expressions(
@@ -241,7 +201,7 @@ def get_image(filename):
 def handle_toggle():
     data = request.get_json()
     is_realistic = data.get("isRealistic")
-    
+
     # Process the data (e.g., save to a database, perform an action, etc.)
     # You can customize this part based on your requirements
 
