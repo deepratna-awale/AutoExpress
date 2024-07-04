@@ -5,160 +5,151 @@ from PIL import Image, PngImagePlugin
 from loguru import logger as log
 import pathlib
 
-use_https = False
-if use_https:
-    protocol = "https://"
-else:
-    protocol = "http://"
 
-ip = "127.0.0.1"
-port = "7860"
+class A1111Client:
 
-url = f"{protocol}{ip}:{port}"
+    def __init__(self, ip="127.0.0.1", port="7860", use_https=False):
+        protocol = "https://" if use_https else "http://"
+        self.url = f"{protocol}{ip}:{port}"
+        self._endpoints = {
+            "img2img": "/sdapi/v1/img2img",
+            "samplers": "/sdapi/v1/samplers",
+            "models": "/sdapi/v1/sd-models",
+            "loras": "/sdapi/v1/loras",
+            "extensions": "/sdapi/v1/extensions",
+            "interrupt": "/sdapi/v1/interrupt",
+            "image_info": "/sdapi/v1/png-info",
+        }
 
-img2img_api_path = "/sdapi/v1/img2img"
-samplers_api_path = "/sdapi/v1/samplers"
-models_api_path = "/sdapi/v1/sd-models"
-loras_api_path = "/sdapi/v1/loras"
-extensions_api_path = "/sdapi/v1/extensions"
-interrupt_api_path = "/sdapi/v1/interrupt"
-image_info_api_path = "/sdapi/v1/png-info"
+    def interrupt(self):
+        response = requests.post(
+            url=f"{self.url}{self._endpoints['interrupt']}",
+            headers={"Content-Type": "application/json"},
+        )
 
-
-def interrupt():
-    response = requests.post(
-        url=f"{url}{interrupt_api_path}",
-        headers={"Content-Type": "application/json"},
-    )
-
-    if response.status_code != 200:
-        log.error(f"Request failed with code: {response.status_code} {response.json()}")
-        return False
-    
-    r = response.json()
-    log.error(f"Interrupted by user.{r.text}" )
-    return True
-
-def get_extensions():
-    response = requests.get(
-        url=f"{url}{extensions_api_path}",
-        headers={"Content-Type": "application/json"},
-    )
-
-    if response.status_code == 200:
-        r = response.json()
-        extensions = dict()
-        for extension in r:
-            name = extension["name"]
-            extensions[name] = extension["enabled"]
-    else:
-        log.error(f"Request failed with code: {response.status_code} {response.json()}")
-
-    return extensions
-
-def is_extension(ext="adetailer"):
-
-    extensions = get_extensions()
-    log.debug(f"Found following extensions: {extensions}")
-    
-    if ext in extensions:
-        log.info(f"Found {ext} extension.")
-
-        if extensions[ext] == True:
-            log.info(f"{ext} extension is enabled.")
-            return True
-
-        else:
-            log.warning(f"Please enable the {ext} extension if you want to use it.")
+        if response.status_code != 200:
+            log.error(
+                f"Request failed with code: {response.status_code} {response.json()}"
+            )
             return False
 
-    log.error(f"Could not find {ext} extension")
-    return False
-
-
-def get_loras():
-    loras = None
-    response = requests.get(
-        url=f"{url}{loras_api_path}",
-        headers={"Content-Type": "application/json"},
-    )
-
-    if response.status_code == 200:
         r = response.json()
-        loras = []
-        for lora in r:
-            loras.append(lora["name"])
-    else:
-        log.error(f"Request failed with code: {response.status_code} {response.json()}")
+        log.error(f"Interrupted by user.{r.text}")
+        return True
 
-    return loras
-
-
-def get_samplers():
-    samplers = None
-    response = requests.get(
-        url=f"{url}{samplers_api_path}",
-        headers={"Content-Type": "application/json"},
-    )
-
-    if response.status_code == 200:
-        r = response.json()
-        samplers = []
-        for sampler in r:
-            samplers.append(sampler["name"])
-    else:
-        log.error(f"Request failed with code: {response.status_code} {response.json()}")
-
-    return samplers
-
-
-def get_models():
-    models = None
-    response = requests.get(
-        url=f"{url}{models_api_path}",
-        headers={"Content-Type": "application/json"},
-    )
-
-    if response.status_code == 200:
-        r = response.json()
-        models = []
-        for model in r:
-            models.append(model["model_name"])
-    else:
-        log.error(f"Request failed with code: {response.status_code} {response.json()}")
-
-    return models
-
-
-def img2img_api(json_payload):
-    
-    response = requests.post(
-        url=f"{url}{img2img_api_path}",
-        data=json_payload,
-        headers={"Content-Type": "application/json"},
-    )
-
-    if response.status_code == 200:
-        return response
-    
-    log.error(f"Request failed with code: {response.status_code} {response.json()}")
-    return False
-
-
-def get_image_info(b64_image):
-    png_payload = "data:image/png;base64," + b64_image
-    
-    response = requests.post(
-        url=f"{url}{image_info_api_path}", 
-        json=png_payload,
-        headers={"Content-Type": "application/json"}
+    @property
+    def extensions(self):
+        response = requests.get(
+            url=f"{self.url}{self._endpoints['extensions']}",
+            headers={"Content-Type": "application/json"},
         )
-    
-    if response.status_code == 200:
-        return response
 
-    log.error(f"Request failed with code: {response.status_code} {response.json()}")
-    return False
+        if response.status_code == 200:
+            r = response.json()
+            extensions = {extension["name"]: extension["enabled"] for extension in r}
+            return extensions
+        else:
+            log.error(
+                f"Request failed with code: {response.status_code} {response.json()}"
+            )
+            return None
+
+    def is_extension(self, ext="adetailer"):
+        extensions = self.extensions
+        log.debug(f"Found following extensions: {extensions}")
+
+        if ext in extensions:
+            log.info(f"Found {ext} extension.")
+
+            if extensions[ext]:
+                log.info(f"{ext} extension is enabled.")
+                return True
+            else:
+                log.warning(f"Please enable the {ext} extension if you want to use it.")
+                return False
+
+        log.error(f"Could not find {ext} extension")
+        return False
+
+    @property
+    def loras(self):
+        response = requests.get(
+            url=f"{self.url}{self._endpoints['loras']}",
+            headers={"Content-Type": "application/json"},
+        )
+
+        if response.status_code == 200:
+            r = response.json()
+            loras = [lora["name"] for lora in r]
+            return loras
+        else:
+            log.error(
+                f"Request failed with code: {response.status_code} {response.json()}"
+            )
+            return None
+
+    @property
+    def samplers(self):
+        response = requests.get(
+            url=f"{self.url}{self._endpoints['samplers']}",
+            headers={"Content-Type": "application/json"},
+        )
+
+        if response.status_code == 200:
+            r = response.json()
+            samplers = [sampler["name"] for sampler in r]
+            return samplers
+        else:
+            log.error(
+                f"Request failed with code: {response.status_code} {response.json()}"
+            )
+            return None
+
+    @property
+    def models(self):
+        response = requests.get(
+            url=f"{self.url}{self._endpoints['models']}",
+            headers={"Content-Type": "application/json"},
+        )
+
+        if response.status_code == 200:
+            r = response.json()
+            models = [model["model_name"] for model in r]
+            return models
+        else:
+            log.error(
+                f"Request failed with code: {response.status_code} {response.json()}"
+            )
+            return None
+
+    def img2img_api(self, json_payload):
+        response = requests.post(
+            url=f"{self.url}{self._endpoints['img2img']}",
+            data=json_payload,
+            headers={"Content-Type": "application/json"},
+        )
+
+        if response.status_code == 200:
+            return response
+
+        log.error(f"Request failed with code: {response.status_code} {response.json()}")
+        return False
+
+    def get_image_info(self, b64_image):
+        png_payload = "data:image/png;base64," + b64_image
+
+        response = requests.post(
+            url=f"{self.url}{self._endpoints['image_info']}",
+            json=png_payload,
+            headers={"Content-Type": "application/json"},
+        )
+
+        if response.status_code == 200:
+            return response
+
+        log.error(f"Request failed with code: {response.status_code} {response.json()}")
+        return False
+
 
 def main():
     import utils
@@ -229,18 +220,22 @@ def main():
     png_payload = "data:image/png;base64," + image_str
     json_body["init_images"][0] = png_payload
 
-    response = img2img_api(json_body)
-    log(response.json()['detail'][0]['msg'])
-    log(response.json()["detail"][0]["type"])
+    sd = A1111Client()
+    response = sd.img2img_api(json_body)
+
     if response == 200:
         r = response.json()
         for i in r['images']:
             image = Image.open(io.BytesIO(base64.b64decode(i.split(",",1)[0])))
 
-            info_response  = get_image_info(i)
+            info_response  = sd.get_image_info(i)
+    
             pnginfo = PngImagePlugin.PngInfo()
             pnginfo.add_text("parameters", info_response.json().get("info"))
-            image.save("Output/output.png", pnginfo=pnginfo)
+    
+            image.save(f"Output/{file_path.stem}.png", pnginfo=pnginfo)
+    else:
+        print(response.json())
 
 
 if __name__ == "__main__":
