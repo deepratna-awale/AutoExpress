@@ -7,7 +7,7 @@ import pathlib
 from autoexpress.modules import (
     image_parser,
     expression_generator,
-    a1111_api as sd,
+    a1111_api,
 )
 
 from loguru import logger as log
@@ -16,6 +16,7 @@ import re
 
 
 autoexpress = Flask(__name__)
+sd = a1111_api.A1111Client()
 
 uploaded = False
 filepath = None
@@ -42,7 +43,7 @@ def index():
 def get_models():
     # Simulate fetching models from an API
     try:
-        models = sd.get_models()
+        models = sd.models
     except requests.exceptions.ConnectionError:
         models = []
     return jsonify(models)
@@ -52,7 +53,7 @@ def get_models():
 def get_samplers():
     # Simulate fetching models from an API
     try:
-        samplers = sd.get_samplers()
+        samplers = sd.samplers
     except requests.exceptions.ConnectionError:
         samplers = []
     return jsonify(samplers)
@@ -62,13 +63,12 @@ def get_samplers():
 def get_loras():
     # Simulate fetching models from an API
     try:
-        loras = sd.get_loras()
+        loras = sd.loras
     except requests.exceptions.ConnectionError:
         loras = []
     return jsonify(loras)
 
 # End of Stable diffusion API Calls
-
 
 # Image uploaded
 @autoexpress.route("/upload", methods=["POST"])
@@ -105,15 +105,17 @@ def allowed_file(filename):
 # Try connecting to SD
 @autoexpress.route("/receive_data", methods=["POST"])
 def receive_data():
+
     data = request.json
+    
     url = data["text"]
 
-    if url not in [""] and url[-1] in ["/"]:
-        url = url[:-1]
-
     if url in [""]:
-        log.info("No url found.")
         sd.url = "http://127.0.0.1:7860"
+        log.info(f"No url found.")
+    
+    elif url[-1] in ["/"]:
+        sd.url = url[:-1]
 
     elif "http" in url:
         sd.url = url
@@ -151,6 +153,7 @@ def generate():
 
     try:
         expression_generator.generate_expressions(
+            sd=sd,
             image_str=img_str,
             output_path=f"Output/{output_dir}",
             settings=data,
@@ -199,10 +202,8 @@ def get_image(filename):
 
 @autoexpress.route("/toggle", methods=["POST"])
 def handle_toggle():
+    global is_realistic
     data = request.get_json()
     is_realistic = data.get("isRealistic")
 
-    # Process the data (e.g., save to a database, perform an action, etc.)
-    # You can customize this part based on your requirements
-
-    return jsonify({"message": "Data received successfully"})
+    return jsonify({"message": f"Is realistic status set to {is_realistic}"})

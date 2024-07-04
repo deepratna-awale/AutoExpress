@@ -1,5 +1,5 @@
 from . import utils, json_handler
-from . import a1111_api as sd
+from . import a1111_api
 from loguru import logger as log
 
 import io
@@ -8,19 +8,21 @@ import pathlib
 
 from PIL import Image, PngImagePlugin
 
+
 def generate_expressions(
+    sd: a1111_api.A1111Client,
     output_path: str,
     settings: dict,
     image_str: str = None,
     input_image_path: str = None,
-    is_realistic: bool = False
+    is_realistic: bool = False,
 ):
 
     image_str = utils.is_image_valid(input_image_path, image_str)
 
     output_path = pathlib.Path(output_path)
     pathlib.Path(output_path).mkdir(parents=True, exist_ok=True)
-    
+
     if is_realistic:
         log.info("Using clip prompts since realistic is set to true.")
         expressions = json_handler.get_clip_expression_list()
@@ -30,9 +32,7 @@ def generate_expressions(
     log.info(f"Output Directory: {output_path.absolute()}")
 
     for expression_name, tags in expressions.items():
-        log.info(
-            f"Generating image for {expression_name} expression."
-        )
+        log.info(f"Generating image for {expression_name} expression.")
 
         default_request_body = json_handler.get_img2img_payload()
 
@@ -46,7 +46,7 @@ def generate_expressions(
 
         if not response:
             return
-        
+
         r = response.json()
         image = Image.open(io.BytesIO(base64.b64decode(r["images"][0])))
         image.save(output_image_path)
@@ -55,7 +55,13 @@ def generate_expressions(
     log.info(f"Generated all Expressions in {output_path.absolute()}")
 
 
-def opaque(input_image_path, image_str, output_path, settings=None):
+def opaque(
+    sd: a1111_api.A1111Client,
+    input_image_path: str,
+    image_str: str,
+    output_path: str,
+    settings: dict = None,
+):
     gen_info = None
 
     image_str = utils.is_image_valid(input_image_path, image_str)
@@ -65,15 +71,17 @@ def opaque(input_image_path, image_str, output_path, settings=None):
 
     default_request_body = json_handler.get_opaque_payload()
 
-    json_payload = json_handler.edit_payload_body(image_str, default_request_body, settings, "")
+    json_payload = json_handler.edit_payload_body(
+        image_str, default_request_body, settings, ""
+    )
 
     output_image_path = pathlib.Path(output_path, "temp" + ".png")
 
     response = sd.img2img_api(json_payload)
-    
+
     if not response:
         return
-    
+
     r = response.json()
 
     img_str = r["images"][0]
@@ -86,7 +94,7 @@ def opaque(input_image_path, image_str, output_path, settings=None):
     log.info(f"Image Saved")
 
     log.info(
-            f"Enforced an opaque background on image. Temp file at {output_image_path.absolute()}"
+        f"Enforced an opaque background on image. Temp file at {output_image_path.absolute()}"
     )
 
     return (output_image_path, gen_info)

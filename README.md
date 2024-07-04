@@ -111,12 +111,13 @@ It's pretty Straight forward. Keep an eye on the logs in the console. Dropping a
 
 PS: This is a very handy tool to use with [Silly Tavern](https://github.com/SillyTavern/SillyTavern) to **generate character expressions sprites** for any bot.
 
+# Revamped UI
+![Revamped UI](autoexpress/resources/images/AutoExpressUI_Revamped.png)
 
 # Future Work (Need contributers)
 - Change pose along with expression keeping consistent clothes and background. (Probably via Controlnets and ADetailer)
 - Better Expressions for Realistic Images.
 - Support for Comfy UI, Next, etc.
-- Better refactoring especially for JS and pythonic project setup using setuptools.
 - Tests to check each module.
 
 # Special Thanks
