@@ -1,5 +1,5 @@
 from . import utils, json_handler
-from . import a1111_api
+from . import a1111_client
 from loguru import logger as log
 
 import io
@@ -10,7 +10,7 @@ from PIL import Image, PngImagePlugin
 
 
 def generate_expressions(
-    sd: a1111_api.A1111Client,
+    sd: a1111_client.A1111Client,
     output_path: str,
     settings: dict,
     image_str: str = None,
@@ -56,7 +56,7 @@ def generate_expressions(
 
 
 def opaque(
-    sd: a1111_api.A1111Client,
+    sd: a1111_client.A1111Client,
     input_image_path: str,
     image_str: str,
     output_path: str,

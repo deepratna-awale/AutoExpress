@@ -5,9 +5,9 @@ import os
 import pathlib
 
 from autoexpress.modules import (
+    a1111_client,
     image_parser,
     expression_generator,
-    a1111_api,
 )
 
 from loguru import logger as log
@@ -16,7 +16,7 @@ import re
 
 
 autoexpress = Flask(__name__)
-sd = a1111_api.A1111Client()
+sd = a1111_client.A1111Client()
 
 uploaded = False
 filepath = None
