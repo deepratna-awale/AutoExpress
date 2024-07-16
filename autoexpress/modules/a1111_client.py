@@ -21,22 +21,6 @@ class A1111Client:
             "image_info": "/sdapi/v1/png-info",
         }
 
-    def interrupt(self):
-        response = requests.post(
-            url=f"{self.url}{self._endpoints['interrupt']}",
-            headers={"Content-Type": "application/json"},
-        )
-
-        if response.status_code != 200:
-            log.error(
-                f"Request failed with code: {response.status_code} {response.json()}"
-            )
-            return False
-
-        r = response.json()
-        log.error(f"Interrupted by user.{r.text}")
-        return True
-
     @property
     def extensions(self):
         response = requests.get(
@@ -53,23 +37,6 @@ class A1111Client:
                 f"Request failed with code: {response.status_code} {response.json()}"
             )
             return None
-
-    def is_extension(self, ext="adetailer"):
-        extensions = self.extensions
-        log.debug(f"Found following extensions: {extensions}")
-
-        if ext in extensions:
-            log.info(f"Found {ext} extension.")
-
-            if extensions[ext]:
-                log.info(f"{ext} extension is enabled.")
-                return True
-            else:
-                log.warning(f"Please enable the {ext} extension if you want to use it.")
-                return False
-
-        log.error(f"Could not find {ext} extension")
-        return False
 
     @property
     def loras(self):
@@ -148,6 +115,39 @@ class A1111Client:
             return response
 
         log.error(f"Request failed with code: {response.status_code} {response.json()}")
+        return False
+
+    def interrupt(self):
+        response = requests.post(
+            url=f"{self.url}{self._endpoints['interrupt']}",
+            headers={"Content-Type": "application/json"},
+        )
+
+        if response.status_code != 200:
+            log.error(
+                f"Request failed with code: {response.status_code} {response.json()}"
+            )
+            return False
+
+        r = response.json()
+        log.error(f"Interrupted by user.{r.text}")
+        return True
+
+    def is_extension(self, ext="adetailer"):
+        extensions = self.extensions
+        log.debug(f"Found following extensions: {extensions}")
+
+        if ext in extensions:
+            log.info(f"Found {ext} extension.")
+
+            if extensions[ext]:
+                log.info(f"{ext} extension is enabled.")
+                return True
+            else:
+                log.warning(f"Please enable the {ext} extension if you want to use it.")
+                return False
+
+        log.error(f"Could not find {ext} extension")
         return False
 
 

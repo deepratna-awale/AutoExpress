@@ -1,6 +1,6 @@
 # Read Image Data using sd_parsers
 from sd_parsers import ParserManager
-from sd_parsers.data import Generators
+from sd_parsers import Generators
 from loguru import logger as log
 import re
 
