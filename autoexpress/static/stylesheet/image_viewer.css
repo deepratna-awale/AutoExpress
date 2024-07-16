@@ -46,15 +46,19 @@
 .nav-button {
     position: absolute;
     top: 50%;
-    transform: translateY(-50%);
+    /* transform: translateY(-50%); */
     cursor: pointer;
     font-size: 24px;
     color: white;
     background-color: rgba(0, 0, 0, 0.5);
     /* Semi-transparent black */
     border: none;
+    border-radius: 100%;
     padding: 10px;
+    padding-left: 20px;
+    padding-right: 20px;
     /* user-select: none; */
+    align-items: center;
 }
 
 .nav-button:hover {
@@ -68,7 +72,7 @@
 }
 
 .nav-right {
-    right: 7.8%;
+    right: 7.9%;
 }
 
 
