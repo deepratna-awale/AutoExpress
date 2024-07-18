@@ -111,19 +111,19 @@ def receive_data():
     url = data["text"]
 
     if url in [""]:
-        sd.url = "http://127.0.0.1:7860"
+        sd.setURL("http://127.0.0.1:7860")
         log.info(f"No url found.")
     
     elif url[-1] in ["/"]:
-        sd.url = url[:-1]
+        sd.setURL(url[:-1])
 
     elif "http" in url:
-        sd.url = url
+        sd.setURL(url)
 
     else:
-        sd.url = "http://" + url
+        sd.setURL("http://" + url)
 
-    log.info("SD URL set to: " + sd.url)
+    log.info("SD URL set to: " + sd.getURL())
 
     return jsonify({"status": "success"})
 

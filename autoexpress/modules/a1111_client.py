@@ -10,7 +10,7 @@ class A1111Client:
 
     def __init__(self, ip="127.0.0.1", port="7860", use_https=False):
         protocol = "https://" if use_https else "http://"
-        self.url = f"{protocol}{ip}:{port}"
+        self._url = f"{protocol}{ip}:{port}"
         self._endpoints = {
             "img2img": "/sdapi/v1/img2img",
             "samplers": "/sdapi/v1/samplers",
@@ -24,7 +24,7 @@ class A1111Client:
     @property
     def extensions(self):
         response = requests.get(
-            url=f"{self.url}{self._endpoints['extensions']}",
+            url=f"{self._url}{self._endpoints['extensions']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -41,7 +41,7 @@ class A1111Client:
     @property
     def loras(self):
         response = requests.get(
-            url=f"{self.url}{self._endpoints['loras']}",
+            url=f"{self._url}{self._endpoints['loras']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -58,7 +58,7 @@ class A1111Client:
     @property
     def samplers(self):
         response = requests.get(
-            url=f"{self.url}{self._endpoints['samplers']}",
+            url=f"{self._url}{self._endpoints['samplers']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -75,7 +75,7 @@ class A1111Client:
     @property
     def models(self):
         response = requests.get(
-            url=f"{self.url}{self._endpoints['models']}",
+            url=f"{self._url}{self._endpoints['models']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -91,7 +91,7 @@ class A1111Client:
 
     def img2img_api(self, json_payload):
         response = requests.post(
-            url=f"{self.url}{self._endpoints['img2img']}",
+            url=f"{self._url}{self._endpoints['img2img']}",
             data=json_payload,
             headers={"Content-Type": "application/json"},
         )
@@ -106,7 +106,7 @@ class A1111Client:
         png_payload = "data:image/png;base64," + b64_image
 
         response = requests.post(
-            url=f"{self.url}{self._endpoints['image_info']}",
+            url=f"{self._url}{self._endpoints['image_info']}",
             json=png_payload,
             headers={"Content-Type": "application/json"},
         )
@@ -119,7 +119,7 @@ class A1111Client:
 
     def interrupt(self):
         response = requests.post(
-            url=f"{self.url}{self._endpoints['interrupt']}",
+            url=f"{self._url}{self._endpoints['interrupt']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -149,6 +149,12 @@ class A1111Client:
 
         log.error(f"Could not find {ext} extension")
         return False
+    
+    def setURL(self, url: str):
+        self._url = url
+
+    def getURL(self):
+        return self._url
 
 
 def main():
