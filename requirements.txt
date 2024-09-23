@@ -68,11 +68,13 @@ rich==13.7.1
 rpds-py==0.18.1
 scikit-image==0.23.2
 scipy==1.13.0
+sd-parsers==0.4
 six==1.16.0
 smmap==5.0.1
 soupsieve==2.5
 st-annotated-text==4.0.1
 st-theme==1.2.3
+streamlit==1.36.0
 streamlit-camera-input-live==0.2.0
 streamlit-card==1.0.2
 streamlit-embedcode==0.1.2
