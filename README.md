@@ -63,9 +63,13 @@ The above is an example realistic expressions on the following image without che
 ---
 
 # Requirements
-- [Python3](https://www.python.org/downloads/)
+- [Python3](https://www.python.org/downloads/) Prefer version 10
 - [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
 - [After Detailer Extension](https://github.com/Bing-su/adetailer)
+
+- ## Additional packages for Linux
+- python3-pip
+- python3-venv
 
 # Installation
 
@@ -85,6 +89,10 @@ python3 -m venv .venv
 ```
 ```bash
 .venv\Scripts\activate
+```
+- LINUX
+```bash
+source .venv/bin/activate
 ```
 
 - Install Requirements
