@@ -67,7 +67,7 @@ The above is an example realistic expressions on the following image without che
 - [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
 - [After Detailer Extension](https://github.com/Bing-su/adetailer)
 
-- ## For Linux
+- ## Additional packages for Linux
 - python3-pip
 - python3-venv
 
