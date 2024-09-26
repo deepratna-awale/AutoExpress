@@ -71,7 +71,16 @@ The above is an example realistic expressions on the following image without che
 - python3-pip
 - python3-venv
 
-# Installation
+
+## BUild & Run With Docker (Requires [Docker](https://www.docker.com/))
+### Build
+```bash
+docker buildx build --tag autoexpress .
+```
+### Run
+```bash
+docker run -dp 127.0.0.1:5000:5000 autoexpress:latest
+```
 
 - Clone Github Repo  
 ```bash
@@ -87,6 +96,7 @@ cd AutoExpress
 ```bash
 python3 -m venv .venv
 ```
+- WINDOWS
 ```bash
 .venv\Scripts\activate
 ```
