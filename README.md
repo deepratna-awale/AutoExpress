@@ -65,6 +65,8 @@ The above is an example realistic expressions on the following image without che
 # Requirements
 - [Python3](https://www.python.org/downloads/) Prefer version 10
 - [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
+    - [Online Services](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Online-Services)
+    - I'm currently working on integrating my [CivitAI-Model-Downloader](https://github.com/deepratna-awale/CivitAI-Model-Downloader) to automatically download LORAs.
 - [After Detailer Extension](https://github.com/Bing-su/adetailer)
 
 - ## Additional packages for Linux
@@ -142,3 +144,5 @@ PS: This is a very handy tool to use with [Silly Tavern](https://github.com/Sill
 [SD Parsers by d3x-at](https://github.com/d3x-at/sd-parsers)
 
 [SD API Examples](https://github.com/AUTOMATIC1111/stable-diffusion-webui/discussions/3734)
+
+[Avery Velfaire](https://github.com/AveryVeilfaire) for bug fixes and prompt engineering.
