@@ -1,53 +1,53 @@
 .sidebar {
-    flex: 1;
-    padding: 20px;
-    max-width: 50vh;
-    background-color: rgba(5, 5, 5, 0.7);
-    color: white;
-    border-radius: 20px;
-    height: 90vh;
-}
-
-.input-container {
-    padding-top: 10px;
-    min-height: 30px;
-    color: #ffffff;
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
-}
-
-.sd-connect:click {
-    background-color: rgba(5, 5, 5, 0.7);
+    margin: 0px 15px 0px 15px;
+    padding: 0px;
+    width: 100%;
 }
 
 #ip-input {
-    font-family: "Quicksand", sans-serif;
-    color: rgb(101, 222, 101);
-    background-color: rgba(5, 5, 5, 0.7);
-    width: 50%;
-    outline: none;
-    border: none;
+    display: flex;
+    flex: auto;
+    background-color: var(--input-background-color);
     padding-left: 10px;
     padding-right: 10px;
     margin-right: 10px;
+    margin-right: 10px;
     border-radius: 10px;
+    min-width: 1px;
+    color: var(--input-number-color);
+
 }
 
-.material-symbols-outlined {
-    width: 40px;
-    height: 30px;
-    border-radius: 10px;
-    border: none;
-
-    font-variation-settings:
-        'FILL' 0,
-        'wght' 400,
-        'GRAD' 0,
-        'opsz' 24
+.sidebar-add-space {
+    padding: 25px;
 }
 
-.material-symbols-outlined:hover {
-    color: white;
-    background-color: rgb(119, 214, 119);
+input:checked+.anime {
+    transition: .4s;
+    background-color: blue;
+}
+
+input:not(:checked)+.anime {
+    transition: .4s;
+    background-color: pink;
+}
+
+#seed-input {
+    width: 7rem;
+}
+
+#clip-skip-input {
+    width: 3rem;
+}
+
+#seed-input {
+    padding-right: 0.5rem;
+
+    &::-webkit-inner-spin-button {
+        appearance: none;
+        opacity: 0 !important;
+        cursor: auto;
+        width: 0px;
+    }
+
 }
