@@ -1,4 +1,4 @@
-document.querySelectorAll(".drop-zone__input").forEach((inputElement) => {
+document.querySelectorAll("#drop-zone-input-field").forEach((inputElement) => {
     const dropZoneElement = inputElement.closest(".drop-zone");
 
     dropZoneElement.addEventListener("click", (e) => {
@@ -35,17 +35,17 @@ document.querySelectorAll(".drop-zone__input").forEach((inputElement) => {
 });
 
 function updateThumbnail(dropZoneElement, file) {
-    let thumbnailElement = dropZoneElement.querySelector(".drop-zone__thumb");
+    let thumbnailElement = dropZoneElement.querySelector("#drop-zone-thumbnail-image");
 
     // First time - remove the prompt
-    if (dropZoneElement.querySelector(".drop-zone__prompt")) {
-        dropZoneElement.querySelector(".drop-zone__prompt").remove();
+    if (dropZoneElement.querySelector("#upload-file-drop-zone")) {
+        dropZoneElement.querySelector(".drop-zone-prompt").remove();
     }
 
     // First time - there is no thumbnail element, so let's create it
     if (!thumbnailElement) {
         thumbnailElement = document.createElement("img");
-        thumbnailElement.classList.add("drop-zone__thumb");
+        thumbnailElement.id = "drop-zone-thumbnail-image";
         dropZoneElement.appendChild(thumbnailElement);
     }
 

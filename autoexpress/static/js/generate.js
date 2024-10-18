@@ -14,7 +14,7 @@ document.querySelector('.generate-button').addEventListener('click', function ()
     };
 
     // Get the thumbnail element
-    var thumbnailElement = document.querySelector('.drop-zone__thumb');
+    var thumbnailElement = document.querySelector('#drop-zone-thumbnail-image');
     // Get the base64 string of the image, or an empty string if no image uploaded
     var thumbnailSrc = thumbnailElement ? thumbnailElement.src : "";
 
@@ -25,8 +25,8 @@ document.querySelector('.generate-button').addEventListener('click', function ()
         ad_inpaint_height: document.getElementById('height-input').value,
         lora: document.getElementById('lora-input').value,
         seed: document.getElementById('seed-input').value,
-        ad_prompt: document.getElementById('prompt').value,
-        ad_negative_prompt: document.getElementById('negative_prompt').value,
+        ad_prompt: document.getElementById('prompt_textfield').value,
+        ad_negative_prompt: document.getElementById('negative_prompt_textfield').value,
         ad_steps: document.getElementById('steps-input').value,
         ad_checkpoint: document.getElementById('model-input').value,
         ad_sampler: document.getElementById('sampler-input').value,
