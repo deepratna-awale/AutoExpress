@@ -23,6 +23,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/AveryVeilfaire/lucide-font@main/lucide.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/main.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/sidebar.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/modal.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/image_and_prompt.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/image_viewer.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/slider_object.css') }}" />
@@ -37,7 +38,10 @@
     <div class="left-pane">
       <!-- Sidebar -->
       <div class="sidebar">
-        <h1>Parameters</h1>
+        <div class="sidebar-title">
+          <img class="sidebar-logo" src="{{ url_for('static', filename='ico/favicon-rounded.png') }}" alt="Logo"/>
+          <h1>Parameters</h1>
+        </div>
 
         <!-- A1111 API Url -->
 
@@ -65,13 +69,22 @@
           </select>
         </div>
 
-        <!-- lora Dropdown -->
+        <!-- Scheduler Dropdown -->
+        <div class="input-container select-container">
+          <label for="scheduler-input">Scheduler</label>
+          <select id="scheduler-input" name="scheduler">
+            <!-- Add more options as needed -->
+          </select>
+        </div>
+
+        <!-- Lora Dropdown -->
         <div class="input-container select-container">
           <label for="lora-input">Lora</label>
           <select id="lora-input" name="lora">
             <!-- Add more options as needed -->
           </select>
         </div>
+
 
         <div class="input-container grid-container">
           <!-- Clip skip Input -->
@@ -81,7 +94,7 @@
           </div>
           <!-- Seed Input -->
           <div class="input-container">
-            <label for="seed-input">Seed</label>
+            <label id= "seed-label" for="seed-input">Seed</label>
             <input type="number" id="seed-input" name="seed-input" value="-1" min="-1" />
           </div>
         </div>
@@ -142,26 +155,37 @@
           </label>
           <label class="switch-label">Realistic</label>
         </div>
-      </div>
-      <!-- End of Sidebar -->
+      
 
-      <!-- FrontEnd Settings (Temporary Home) -->
-      <div class="frontend-settings">
-        <h1>GUI Settings</h1>
-        <h2>Background</h2>
-        <div class="input-container">
-          <label>Background Gradient Animation</label>
-          <div class="switch-container">
-            <label class="switch-label">Off</label>
-            <label class="switch">
-              <input type="checkbox" id="gradient-animation-toggle" checked />
-              <span class="slider round"></span>
-            </label>
-            <label class="switch-label">On</label>
+        <div class="sidebar-add-space"></div>
+        <!-- Settings cog icon -->
+        <span class="icon-settings settings-cog" onclick="openModal()"></span>
+        
+        <!-- Modal overlay and content -->
+        <div id="modalOverlay" class="modal-overlay">
+          <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">×</span>
+            <!-- FrontEnd Settings (Modal Content) -->
+            <div class="frontend-settings">
+              <h1>GUI Settings</h1>
+              <h2>Background</h2>
+              <div class="input-container">
+                <label>BG Animation</label>
+                <div class="switch-container">
+                  <label class="switch-label">Off</label>
+                  <label class="switch">
+                    <input type="checkbox" id="gradient-animation-toggle" checked />
+                    <span class="slider round"></span>
+                  </label>
+                  <label class="switch-label">On</label>
+                </div>
+              </div>
+            </div>
+            <!-- End of FrontEnd Settings (Modal Content) -->
           </div>
         </div>
+        <!-- End of Modal overlay and content -->
       </div>
-      <!-- End of FrontEnd Settings (Temporary Home) -->
     </div>
     <div class="center-pane">
       <div class="image-and-prompt-container">
@@ -172,23 +196,24 @@
             <span id="upload-file-drop-zone">Drop file here or click to upload image</span>
           </div>
           <input type="file" name="image" id="drop-zone-input-field" />
+          <!-- Info icon at bottom right -->
+          <span class="icon-info info-icon" id="info-icon" title="Drop image and hover on this icon or the image to see the raw generation data. This can help you fill in the missing parameters manually if not autodetected."></span>
+          <div class="tooltip" id="tooltip"></div>
+        </div>
+
+        <button type="submit" class="generate-button" data-lucide="image-play">
+          <div class="generate-icon icon-image-play"></div>
+          Generate
+        </button>
+        <div class="input-container">
+          <textarea type="text" id="prompt-textfield" name="prompt-textfield"
+            placeholder="Prompt"></textarea>
         </div>
         <div class="input-container">
-          <button type="submit" class="generate-button" data-lucide="image-play">
-            <div class="icon-image-play generate-icon"></div>
-          </button>
+          <textarea type="text" id="negative-prompt-textfield" name="negative-prompt-textfield"
+            placeholder="Negative prompt..."></textarea>
         </div>
-        <h4>Prompt</h4>
-        <div class="input-container">
-          <textarea type="text" id="prompt_textfield" name="prompt_textfield"
-            placeholder="Enter your after detailer prompt..."></textarea>
-        </div>
-        <h4>Negative Prompt</h4>
-        <div class="input-container">
-          <textarea type="text" id="negative_prompt_textfield" name="negative_prompt_textfield"
-            placeholder="Enter your after detailer negative prompt..."></textarea>
-        </div>
-      </div>
+    </div>
     </div>
     <div class="right-pane">
       <div class="image-output-container">
@@ -200,7 +225,7 @@
           </button>
         </div>
         <div class="display-container">
-          <button class="nav-button" onclick="navigate(-1)">
+          <button class="nav-left" onclick="navigate(-1)">
             <div class="nav-icon icon-circle-chevron-left"></div>
           </button>
           <div class="image-name-column-container">
@@ -210,17 +235,19 @@
             </div>
             <div id="expression-image-name"></div>
           </div>
-          <button class="nav-button" onclick="navigate(1)">
+          <button class="nav-right" onclick="navigate(1)">
             <div class="nav-icon icon-circle-chevron-right"></div>
           </button>
         </div>
       </div>
     </div>
   </div>
+  </div>
   <!DOCTYPE html>
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   <script src="{{ url_for('static', filename='js/connect.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
   <script src="{{ url_for('static', filename='js/image_drag_and_drop.js') }}"></script>
   <script src="{{ url_for('static', filename='js/generate.js') }}"></script>
   <script src="{{ url_for('static', filename='js/image_viewer.js') }}"></script>

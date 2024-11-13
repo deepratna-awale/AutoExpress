@@ -1,0 +1,40 @@
+/* Style for settings cog icon */
+.settings-cog {
+    font-size: 24px;
+    cursor: pointer;
+
+}
+
+/* Modal background overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+/* Modal content styling */
+.modal-content {
+    background-color: var(--panel-background-color);
+    padding: 20px;
+    border-radius: 1.5rem;
+    box-shadow: 0 4px 8px rgba(64, 210, 255, 0.6);
+    width: 600px;
+    max-width: 80%;
+    color: #fff;
+    text-align: center;
+}
+
+/* Close button style */
+.close-btn {
+    font-size: 30px;
+    color:red;
+    cursor: pointer;
+    float: right;
+}

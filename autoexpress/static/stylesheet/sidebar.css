@@ -4,6 +4,24 @@
     width: 100%;
 }
 
+.sidebar-title {
+    margin: 0px 0px 0px 0px;
+    padding: 0px;
+    color: var(--font-color);
+    font-size: large;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+}
+
+.sidebar-logo{
+    height: auto;
+    width: 12%;
+    position: relative;
+    right:5%
+}
+
 #ip-input {
     display: flex;
     flex: auto;
@@ -24,12 +42,12 @@
 
 input:checked+.anime {
     transition: .4s;
-    background-color: blue;
+    background-color: var(--realistic-switch-bg-color);
 }
 
 input:not(:checked)+.anime {
     transition: .4s;
-    background-color: pink;
+    background-color: var(--anime-switch-bg-color);
 }
 
 #seed-input {
