@@ -1,11 +1,6 @@
 # Use the official Python image and set it to support multiple architectures
 FROM python:3
 
-# Install Rust toolchain needed for some packages
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends cargo && \
-    rm -rf /var/lib/apt/lists/*
-
 # Set working directory
 WORKDIR /AutoExpress/
 
@@ -26,3 +21,4 @@ ENV FLASK_RUN_PORT=5000
 
 # Command to run the Flask app
 CMD ["flask", "run"]
+
