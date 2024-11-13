@@ -16,21 +16,25 @@
     --font-family: "Quicksand", sans-serif;
     --font-size: 16px;
 
-    --input-height: 1.75rem;
+    --input-height: 2rem;
 
     /* COLORS */
     --font-color: white;
-    --icon-color: goldenrod;
-    --knob-color: blueviolet;
+    --icon-color: white;
+    --knob-color: rgb(64, 210, 255);
+
     /* 'Border' (shadows) Color */
-    --dark-accent: rgba(0, 0, 0, 0.5);
+    --dark-accent: rgba(0, 0, 0, 0.007);
+
     /* 'Border' (shadows) Color Light, (hovers)*/
-    --light-accent: rgba(0, 0, 0, 0.25);
+    --light-accent: rgb(0, 0, 0);
 
     /* HEADER COLORS */
-    --header-font-color: White;
+    --header-font-color: #ffffff;
+
     /* Labels Color */
     --label-font-color: rgb(201, 201, 201);
+
     /*input field font color*/
     --input-font-color: rgb(201, 201, 201);
 
@@ -40,35 +44,37 @@
     --textarea-font-color: var(--input-font-color);
     --prompt-text-color: var(--input-font-color);
     --negative-prompt-text-color: var(--input-font-color);
+    --prompt-border-color: rgba(0, 128, 0, 0.8);
+    --negative-prompt-border-color: rgba(255, 0, 0, 0.8);
     --expression-name-font-color: var(--input-font-color);
     --output-directory-font-color: var(--input-font-color);
 
     /* filter over the background */
-    --body-background-filter-color: rgba(5, 5, 5, 0.6);
+    --body-background-filter-color: rgba(0, 0, 0, 0.6);
     /* the background of the fields*/
-    --input-background-color: rgba(25, 25, 25, 0.4);
+    --input-background-color: rgba(65, 65, 65, 0.4);
 
     /* button colors */
-    --button-color: rgba(0, 0, 0, 0.75);
+    --button-color: rgba(0, 0, 0, 0.6);
 
     /*main panels color*/
     --panel-background-color: rgba(5, 5, 5, 0.5);
 
     /*background color of positive prompts textareas*/
-    --prompt-background-color: rgba(0, 255, 0, 0.1);
+    --prompt-background-color: rgba(0, 0, 0, 0.1);
     /*background color of negative prompts textareas*/
-    --negative-prompt-background-color: rgba(255, 0, 0, 0.1);
+    --negative-prompt-background-color: rgba(0, 0, 0, 0.1);
 
     /*generate button color*/
-    --generate-button-color: rgba(18, 105, 0, 0.541);
+    --generate-button-color: rgba(36, 100, 23, 0.76);
 
     /*generate button hover color*/
-    --generate-button-hover-color: rgba(33, 199, 0, 0.753);
+    --generate-button-hover-color: #5fe691;
 
-    --hover-outline-color: rgba(255, 0, 0, 0.25);
-    --hover-shadow-color: rgba(255, 0, 255, 0.25);
-    --focus-outline-color: rgba(255, 0, 0, 0.25);
-    --focus-shadow-color: rgba(255, 0, 255, 0.25);
+    --hover-outline-color: rgba(0, 153, 255, 0);
+    --hover-shadow-color: rgb(116, 188, 248);
+    --focus-outline-color: rgb(0, 0, 0);
+    --focus-shadow-color: rgb(116, 188, 248);
 
     /* OBJECTS */
 
@@ -77,11 +83,14 @@
     /*bottom right inner shadow glow for textarea/button/ etc etc*/
     --box-shadow-inset-neg: inset -2px -2px 5px 0px var(--dark-accent);
 
-    --hover-outline: 1px auto var(--hover-outline-color);
-    --hover-box-shadow: 0 0 2px 2px var(--hover-shadow-color);
+    --hover-outline: 0px auto var(--hover-outline-color);
+    --hover-box-shadow: 0 0 1px  1px var(--hover-shadow-color);
     /*outline width/style/color*/
     --focus-outline: 1px auto var(--focus-outline-color);
     --focus-box-shadow: 0 0 2px 2px var(--focus-shadow-color);
+
+    --realistic-switch-bg-color: #332f31;
+    --anime-switch-bg-color: #332f31;
 }
 
 html {
@@ -110,12 +119,13 @@ html {
 
 body {
     margin: 0;
+    border: none;
     display: flex;
     justify-content: center;
     align-items: center;
     background-color: var(--body-background-filter-color);
-    backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
 }
 
 .container {
@@ -125,7 +135,7 @@ body {
     align-items: stretch;
     padding: 0px;
     height: 100vh;
-    width: 80vw;
+    width: 95vw;
 }
 
 .left-pane {
@@ -135,15 +145,15 @@ body {
     justify-content: flex-start;
     align-items: center;
     width: 25%;
-    max-width: 300px;
-    min-width: max(250px, 25%);
+    max-width: 350px;
+    min-width: max(350px, 25%);
     background-color: var(--panel-background-color);
     border-radius: 20px;
     overflow-y: auto;
     overflow-x: hidden;
     margin: 20px;
     padding: 15px;
-    border-right: 3rem;
+    /* border-right: 3rem; */
     box-shadow: var(--box-shadow-panes);
 }
 
@@ -154,7 +164,7 @@ body {
     flex-direction: column;
     justify-content: flex-start;
     align-items: center;
-    max-width: 65%;
+    max-width: 45%;
     min-width: max(300px, 30%);
     background-color: var(--panel-background-color);
     border-radius: 20px;
@@ -172,6 +182,7 @@ body {
     flex-direction: column;
     justify-content: flex-start;
     align-items: flex-start;
+    max-width: 40%;
     min-width: max(350px, 40%);
     background-color: var(--panel-background-color);
     border-radius: 20px;
@@ -187,7 +198,8 @@ body {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    margin: 5px 0px 5px 0px;
+    margin: 5px 5px 5px 0px;
+    padding: 5px 0px 0px 0px;
     width: 100%;
 }
 
@@ -321,10 +333,10 @@ input[type="range"]::-webkit-slider-thumb {
     box-shadow: var(--box-shadow-inset-neg);
     appearance: none;
     background-color: var(--knob-color);
-    height: var(--input-height);
+    height: calc(var(--input-height) * 0.75);
+    width: calc(var(--input-height) * 0.75);
     margin-top: calc(-1em * 0.75);
-    width: 0.75rem;
-    border-radius: 10px;
+    border-radius: 100%;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
@@ -338,7 +350,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 /* Adjust input number appearance */
 input[type="number"] {
-    text-align: right;
+    text-align: center;
     height: var(--input-height);
     margin-left: 5px;
     padding-right: 1.5rem;
@@ -349,7 +361,9 @@ input[type="number"] {
     background-color: var(--input-background-color);
 
     &::-webkit-inner-spin-button {
-        opacity: 1 !important;
+        opacity: 0.5 !important;
+        background-color: var(--input-background-color);
+        color: var(--input-font-color);
         height: 100%;
         width: 1.2rem;
         position: absolute;
@@ -365,6 +379,8 @@ label {
     color: var(--label-font-color);
     font-size: medium;
     font-weight: 600;
+    padding: 5px;
+
 }
 
 
@@ -388,6 +404,7 @@ textarea {
 
 
 ::-webkit-scrollbar {
+    display: none;
     width: 0.5rem;
     height: 0.5rem;
     scrollbar-gutter: stable;
