@@ -74,23 +74,35 @@ The above is an example realistic expressions on the following image without che
 - python3-venv
 
 
-## BUild & Run With Docker (Requires [Docker](https://www.docker.com/))
-### Build
+## Run With Docker (Requires [Docker](https://www.docker.com/))
+
+> Now AutoExpress is also available as a [Docker Image](https://hub.docker.com/r/deepratna/autoexpress)
+
+Pull image from DockerHub
 ```bash
-docker buildx build --tag autoexpress .
+docker pull deepratna/autoexpress
 ```
-### Run
+Run
 ```bash
-docker run -dp 127.0.0.1:5000:5000 autoexpress:latest
+docker run -p 5000:5000 deepratna/autoexpress
+```
+### OR
+Build (skip if you have pulled image)
+```bash 
+git clone https://github.com/deepratnaawale/AutoExpress.git
+cd AutoExpress
+```
+```bash
+docker buildx build --tag ${your_dockerhub_username}/autoexpress .
+```
+Run
+```bash
+docker run -p 5000:5000 ${your_dockerhub_username}/autoexpress
 ```
 
-- Clone Github Repo  
+## Clone Github Repo and cd into it
 ```bash
 git clone https://github.com/deepratnaawale/AutoExpress.git
-```
-
-- Goto cloned repo
-```bash
 cd AutoExpress
 ```
 
@@ -117,12 +129,13 @@ pip install -r requirements.txt
 flask --app autoexpress run
 ```
 
-- Launch A1111 Stable Diffusion WebUI Api
+- Connect to the AutoExpress UI at
+[http://127.0.0.1:5000](http:127.0.0.1:5000)
+
+## Launch Your A1111 Stable Diffusion WebUI Api
 > You can check if the api is active by accessing the docs (if running locally)
 [http://127.0.0.1:7860/docs#/default/](http://127.0.0.1:7860/docs#/default/)
 
-- Connect to the UI at
-[http://127.0.0.1:5000](http:127.0.0.1:5000)
 
 # Usage
 ![UI Description](autoexpress/resources/images/UI.png)
@@ -131,13 +144,12 @@ It's pretty Straight forward. Keep an eye on the logs in the console. Dropping a
 
 PS: This is a very handy tool to use with [Silly Tavern](https://github.com/SillyTavern/SillyTavern) to **generate character expressions sprites** for any bot.
 
-# Revamped UI
-![Revamped UI](autoexpress/resources/images/AutoExpressUI_Revamped.png)
+# Latest UI
+![LatestUI](autoexpress/resources/images/AutoExpressUI_2024_11_13.png)
 
-# Future Work (Need contributers)
+# Future Work
 - Change pose along with expression keeping consistent clothes and background. (Probably via Controlnets and ADetailer)
 - Better Expressions for Realistic Images.
-- Support for Comfy UI, Next, etc.
 - Tests to check each module.
 
 # Special Thanks
@@ -145,4 +157,4 @@ PS: This is a very handy tool to use with [Silly Tavern](https://github.com/Sill
 
 [SD API Examples](https://github.com/AUTOMATIC1111/stable-diffusion-webui/discussions/3734)
 
-[Avery Velfaire](https://github.com/AveryVeilfaire) for bug fixes and prompt engineering.
+[Avery Velfaire](https://github.com/AveryVeilfaire) for bug fixes, UI design, and prompt engineering.
