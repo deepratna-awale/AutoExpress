@@ -4,7 +4,6 @@ from sd_parsers.data import Generators
 from loguru import logger as log
 import re
 
-
 def get_lora_from_prompt(prompt):
     # Regular expression pattern to find text and strength
     pattern = r"<lora:(.*?):(.*?)>"
@@ -30,7 +29,7 @@ def generate_parameters(image_path):
     # get first sampler (there may be more than one (i.e., in upscaled comfy images)
     sampler = next(iter(parsed_data.samplers), None)
     if sampler is None:  # return if no samplers found in image
-        return
+        return None
 
     prompt = parsed_data.full_prompt
     if prompt:
@@ -45,28 +44,33 @@ def generate_parameters(image_path):
             pass
 
     params = {
+        "checkpoint": sampler.model.name if sampler.model else None,
+        "sampler": sampler.name,
+        "lora": parsed_data.metadata.get("lora", None) or parsed_data.metadata.get("lora_name", None),
+        "scheduler": sampler.parameters.get("scheduler", None),
+        "clip_skip": "2",
         "seed": sampler.parameters.get("seed", None),
-        "lora": parsed_data.metadata.get("lora", lora),
-        "ad_prompt": prompt,
-        "ad_negative_prompt": parsed_data.full_negative_prompt,
-        "ad_checkpoint": sampler.model.name if sampler.model else None,
-        "ad_sampler": sampler.name,
-        "ad_clip_skip": "2",
-        "ad_inpaint_width": width,
-        "ad_inpaint_height": height,
-        "ad_cfg_scale": sampler.parameters.get("cfg_scale", None),
-        "ad_denoising_strength": "0.5",
+        "steps": sampler.parameters.get("steps", None),
+        "inpaint_width": width,
+        "inpaint_height": height,
+        "cfg_scale": sampler.parameters.get("cfg_scale", None),
+        "denoising_strength": "0.5",
+        "prompt": parsed_data.full_prompt,
+        "negative_prompt": parsed_data.full_negative_prompt,
     }
     return params
 
+def generate_uncleaned_params(image_path): 
+    return str(get_parsed_data(image_path))
+
 
 def main():
-    
-    image_path = r"D:\Workspace\AI\stable-diffusion-webui\outputs\txt2img-images\2023-11-30\00005-856227872.png"
-    params = generate_parameters(image_path)
-    # parsed_data = get_parsed_data(image_path)
-    log.info(params)
 
+    image_path = r"D:\Workspace\AutoExpress\uploads\ComfyUI_00011_.png"
+    params = generate_parameters(image_path)
+    parsed_data = get_parsed_data(image_path)
+    log.info(params)
+    print(parsed_data)
 
 if __name__ == "__main__":
     main()
