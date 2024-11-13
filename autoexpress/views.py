@@ -37,7 +37,6 @@ def index():
     return render_template("index.html")
 
 
-
 # Stable diffusion API Calls
 @autoexpress.route("/get-models")
 def get_models():
@@ -86,10 +85,12 @@ def upload_file():
         filepath = os.path.join(autoexpress.config["UPLOAD_FOLDER"], filename)
         file.save(filepath)
 
-        params = image_parser.generate_parameters(filepath)
+        full_image_data = {"cleaned_data": None, "uncleaned_data": None}
+        full_image_data["cleaned_data"] = image_parser.generate_parameters(filepath)
+        full_image_data["uncleaned_data"] = image_parser.generate_uncleaned_params(filepath)
 
         return (
-            jsonify(params),
+            jsonify(full_image_data),
             200,
         )
 

@@ -1,9 +1,105 @@
+@import url("https://fonts.googleapis.com/css2?family=Quicksand:wght@300..700&display=swap");
+
+/*NOTES:*/
+/*
+    Icons are now a font: lucide-icon-font
+    Usage: Add a class with the name of the icon
+    EXAMPLE:
+        <div class="icon-link-2"></div>
+    IMPORTANT, when getting the name of the icon add "icon-" in front of it.
+    circle-chevron-left = icon-circle-chevron-left
+    Icons can be looked up here: https://lucide.dev/icons/?focus
+    NOTE: [class^="icon-"], [class*=" icon-"] is part of the font and in main css to style all the icons
+*/
+
+:root {
+    --font-family: "Quicksand", sans-serif;
+    --font-size: 16px;
+
+    --input-height: 2rem;
+
+    /* COLORS */
+    --font-color: white;
+    --icon-color: white;
+    --knob-color: rgb(64, 210, 255);
+
+    /* 'Border' (shadows) Color */
+    --dark-accent: rgba(0, 0, 0, 0.007);
+
+    /* 'Border' (shadows) Color Light, (hovers)*/
+    --light-accent: rgb(0, 0, 0);
+
+    /* HEADER COLORS */
+    --header-font-color: #ffffff;
+
+    /* Labels Color */
+    --label-font-color: rgb(201, 201, 201);
+
+    /*input field font color*/
+    --input-font-color: rgb(201, 201, 201);
+
+    /*specific fields*/
+    --input-number-color: var(--input-font-color);
+    --input-select-color: var(--input-font-color);
+    --textarea-font-color: var(--input-font-color);
+    --prompt-text-color: var(--input-font-color);
+    --negative-prompt-text-color: var(--input-font-color);
+    --prompt-border-color: rgba(0, 128, 0, 0.8);
+    --negative-prompt-border-color: rgba(255, 0, 0, 0.8);
+    --expression-name-font-color: var(--input-font-color);
+    --output-directory-font-color: var(--input-font-color);
+
+    /* filter over the background */
+    --body-background-filter-color: rgba(0, 0, 0, 0.6);
+    /* the background of the fields*/
+    --input-background-color: rgba(65, 65, 65, 0.4);
+
+    /* button colors */
+    --button-color: rgba(0, 0, 0, 0.6);
+
+    /*main panels color*/
+    --panel-background-color: rgba(5, 5, 5, 0.5);
+
+    /*background color of positive prompts textareas*/
+    --prompt-background-color: rgba(0, 0, 0, 0.1);
+    /*background color of negative prompts textareas*/
+    --negative-prompt-background-color: rgba(0, 0, 0, 0.1);
+
+    /*generate button color*/
+    --generate-button-color: rgba(36, 100, 23, 0.76);
+
+    /*generate button hover color*/
+    --generate-button-hover-color: #5fe691;
+
+    --hover-outline-color: rgba(0, 153, 255, 0);
+    --hover-shadow-color: rgb(116, 188, 248);
+    --focus-outline-color: rgb(0, 0, 0);
+    --focus-shadow-color: rgb(116, 188, 248);
+
+    /* OBJECTS */
+
+    --box-shadow-panes: inset 0 0 8px 0px var(--dark-accent);
+    --box-shadow-inset-pos: inset 2px 2px 5px 0px var(--dark-accent);
+    /*bottom right inner shadow glow for textarea/button/ etc etc*/
+    --box-shadow-inset-neg: inset -2px -2px 5px 0px var(--dark-accent);
+
+    --hover-outline: 0px auto var(--hover-outline-color);
+    --hover-box-shadow: 0 0 1px  1px var(--hover-shadow-color);
+    /*outline width/style/color*/
+    --focus-outline: 1px auto var(--focus-outline-color);
+    --focus-box-shadow: 0 0 2px 2px var(--focus-shadow-color);
+
+    --realistic-switch-bg-color: #332f31;
+    --anime-switch-bg-color: #332f31;
+}
+
 html {
+    font-size: var(--font-size);
+    font-family: var(--font-family);
     background: linear-gradient(-45deg, #5fe691, #f28e8e, #44c4f3, #814bff);
     background-size: 200% 200%;
-    animation: gradient 120s ease infinite;
-    height: 100vh;
     overflow: hidden;
+    animation: gradient 120s ease infinite;
 }
 
 @keyframes gradient {
@@ -23,145 +119,324 @@ html {
 
 body {
     margin: 0;
-    /* Adds padding at the top if needed, could replace margin-top */
+    border: none;
+    display: flex;
     justify-content: center;
-    /* Centers content horizontally */
     align-items: center;
-    /* Centers content vertically */
-    background-color: rgba(5, 5, 5, 0.6);
-    backdrop-filter: blur(10px);
+    background-color: var(--body-background-filter-color);
     -webkit-backdrop-filter: blur(10px);
-    /* Background color */
+    backdrop-filter: blur(10px);
 }
 
-h1 {
-    font-family: "Quicksand", sans-serif;
-    color: white;
+.container {
+    display: flex;
+    flex-flow: row nowrap;
+    justify-content: center;
+    align-items: stretch;
+    padding: 0px;
+    height: 100vh;
+    width: 95vw;
+}
+
+.left-pane {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    width: 25%;
+    max-width: 350px;
+    min-width: max(350px, 25%);
+    background-color: var(--panel-background-color);
+    border-radius: 20px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    margin: 20px;
+    padding: 15px;
+    /* border-right: 3rem; */
+    box-shadow: var(--box-shadow-panes);
+}
+
+
+.center-pane {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    max-width: 45%;
+    min-width: max(300px, 30%);
+    background-color: var(--panel-background-color);
+    border-radius: 20px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    padding: 15px;
+    box-shadow: var(--box-shadow-panes);
+}
+
+.right-pane {
+    flex-grow: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    max-width: 40%;
+    min-width: max(350px, 40%);
+    background-color: var(--panel-background-color);
+    border-radius: 20px;
+    margin: 20px;
+    padding: 15px;
+    overflow: hidden;
+    box-shadow: var(--box-shadow-panes);
+}
+
+
+.input-container {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin: 5px 5px 5px 0px;
+    padding: 5px 0px 0px 0px;
+    width: 100%;
+}
+
+.input-container.column {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    height: 100%;
+    width: fit-content;
+    align-self: flex-end;
+    margin: 0px;
+    padding: 0px;
+}
+
+/*select container is two columns, and slider container is three*/
+
+.input-container.select-container :first-child,
+.input-container.slider-container :first-child {
+    width: 30%;
+    flex: 0 0 auto;
+}
+
+.input-container.slider-container :last-child {
+    width: 15%;
+    flex: 0 0 auto;
+}
+
+.input-container.grid-container {
+    justify-content: space-between;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: var(--header-font-color);
     text-align: center;
     margin: 0px;
     padding: 10px;
 }
 
-
-.container {
-    display: flex;
-    padding: 10px;
-    justify-content: space-evenly;
-    height: 100vh;
-}
-
-input[type="number"] {
-    background-color: rgba(5, 5, 5, 0.6);
-    /* Dark grey input background */
-    /* Blue border */
-    color: rgb(255, 255, 255);
-    border: none;
-    border-radius: 10px;
-    /* White text color */
-    font-size: 12px;
-    width: 20%;
-}
-
-/* Input styling */
-
 select {
-    background-color: rgba(5, 5, 5, 0.6);
-    /* Dark grey input background */
-    /* Blue border */
-    color: white;
+    flex-grow: 1;
+    background-color: var(--input-background-color);
+
+    color: var(--input-select-color);
     border: none;
-    /* White text color */
-    font-size: 14px;
-    width: 70%;
+
+    font-size: small;
+    height: var(--input-height);
     border-radius: 10px;
+    min-width: 25%;
+    width: 60%;
+    max-width: 75%;
 }
 
-select:hover {
-    box-shadow: 0 0 5px #51a1df;
-    border: 1px solid #51a1df;
+[class^="icon-"],
+[class*=" icon-"] {
+    display: flex;
+    align-self: center;
+    justify-content: center;
+    align-items: center;
+    font-size: x-large;
+    color: var(--icon-color);
+}
+
+select:hover,
+input:hover,
+textarea:hover,
+button:hover,
+.output-directory:hover,
+.drop-zone:hover,
+.drop-zone--over,
+.slider:hover {
+    box-shadow: var(--hover-box-shadow),
+        var(--box-shadow-inset-neg);
+    outline: var(--hover-outline);
+}
+
+input:focus,
+textarea:focus {
+    box-shadow: var(--focus-box-shadow);
+    outline: var(--focus-outline);
+}
+
+button {
+    display: flex;
+    align-self: center;
+    justify-content: center;
+    align-items: center;
+    border: none;
+    color: var(--input-font-color);
+    background-color: var(--button-color);
+    border-radius: 10px;
+    box-shadow: var(--box-shadow-inset-neg);
+    min-width: calc(var(--input-height)*1.5);
+}
+
+button:hover {
+    background-color: var(--icon-color);
+
+    [class^="icon-"],
+    [class*=" icon-"] {
+        color: var(--input-background-color);
+    }
+}
+
+input,
+select {
+    height: var(--input-height);
+    border: none;
     outline: none;
+    box-shadow: var(--box-shadow-inset-pos);
 }
 
-input:hover {
-    box-shadow: 0 0 5px #51a1df;
-    border: 1px solid #51a1df;
-    outline: none;
-}
-
-/* Adjust slider appearance */
+/********** Range Input Styles **********/
+/*Range Reset*/
 input[type="range"] {
-    background-color: rgba(5, 5, 5, 0.6);
-    width: 50%;
-    min-height: 20px;
-    margin-left: 10px;
-    margin-right: 10px;
-    padding-left: 10px;
-    padding-right: 10px;
-
-}
-
-input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 20px;
-    min-height: 20px;
-    background-color: rgba(5, 5, 5, 0.6);
-    /* Blue thumb color */
+    height: 0.5rem;
+    background: transparent;
     cursor: pointer;
-    margin-left: 10px;
-    margin-right: 10px;
-    padding-left: 10px;
-    padding-right: 10px;
+    width: 15rem;
 }
+
+/* slider thumb */
+input[type="range"]::-webkit-slider-thumb {
+    box-shadow: var(--box-shadow-inset-neg);
+    appearance: none;
+    background-color: var(--knob-color);
+    height: calc(var(--input-height) * 0.75);
+    width: calc(var(--input-height) * 0.75);
+    margin-top: calc(-1em * 0.75);
+    border-radius: 100%;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    box-shadow: var(--box-shadow-inset-pos);
+    background-color: var(--input-background-color);
+    border-radius: 15px;
+    height: 100%;
+    width: 100%;
+}
+
 
 /* Adjust input number appearance */
 input[type="number"] {
-    width: 40%;
-    min-height: 20px;
-    margin-left: 10px;
-    margin-right: 10px;
-    padding-left: 10px;
-    padding-right: 10px;
-}
-
-input:focus {
-    box-shadow: 0 0 5px #51a1df;
-    border: 1px solid #51a1df;
-    outline: none;
-}
-
-label {
-    font-family: "Quicksand", sans-serif;
-    color: #e0e0e0;
-    font-size: 14px;
-    font-weight: 500;
-    width: 30%;
-    margin-right: 10px;
-    padding-right: 10px;
-}
-
-textarea {
-    font-family: "Quicksand", sans-serif;
-    width: 100vh;
-    height: 70px;
-    margin: 10px;
-    padding: 10px;
-    background-color: rgba(5, 5, 5, 0.6);
+    text-align: center;
+    height: var(--input-height);
+    margin-left: 5px;
+    padding-right: 1.5rem;
+    padding-left: 5px;
+    color: var(--input-number-color);
     border: none;
     border-radius: 10px;
-    font-size: 16px;
+    background-color: var(--input-background-color);
+
+    &::-webkit-inner-spin-button {
+        opacity: 0.5 !important;
+        background-color: var(--input-background-color);
+        color: var(--input-font-color);
+        height: 100%;
+        width: 1.2rem;
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        cursor: pointer;
+    }
+}
+
+
+label {
+    color: var(--label-font-color);
+    font-size: medium;
+    font-weight: 600;
+    padding: 5px;
+
+}
+
+
+
+textarea {
+    background-color: var(--input-background-color);
+    color: var(--textarea-font-color);
+    border: 0px;
+    padding: 10px;
+    border-radius: 10px;
+    font-size: large;
     resize: vertical;
     transition: box-shadow 0.3s ease-in-out;
+    box-shadow: var(--box-shadow-inset-pos),
+        var(--box-shadow-inset-neg);
+
 }
 
-textarea:focus {
-    box-shadow: 0 0 5px #33a2f6;
-    border: 1px solid #33a2f6;
-    outline: none;
+
+/*////////////////scrollbar////////////////*/
+
+
+::-webkit-scrollbar {
+    display: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    scrollbar-gutter: stable;
+    border: none;
+    padding: 0px;
+    margin: 0px;
 }
 
-.logo-on-page {
-    align-self: center;
-    height: 30px;
-    margin-right: 20px;
+::-webkit-scrollbar-track {
+    box-shadow: var(--box-shadow-inset-pos);
+    background-color: var(--input-background-color);
+    border-radius: 10px;
+    margin-top: 15px;
+    margin-bottom: 15px;
+}
+
+
+::-webkit-scrollbar-thumb {
+    border-radius: 10px;
+    background-clip: content-box;
+    box-shadow: var(--box-shadow-inset-neg);
+    background-color: var(--knob-color);
+}
+
+::-webkit-scrollbar-thumb:vertical {
+    min-height: 40px;
+}
+
+::-webkit-scrollbar-thumb:horizontal {
+    min-width: 40px;
+}
+
+::-webkit-scrollbar-corner {
+    appearance: none;
 }

@@ -1,135 +1,153 @@
-.image_and_prompt_creator {
-    display: flex;
-    width: 70vh;
-    height: 95vh;
-    flex-direction: column;
-    padding-left: 10px;
-    margin-left: 10px;
-    padding-right: 10px;
-    margin-right: 10px;
-}
-
-.drop-zone-prompt {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-}
-
-.drop-zone:hover {
-    box-shadow: 0 0 5px #51a1df;
-    border: 1px solid #51a1df;
-    outline: none;
-    .drop-zone-prompt {
-        transform: scale(1.2);
-        transition: 0.4s;
-    }
+.image-and-prompt-container {
+  margin: 0px 15px 0px 15px;
+  padding: 0px;
+  width: 100%;
 }
 
 .drop-zone {
-    width: 65vh;
-    height: 50vh;
-    padding: 10px;
-    margin: 10px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    font-family: "Quicksand", sans-serif;
-    font-weight: 500;
-    font-size: 15px;
-    cursor: pointer;
-    color: #cccccc;
-    border: 1px solid #ffffff;
-    border-radius: 10px;
-    position: relative;
-    overflow: hidden;
-    transition: background-color 0.3s ease;
+  justify-content: center;
+  text-align: center;
+  font-weight: 500;
+  font-size: smaller;
+  cursor: pointer;
+  color: var(--font-color);
+  background-color: var(--input-background-color);
+  box-shadow: inset 0 0 0px 1px var(--dark-accent), var(--box-shadow-inset-neg);
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.3s ease;
+  height: 40vh;
+  z-index:7;
 }
 
-
-.drop-zone--over {
-    border-style: solid;
+.drop-zone-prompt {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index:7;
 }
 
-.drop-zone__input {
-    display: none;
+.drop-zone:hover {
+  .drop-zone-prompt {
+    transform: scale(1.2);
+    transition: 0.4s;
+  }
 }
 
-.drop-zone__thumb {
-    width: auto;
-    max-width: 100%;
-    object-fit: contain;
-    height: 40vh;
-    border-radius: 5px;
-    overflow: auto;
-    position: relative;
+#drop-zone-input-field {
+  display: none;
 }
 
-.drop-zone__thumb::after {
-    content: attr(data-label);
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    padding: 2px 0;
-    color: #ffffff;
-    background: rgba(0, 0, 0, 0.75);
-    font-size: 14px;
-    text-align: center;
+#drop-zone-thumbnail-image {
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  height: 90%;
+  border-radius: 5px;
+  overflow: auto;
+  position: relative;
+  z-index:7;
+}
+
+#drop-zone-thumbnail-image::after {
+  content: attr(data-label);
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 2px 0;
+  font-size: small;
+  text-align: center;
+  z-index:7;
+}
+
+#upload-file-drop-zone {
+  color: var(--font-color);
+  font-weight: 400;
+  font-size: medium;
+  width: 80%;
+  z-index:7;
 }
 
 .generate-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: rgba(74, 159, 74, 0.8);
-    color: rgb(229, 229, 229);
-    border: none;
-    width: 100%;
-    height: 40px;
-    margin: 10px;
-    padding: 10px;
-    border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background-color: var(--generate-button-color);
+  border-radius: 10px;
+  font-size: x-large;
+  color: var(--font-color);
+  width: 100%;
+  text-align: center;
+  height: 3rem;
+  margin-top: 5%;
+  margin-bottom: 5%;
+}
+
+.generate-icon {
+  position: absolute;
+  left: 15px;
+  /* Adjust the left position as needed */
 }
 
 .generate-button:hover {
-    background-color: rgb(90, 192, 90);
-    transform: scale(1.02);
-    transition: 0.4s;
-    /* Changes the background color on hover for a simple effect */
+  background-color: var(--generate-button-hover-color);
+  transform: scale(1.02);
+  transition: 0.4s;
 }
 
-.generate-button svg {
-    margin-right: 10px;
-    /* Adjust the spacing between the icon and text */
+.generate-button:hover .generate-icon {
+  transform: rotateZ(-15deg);
+  transition: 0.4s;
 }
 
-.generate-button:hover svg {
-    transform: rotateZ(-15deg);
-    transition: 0.4s;
-    /* Adjust the spacing between the icon and text */
+#prompt-textfield {
+  width: 100%;
+  height: calc(var(--input-height) * 4);
+  color: var(--prompt-text-color);
+  background-color: var(--prompt-background-color);
+  border: 1px solid var(--prompt-border-color);
 }
 
-#prompt {
-    color: green;
-    padding: 10px;
+#negative-prompt-textfield {
+  width: 100%;
+  height: calc(var(--input-height) * 4);
+  color: var(--negative-prompt-text-color);
+  background-color: var(--negative-prompt-background-color);
+  border: 1px solid var(--negative-prompt-border-color);
 }
 
-#prompt:hover {
-    box-shadow: 0 0 5px #51a1df;
-    border: 1px solid #51a1df;
-    outline: none;
+/* Style for the info icon */
+.info-icon {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--icon-color);
+  z-index:9;
 }
 
-#negative_prompt {
-    color: rgb(161, 10, 10);
-    padding: 10px;
+/* Tooltip styling (optional) */
+.tooltip {
+  display: none;
+  position: absolute;
+  bottom: 40px;
+  right: 10px;
+  background-color: #333;
+  color: #fff;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 14px;
+  z-index: 20;
+  max-width: 200px;
 }
 
-#negative_prompt:hover {
-    box-shadow: 0 0 5px #51a1df;
-    border: 1px solid #51a1df;
-    outline: none;
+/* Show tooltip when info icon is clicked */
+.input-container.drop-zone .tooltip.show {
+  display: block;
 }
