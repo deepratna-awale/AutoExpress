@@ -66,10 +66,10 @@
     --negative-prompt-background-color: rgba(0, 0, 0, 0.1);
 
     /*generate button color*/
-    --generate-button-color: rgba(36, 100, 23, 0.76);
+    --generate-button-color: rgba(69, 142, 77, 1);
 
     /*generate button hover color*/
-    --generate-button-hover-color: #5fe691;
+    --generate-button-hover-color: rgb(94, 201, 106);
 
     --hover-outline-color: rgba(0, 153, 255, 0);
     --hover-shadow-color: rgb(116, 188, 248);

@@ -79,7 +79,7 @@
   position: relative;
   background-color: var(--generate-button-color);
   border-radius: 10px;
-  font-size: x-large;
+  font-size: large;
   color: var(--font-color);
   width: 100%;
   text-align: center;
@@ -89,8 +89,7 @@
 }
 
 .generate-icon {
-  position: absolute;
-  left: 15px;
+  margin-right: 20px;
   /* Adjust the left position as needed */
 }
 
