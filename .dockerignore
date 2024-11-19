@@ -1,0 +1,14 @@
+# Exclude specific folders
+Output/
+uploads/
+
+# Exclude batch files
+*.bat
+
+# Exclude other unnecessary files/folders
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.env
+.venv/
