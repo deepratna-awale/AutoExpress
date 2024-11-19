@@ -8,9 +8,17 @@ import pathlib
 
 class A1111Client:
 
-    def __init__(self, ip="127.0.0.1", port="7860", use_https=False):
-        protocol = "https://" if use_https else "http://"
-        self._url = f"{protocol}{ip}:{port}"
+    def __init__(self, host: str = "127.0.0.1", port: str = "7860", use_https: bool = False) -> None:
+        """
+        Initialize the A1111Client object.
+
+        Args:
+            host (str, optional): The host of the sd server. Defaults to "127.0.0.1".
+            port (str, optional): The port of the sd server. Defaults to "7860".
+            use_https (bool, optional): Whether to use https for the connection. Defaults to False.
+        """
+        protocol = "https" if use_https else "http"
+        self._base_url = f"{protocol}://{host}:{port}"
         self._endpoints = {
             "img2img": "/sdapi/v1/img2img",
             "samplers": "/sdapi/v1/samplers",
@@ -19,12 +27,20 @@ class A1111Client:
             "extensions": "/sdapi/v1/extensions",
             "interrupt": "/sdapi/v1/interrupt",
             "image_info": "/sdapi/v1/png-info",
+            "schedulers": "/sdapi/v1/schedulers"
         }
 
+
     @property
-    def extensions(self):
+    def extensions(self) -> dict[str, bool]:
+        """
+        Get a dictionary of extension names mapped to their enabled status.
+
+        Returns:
+            dict[str, bool]: A dictionary of extension names mapped to their enabled status.
+        """
         response = requests.get(
-            url=f"{self._url}{self._endpoints['extensions']}",
+            url=f"{self._base_url}{self._endpoints['extensions']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -36,12 +52,18 @@ class A1111Client:
             log.error(
                 f"Request failed with code: {response.status_code} {response.json()}"
             )
-            return None
+            return {}
 
     @property
-    def loras(self):
+    def loras(self) -> list[str] | None:
+        """
+        Fetches the list of Lora names from the server.
+
+        Returns:
+            list[str] | None: A list of Lora names if successful, otherwise None.
+        """
         response = requests.get(
-            url=f"{self._url}{self._endpoints['loras']}",
+            url=f"{self._base_url}{self._endpoints['loras']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -56,9 +78,15 @@ class A1111Client:
             return None
 
     @property
-    def samplers(self):
+    def samplers(self) -> list[str] | None:
+        """
+        Fetches the list of sampler names from the server.
+
+        Returns:
+            list[str] | None: A list of sampler names if successful, otherwise None.
+        """
         response = requests.get(
-            url=f"{self._url}{self._endpoints['samplers']}",
+            url=f"{self._base_url}{self._endpoints['samplers']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -73,14 +101,43 @@ class A1111Client:
             return None
 
     @property
-    def models(self):
+    def schedulers(self) -> list[str] | None:
+        """
+        Fetches the list of scheduler names from the server.
+
+        Returns:
+            list[str] | None: A list of scheduler names if successful, otherwise None.
+        """
         response = requests.get(
-            url=f"{self._url}{self._endpoints['models']}",
+            url=f"{self._base_url}{self._endpoints['schedulers']}",
             headers={"Content-Type": "application/json"},
         )
 
         if response.status_code == 200:
             r = response.json()
+            schedulers = [scheduler["name"] for scheduler in r]
+            return schedulers
+        else:
+            log.error(
+                f"Request failed with code: {response.status_code} {response.json()}"
+            )
+            return None
+
+    @property
+    def models(self) -> list[str] | None:
+        """
+        Fetches the list of model names from the server.
+
+        Returns:
+            list[str] | None: A list of model names if successful, otherwise None.
+        """
+        response = requests.get(
+            url=f"{self._base_url}{self._endpoints['models']}",
+            headers={"Content-Type": "application/json"},
+        )
+
+        if response.status_code == 200:
+            r: list[dict[str, str]] = response.json()
             models = [model["model_name"] for model in r]
             return models
         else:
@@ -89,9 +146,19 @@ class A1111Client:
             )
             return None
 
-    def img2img_api(self, json_payload):
+
+    def img2img_api(self, json_payload: str) -> requests.Response | bool:
+        """
+        Performs an img2img request to the A1111 server.
+
+        Args:
+            json_payload (str): A JSON string containing the request payload.
+
+        Returns:
+            requests.Response | bool: The response from the server, or False if the request failed.
+        """
         response = requests.post(
-            url=f"{self._url}{self._endpoints['img2img']}",
+            url=f"{self._base_url}{self._endpoints['img2img']}",
             data=json_payload,
             headers={"Content-Type": "application/json"},
         )
@@ -102,11 +169,21 @@ class A1111Client:
         log.error(f"Request failed with code: {response.status_code} {response.json()}")
         return False
 
-    def get_image_info(self, b64_image):
+
+    def get_image_info(self, b64_image: str) -> requests.Response | bool:
+        """
+        Retrieves image information from the server.
+
+        Args:
+            b64_image (str): Base64 encoded image string.
+
+        Returns:
+            requests.Response | bool: The server response if successful, otherwise False.
+        """
         png_payload = "data:image/png;base64," + b64_image
 
         response = requests.post(
-            url=f"{self._url}{self._endpoints['image_info']}",
+            url=f"{self._base_url}{self._endpoints['image_info']}",
             json=png_payload,
             headers={"Content-Type": "application/json"},
         )
@@ -117,9 +194,15 @@ class A1111Client:
         log.error(f"Request failed with code: {response.status_code} {response.json()}")
         return False
 
-    def interrupt(self):
+    def interrupt(self) -> bool:
+        """
+        Interrupts the current generation.
+
+        Returns:
+            bool: True if successful, otherwise False.
+        """
         response = requests.post(
-            url=f"{self._url}{self._endpoints['interrupt']}",
+            url=f"{self._base_url}{self._endpoints['interrupt']}",
             headers={"Content-Type": "application/json"},
         )
 
@@ -130,10 +213,19 @@ class A1111Client:
             return False
 
         r = response.json()
-        log.error(f"Interrupted by user.{r.text}")
+        log.error(f"Interrupted by user. {r.get('text', '')}")
         return True
 
-    def is_extension(self, ext="adetailer"):
+    def is_extension(self, ext: str = "adetailer") -> bool:
+        """
+        Checks if the given extension is present and enabled on the A1111 server.
+
+        Args:
+            ext (str, optional): The name of the extension to check. Defaults to "adetailer".
+
+        Returns:
+            bool: True if the extension is found and enabled, False otherwise.
+        """
         extensions = self.extensions
         log.debug(f"Found following extensions: {extensions}")
 
@@ -149,12 +241,24 @@ class A1111Client:
 
         log.error(f"Could not find {ext} extension")
         return False
-    
+
     def setURL(self, url: str):
-        self._url = url
+        """
+        Sets the URL of the A1111 server.
+
+        Args:
+            url (str): The URL of the A1111 server.
+        """
+        self._base_url = url
 
     def getURL(self):
-        return self._url
+        """
+        Retrieves the current URL of the A1111 server.
+
+        Returns:
+            str: The URL of the A1111 server.
+        """
+        return self._base_url
 
 
 def main():

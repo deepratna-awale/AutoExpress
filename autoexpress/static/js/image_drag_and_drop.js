@@ -67,6 +67,9 @@ function updateThumbnail(dropZoneElement, file) {
 
 function uploadImage(file) {
     const formData = new FormData();
+    const fileName = file.name;
+    const outputDir = document.getElementById('output-directory');
+    outputDir.value = fileName.trim().split('.').slice(0, -1).join('.');
     formData.append('file', file);
 
     fetch('/upload', {
@@ -78,30 +81,25 @@ function uploadImage(file) {
             console.log('Upload successful. Recieved metadata for the image:', data)
             const uncleaned_data = data.uncleaned_data;
             const image_data = data.cleaned_data;
-            showRawData(uncleaned_data);
-            updateToolTip(uncleaned_data);
-            updateUI(image_data);
-
+            createInfoAlert(uncleaned_data);
+            createImageHoverTooltip(uncleaned_data);
+            updateUI(data);
         })
         .catch(error => console.error('Error uploading file:', error));
 }
 
 
-function showRawData(uncleaned_data) {
+function createInfoAlert(uncleaned_data) {
     const element = document.getElementById("info-icon");
 
-    // Show uncleaned data on hover
-    element.addEventListener('mouseenter', () => {
-        element.title = uncleaned_data; // Use title attribute to show data as tooltip
-    });
-
-    // Remove tooltip on mouse leave
-    element.addEventListener('mouseleave', () => {
-        element.removeAttribute('title');
+    // Show uncleaned data in an alert on click
+    element.addEventListener('click', () => {
+        alert(uncleaned_data);
     });
 }
 
-function updateToolTip(data) {
+
+function createImageHoverTooltip(data) {
     const element = document.getElementById('drop-zone-thumbnail-image');
 
     // Show uncleaned data on hover
@@ -116,23 +114,34 @@ function updateToolTip(data) {
 } 
 
 function updateUI(data) {
-    setDropdownValue('model-input', data.checkpoint);
-    setDropdownValue('sampler-input', data.sampler);
-    setDropdownValue('lora-input', data.lora);
-    setDropdownValue('scheduler-input', data.scheduler);
+
+    if (data.cleaned_data === null) {
+        console.log("No data received from the server. Falling back to pillow metadata.");
+        document.getElementById('width-input').value = data.width;
+        document.getElementById('height-input').value = data.height;
+        return;
+    }
+    data = data.cleaned_data;
+    setDropdownValue('model-input', data.ad_checkpoint);
+    setDropdownValue('sampler-input', data.ad_sampler);
+    setDropdownValue('scheduler-input', data.ad_scheduler);
+
     
-    document.getElementById('clip-skip-input').value = data.clip_skip;
+    document.getElementById('clip-skip-input').value = data.ad_clip_skip;
     document.getElementById('seed-input').value = data.seed;
     
-    document.getElementById('steps-input').value = data.steps;
+    document.getElementById('steps-input').value = data.ad_steps;
 
-    document.getElementById('width-input').value = data.inpaint_width;
-    document.getElementById('height-input').value = data.inpaint_height;
-    document.getElementById('cfg-scale-input').value = data.cfg_scale;
+    document.getElementById('width-input').value = data.width;
+    document.getElementById('height-input').value = data.height;
+    document.getElementById('cfg-scale-input').value = data.ad_cfg_scale;
     document.getElementById('denoising-strength-input').value = data.denoising_strength;
     
     document.getElementById('prompt-textfield').value = data.prompt;
     document.getElementById('negative-prompt-textfield').value = data.negative_prompt;
+    
+    // const multiSelectElement = document.querySelector('multi-select');
+    // multiSelectElement.addLorawithStrength('vomcum', 0.7);
 }
 
 
