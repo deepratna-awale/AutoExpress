@@ -1,7 +1,8 @@
+
+
 let image_data = null;
 
 document.querySelector('.sd-connect').addEventListener('click', function () {
-    ;
     var inputText = document.querySelector('#ip-input').value;  // Get the input value
     var button = this;
 
@@ -56,18 +57,41 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
         .then(response => response.json())
         .then(models => {
             handleEmptyData(models, 'model-input');
+            button.style.backgroundColor = 'green';
+            if (image_data != null) {
+                document.getElementById('model-input').value = image_data.ad_checkpoint;
+            }
         })
         .catch(error => {
             console.error('Error loading models:', error);
             button.style.backgroundColor = 'red';  // Set button background to red
         });
 
-    // Fetch samplers and populate dropdown
+
+    // Fetch schedulers and populate dropdown
     fetch('/get-samplers')
         .then(response => response.json())
         .then(models => {
             handleEmptyData(models, 'sampler-input');
             button.style.backgroundColor = 'green';
+            if (image_data != null) {
+                document.getElementById('sampler-input').value = image_data.ad_sampler;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading models:', error);
+            button.style.backgroundColor = 'red';  // Set button background to red
+        });
+
+    // Fetch schedulers and populate dropdown
+    fetch('/get-schedulers')
+        .then(response => response.json())
+        .then(models => {
+            handleEmptyData(models, 'scheduler-input');
+            button.style.backgroundColor = 'green';
+            if (image_data != null) {
+                document.getElementById('scheduler-input').value = image_data.ad_scheduler;
+            }
         })
         .catch(error => {
             console.error('Error loading models:', error);
@@ -78,11 +102,25 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
     fetch('/get-loras')
         .then(response => response.json())
         .then(models => {
-            handleEmptyData(models, 'lora-input');
+            const multiSelectData = models.map(model => ({
+                value: model,
+                text: model
+            }));
+            new MultiSelect('#lora-input', {
+                data: multiSelectData, // Array of model names
+                placeholder: 'Select Lora(s)',
+                selectAll: false,
+                search: true,
+                listAll: false,
+                onChange: function (value, text, element) {
+                    console.log('Change:', value, text, element);
+                },
+                onSelect: function (value, text, element) {
+                    console.log('Selected:', value, text, element);
+                }
+            });
             if (image_data != null) {
-                document.getElementById('lora-input').value = image_data.lora;
-                document.getElementById('model-input').value = image_data.ad_checkpoint;
-                document.getElementById('sampler-input').value = image_data.ad_sampler;
+                // document.getElementById('lora-input').value = image_data.lora;
             }
         })
         .catch(error => {

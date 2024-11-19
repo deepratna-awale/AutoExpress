@@ -38,6 +38,16 @@ def index():
 
 
 # Stable diffusion API Calls
+@autoexpress.route("/interrupt", methods=["POST"])
+def interrupt_generation():
+    # Simulate fetching models from an API
+    try:
+        response = sd.interrupt()
+    except requests.exceptions.ConnectionError:
+        response = "Failed to Interrupt the SD Session."
+    return jsonify(response)
+
+
 @autoexpress.route("/get-models")
 def get_models():
     # Simulate fetching models from an API
@@ -56,6 +66,16 @@ def get_samplers():
     except requests.exceptions.ConnectionError:
         samplers = []
     return jsonify(samplers)
+
+
+@autoexpress.route("/get-schedulers")
+def get_schedulers():
+    # Simulate fetching models from an API
+    try:
+        schedulers = sd.schedulers
+    except requests.exceptions.ConnectionError:
+        schedulers = []
+    return jsonify(schedulers)
 
 
 @autoexpress.route("/get-loras")
@@ -85,9 +105,10 @@ def upload_file():
         filepath = os.path.join(autoexpress.config["UPLOAD_FOLDER"], filename)
         file.save(filepath)
 
-        full_image_data = {"cleaned_data": None, "uncleaned_data": None}
-        full_image_data["cleaned_data"] = image_parser.generate_parameters(filepath)
+        full_image_data = {"cleaned_data": None, "uncleaned_data": None, "width": None, "height": None}
+        full_image_data["cleaned_data"] = image_parser.generate_cleaned_parameters(filepath)
         full_image_data["uncleaned_data"] = image_parser.generate_uncleaned_params(filepath)
+        full_image_data["width"], full_image_data["height"] = image_parser.get_size_from_image_metadata(filepath)
 
         return (
             jsonify(full_image_data),
@@ -106,25 +127,22 @@ def allowed_file(filename):
 # Try connecting to SD
 @autoexpress.route("/receive_data", methods=["POST"])
 def receive_data():
+    """Set the Stable Diffusion URL."""
 
     data = request.json
-    
     url = data["text"]
 
-    if url in [""]:
+    if not url:
         sd.setURL("http://127.0.0.1:7860")
-        log.info(f"No url found.")
-    
-    elif url[-1] in ["/"]:
+        log.info("No url found, defaulting to http://127.0.0.1:7860")
+    elif url.endswith("/"):
         sd.setURL(url[:-1])
-
-    elif "http" in url:
+    elif url.startswith("http"):
         sd.setURL(url)
-
     else:
         sd.setURL("http://" + url)
 
-    log.info("SD URL set to: " + sd.getURL())
+    log.info(f"SD URL set to: {sd.getURL()}")
 
     return jsonify({"status": "success"})
 
@@ -141,13 +159,16 @@ def generate():
     matches = get_lora_from_prompt(data.get("ad_prompt"))
     img_str = data.get("init_images")
 
-    output_dir = data.get("output_dir") or "New_Character"
-
-    if not matches and data.get("lora") not in [""]:
-        data["ad_prompt"] += f" <lora: {data.get('lora')}: 0.8>"
-
+    output_dir = data.get("output_dir").strip().rsplit(".", 1)[0] or "New_Character"
+    lora_list = data.get("loras")
+    
+    for lora_item in lora_list:
+        lora_name = lora_item.get("lora_name")
+        lora_strength = lora_item.get("lora_strength")
+        data["prompt"] += f" <lora: {lora_name}: {lora_strength}>, "
+    
     data.pop("output_dir")
-    data.pop("lora")
+    data.pop("loras")
     data.pop("init_images")
 
     log.info("Using the following generation parameters:\n" + str(data))

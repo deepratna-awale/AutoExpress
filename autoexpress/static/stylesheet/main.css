@@ -33,7 +33,7 @@
     --header-font-color: #ffffff;
 
     /* Labels Color */
-    --label-font-color: rgb(201, 201, 201);
+    --label-font-color: rgb(255, 255, 255);
 
     /*input field font color*/
     --input-font-color: rgb(201, 201, 201);
@@ -52,7 +52,7 @@
     /* filter over the background */
     --body-background-filter-color: rgba(0, 0, 0, 0.6);
     /* the background of the fields*/
-    --input-background-color: rgba(65, 65, 65, 0.4);
+    --input-background-color: rgba(32, 32, 32, 0.9);
 
     /* button colors */
     --button-color: rgba(0, 0, 0, 0.6);
@@ -67,9 +67,11 @@
 
     /*generate button color*/
     --generate-button-color: rgba(69, 142, 77, 1);
+    --interrupt-button-color: rgb(32, 32, 32);
 
     /*generate button hover color*/
     --generate-button-hover-color: rgb(94, 201, 106);
+    --interrupt-button-hover-color: rgb(102, 3, 3);
 
     --hover-outline-color: rgba(0, 153, 255, 0);
     --hover-shadow-color: rgb(116, 188, 248);
@@ -404,8 +406,8 @@ textarea {
 
 
 ::-webkit-scrollbar {
-    display: none;
-    width: 0.5rem;
+    /* display: none; */
+    width: 0.25rem;
     height: 0.5rem;
     scrollbar-gutter: stable;
     border: none;
@@ -419,6 +421,7 @@ textarea {
     border-radius: 10px;
     margin-top: 15px;
     margin-bottom: 15px;
+
 }
 
 
@@ -427,6 +430,7 @@ textarea {
     background-clip: content-box;
     box-shadow: var(--box-shadow-inset-neg);
     background-color: var(--knob-color);
+
 }
 
 ::-webkit-scrollbar-thumb:vertical {
@@ -438,5 +442,5 @@ textarea {
 }
 
 ::-webkit-scrollbar-corner {
-    appearance: none;
+    appearance: black;
 }

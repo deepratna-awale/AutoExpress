@@ -64,7 +64,7 @@ def edit_payload_body(b64_image_str: str, payload, settings=None, expression_tag
             update_nested_key(payload, key, value)
 
     prompt = find_nested_key(payload, "ad_prompt")
-
+    
     if prompt:
         if prompt[-1] not in [","]:
             update_nested_key(payload, "ad_prompt", prompt + ", ")
@@ -72,8 +72,8 @@ def edit_payload_body(b64_image_str: str, payload, settings=None, expression_tag
     if expression_tags:
         update_nested_key(
             payload,
-            "ad_prompt",
-            find_nested_key(payload, "ad_prompt") + str(expression_tags),
+            "prompt",
+            find_nested_key(payload, "prompt") + str(expression_tags),
         )
 
     payload["prompt"] = payload["alwayson_scripts"]["ADetailer"]["args"][2]["ad_prompt"]

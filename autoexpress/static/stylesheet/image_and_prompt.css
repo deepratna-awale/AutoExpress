@@ -71,7 +71,16 @@
   z-index:7;
 }
 
+.button-container{
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center; 
+  gap:20px
+}
+
 .generate-button {
+  flex: 7 1 70%; 
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -95,13 +104,44 @@
 
 .generate-button:hover {
   background-color: var(--generate-button-hover-color);
-  transform: scale(1.02);
   transition: 0.4s;
 }
 
-.generate-button:hover .generate-icon {
-  transform: rotateZ(-15deg);
-  transition: 0.4s;
+.generate-button:hover .generate-icon{
+  color: rgb(255, 255, 255);
+}
+
+.interrupt-button {
+  flex: 3 1 30%; 
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background-color: var(--interrupt-button-color);
+  border-radius: 10px;
+  font-size: large;
+  color: var(--font-color);
+  width: 100%;
+  text-align: center;
+  height: 3rem;
+  margin-top: 5%;
+  margin-bottom: 5%;
+}
+
+.interrupt-button:hover {
+  background-color: var(--interrupt-button-hover-color);
+}
+
+
+.interrupt-icon {
+  margin-right: 20px;
+  color: #eeca27;
+  z-index: 10;
+}
+
+.interrupt-button:hover .interrupt-icon{
+  color:rgb(255, 255, 255)
 }
 
 #prompt-textfield {
@@ -128,7 +168,8 @@
   font-size: 18px;
   cursor: pointer;
   color: var(--icon-color);
-  z-index:9;
+  z-index:20;
+  
 }
 
 /* Tooltip styling (optional) */

@@ -30,7 +30,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/image_viewer.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/slider_object.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/frontend_settings.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/multi_select.css') }}" />
   <link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon-rounded.png') }}" />
+
   <meta name="theme-color" content="#14151f">
   <!-- Dark/Light mode support <meta name="color-scheme" content="dark light" /> -->
 </head>
@@ -81,12 +83,11 @@
 
         <!-- Lora Dropdown -->
         <div class="input-container select-container">
-          <label for="lora-input">Lora</label>
-          <select id="lora-input" name="lora">
-            <!-- Add more options as needed -->
-          </select>
+          <label for="lora-input">Lora(s)</label>
+            <select id="lora-input" class="dropdown" data-placeholder="Select Lora(s)" name="lora-input">
+              <!-- Add more options as needed -->
+            </select>
         </div>
-
 
         <div class="input-container grid-container">
           <!-- Clip skip Input -->
@@ -142,7 +143,7 @@
           <label for="denoising-strength-slider">Denoising Strength</label>
           <input type="range" id="denoising-strength-slider" name="denoising-strength-slider" min="0" max="1"
             value="0.5" step="0.05" oninput="updateInput('denoising-strength')" />
-          <input type="number" id="denoising-strength-input" name="denoising-strength-input" min="0" max="1" value="0.5"
+          <input type="number" id="denoising-strength-input" name="denoising-strength-input" min="0" max="1" value="0.5" step="0.05"
             oninput="updateSlider('denoising-strength')" />
         </div>
 
@@ -199,14 +200,19 @@
           </div>
           <input type="file" name="image" id="drop-zone-input-field" />
           <!-- Info icon at bottom right -->
-          <span class="icon-info info-icon" id="info-icon" title="Drop image and hover on this icon or the image to see the raw generation data. This can help you fill in the missing parameters manually if not autodetected."></span>
+          <span class="icon-info info-icon" id="info-icon" title="Drop image and click on this icon or hover over the image to see the raw generation data. This can help you fill in the missing parameters manually if not autodetected."></span>
           <div class="tooltip" id="tooltip"></div>
         </div>
-
-        <button type="submit" class="generate-button" data-lucide="image-play">
-          <div class="generate-icon icon-image-play"></div>
-          Generate
-        </button>
+        <div class="button-container">
+          <button type="submit" class="generate-button" data-lucide="image-play">
+            <div class="generate-icon icon-image-play"></div>
+            Generate
+          </button>
+          <button class="interrupt-button" data-lucide="triangle-alert">
+            <div class="interrupt-icon icon-triangle-alert"></div>
+            Interrupt
+          </button>
+        </div>
         <div class="input-container">
           <textarea type="text" id="prompt-textfield" name="prompt-textfield"
             placeholder="Prompt"></textarea>
@@ -255,6 +261,7 @@
   <script src="{{ url_for('static', filename='js/image_viewer.js') }}"></script>
   <script src="{{ url_for('static', filename='js/anime_toggle.js') }}"></script>
   <script src="{{ url_for('static', filename='js/frontend_settings.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/multi_select.js') }}"></script>
 </body>
 
 </html>
