@@ -1,6 +1,6 @@
 
-
-let image_data = null;
+var multiSelectElement = null;
+var image_data = null;
 
 document.querySelector('.sd-connect').addEventListener('click', function () {
     var inputText = document.querySelector('#ip-input').value;  // Get the input value
@@ -106,26 +106,22 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
                 value: model,
                 text: model
             }));
-            new MultiSelect('#lora-input', {
+            multiSelectElement = new MultiSelect('#lora-input', {
                 data: multiSelectData, // Array of model names
                 placeholder: 'Select Lora(s)',
                 selectAll: false,
                 search: true,
                 listAll: false,
-                onChange: function (value, text, element) {
-                    console.log('Change:', value, text, element);
-                },
-                onSelect: function (value, text, element) {
-                    console.log('Selected:', value, text, element);
-                }
             });
-            if (image_data != null) {
-                // document.getElementById('lora-input').value = image_data.lora;
-            }
+
         })
         .catch(error => {
             console.error('Error loading models:', error);
             button.style.backgroundColor = 'red';  // Set button background to red
         });
 
+
+    if (image_data != null) {
+        updateUI(image_data);
+    }
 });

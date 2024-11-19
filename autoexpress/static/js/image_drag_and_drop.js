@@ -1,3 +1,5 @@
+var data = null;
+
 document.querySelectorAll("#drop-zone-input-field").forEach((inputElement) => {
     const dropZoneElement = inputElement.closest(".drop-zone");
 
@@ -79,11 +81,11 @@ function uploadImage(file) {
         .then(response => response.json())
         .then(data => {
             console.log('Upload successful. Recieved metadata for the image:', data)
+            image_data = data;
             const uncleaned_data = data.uncleaned_data;
-            const image_data = data.cleaned_data;
             createInfoAlert(uncleaned_data);
             createImageHoverTooltip(uncleaned_data);
-            updateUI(data);
+            updateUI(image_data);
         })
         .catch(error => console.error('Error uploading file:', error));
 }
@@ -135,13 +137,30 @@ function updateUI(data) {
     document.getElementById('width-input').value = data.width;
     document.getElementById('height-input').value = data.height;
     document.getElementById('cfg-scale-input').value = data.ad_cfg_scale;
-    document.getElementById('denoising-strength-input').value = data.denoising_strength;
+    document.getElementById('denoising-strength-input').value = data.ad_denoising_strength;
     
-    document.getElementById('prompt-textfield').value = data.prompt;
-    document.getElementById('negative-prompt-textfield').value = data.negative_prompt;
+    document.getElementById('prompt-textfield').value = data.ad_prompt;
+    document.getElementById('negative-prompt-textfield').value = data.ad_negative_prompt;
     
-    // const multiSelectElement = document.querySelector('multi-select');
-    // multiSelectElement.addLorawithStrength('vomcum', 0.7);
+    if (multiSelectElement === null) {
+        const multiSelectData = data.loras.map(lora => ({
+            value: lora.lora_name,
+            text: lora.lora_name
+        }));
+
+        multiSelectElement = new MultiSelect('#lora-input', {
+            data: multiSelectData, // Array of model names
+            placeholder: 'Select Lora(s)',
+            selectAll: false,
+            search: true,
+            listAll: false,
+        });
+
+    }
+    data.loras.forEach(lora => {
+        multiSelectElement.addLoraWithStrength(lora.lora_name, lora.lora_strength);
+    });
+
 }
 
 

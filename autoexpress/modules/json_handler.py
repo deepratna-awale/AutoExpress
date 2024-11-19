@@ -72,14 +72,14 @@ def edit_payload_body(b64_image_str: str, payload, settings=None, expression_tag
     if expression_tags:
         update_nested_key(
             payload,
-            "prompt",
-            find_nested_key(payload, "prompt") + str(expression_tags),
+            "ad_prompt",
+            prompt + str(expression_tags),
         )
 
-    payload["prompt"] = payload["alwayson_scripts"]["ADetailer"]["args"][2]["ad_prompt"]
-    payload["negative_prompt"] = payload["alwayson_scripts"]["ADetailer"]["args"][2][
-        "ad_negative_prompt"
-    ]
+    # payload["prompt"] = payload["alwayson_scripts"]["ADetailer"]["args"][2]["ad_prompt"]
+    # payload["negative_prompt"] = payload["alwayson_scripts"]["ADetailer"]["args"][2][
+    #     "ad_negative_prompt"
+    # ]
 
     log.debug(f"{payload}")
 

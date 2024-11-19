@@ -24,9 +24,10 @@ class MultiSelect {
             onSelect: function () { },
             onUnselect: function () { }
         };
-        this.options = Object.assign(defaults, options);
+        // Use a new object to avoid modifying defaults
+        this.options = Object.assign({}, defaults, options);
         this.selectElement = typeof element === 'string' ? document.querySelector(element) : element;
-        
+
         for (const prop in this.selectElement.dataset) {
             if (this.options[prop] !== undefined) {
                 this.options[prop] = this.selectElement.dataset[prop];
@@ -70,7 +71,7 @@ class MultiSelect {
         let template = `
             <div class="multi-select ${this.name}"${this.selectElement.id ? ' id="' + this.selectElement.id + '"' : ''} style="${this.width ? 'width:' + this.width + ';' : ''}${this.height ? 'height:' + this.height + ';' : ''}">
                 ${this.selectedValues.map(value => `<input class="lora-input-list" type="hidden" name="${this.name}[]" value="${value}">`).join('')}
-                <div class="multi-select-header" style="${this.width ? 'width:' + '80%'+ ';' : ''}${this.height ? 'height:' + this.height + ';' : ''}">
+                <div class="multi-select-header" style="${this.width ? 'width:' + '80%' + ';' : ''}${this.height ? 'height:' + this.height + ';' : ''}">
                     <span class="multi-select-header-max">${this.options.max ? this.selectedValues.length + '/' + this.options.max : ''}</span>
                     <span class="multi-select-header-placeholder">${this.placeholder}</span>
                 </div>
@@ -91,6 +92,16 @@ class MultiSelect {
 
     _eventHandlers() {
         let headerElement = this.element.querySelector('.multi-select-header');
+
+        // Assign onSelect and onUnselect functions to update selections
+        const updateSelection = () => {
+            this._updateSelected();
+        };
+
+        // Move these outside the loop to avoid overwriting
+        this.options.onSelect = updateSelection;
+        this.options.onUnselect = updateSelection;
+
         this.element.querySelectorAll('.multi-select-option').forEach(option => {
             option.onclick = () => {
                 let selected = true;
@@ -99,36 +110,13 @@ class MultiSelect {
                         return;
                     }
                     option.classList.add('multi-select-selected');
-                    if (this.options.listAll === true || this.options.listAll === 'true') {
-                        if (this.element.querySelector('.multi-select-header-option')) {
-                            let opt = Array.from(this.element.querySelectorAll('.multi-select-header-option')).pop();
-                            opt.insertAdjacentHTML('afterend', `<span class="multi-select-header-option" data-value="${option.dataset.value}">${option.querySelector('.multi-select-option-text').innerHTML}</span>`);
-                        } else {
-                            headerElement.insertAdjacentHTML('afterbegin', `<span class="multi-select-header-option" data-value="${option.dataset.value}">${option.querySelector('.multi-select-option-text').innerHTML}</span>`);
-                        }
-                    }
                     this.element.querySelector('.multi-select').insertAdjacentHTML('afterbegin', `<input type="hidden" name="${this.name}[]" value="${option.dataset.value}">`);
                     this.data.filter(data => data.value == option.dataset.value)[0].selected = true;
                 } else {
                     option.classList.remove('multi-select-selected');
-                    this.element.querySelectorAll('.multi-select-header-option').forEach(headerOption => headerOption.dataset.value == option.dataset.value ? headerOption.remove() : '');
                     this.element.querySelector(`input[value="${option.dataset.value}"]`).remove();
                     this.data.filter(data => data.value == option.dataset.value)[0].selected = false;
                     selected = false;
-                }
-                if (this.options.listAll === false || this.options.listAll === 'false') {
-                    if (this.element.querySelector('.multi-select-header-option')) {
-                        this.element.querySelector('.multi-select-header-option').remove();
-                    }
-                    headerElement.insertAdjacentHTML('afterbegin', `<span class="multi-select-header-option">${this.selectedValues.length} selected</span>`);
-                }
-                if (!this.element.querySelector('.multi-select-header-option')) {
-                    headerElement.insertAdjacentHTML('afterbegin', `<span class="multi-select-header-placeholder">${this.placeholder}</span>`);
-                } else if (this.element.querySelector('.multi-select-header-placeholder')) {
-                    this.element.querySelector('.multi-select-header-placeholder').remove();
-                }
-                if (this.options.max) {
-                    this.element.querySelector('.multi-select-header-max').innerHTML = this.selectedValues.length + '/' + this.options.max;
                 }
                 if (this.options.search === true || this.options.search === 'true') {
                     this.element.querySelector('.multi-select-search').value = '';
@@ -144,14 +132,8 @@ class MultiSelect {
                     this.options.onUnselect(option.dataset.value, option.querySelector('.multi-select-option-text').innerHTML, option);
                 }
             };
-            this.options.onSelect = (value, text, element) => {
-                this._updateSelected();
-            };
-
-            this.options.onUnselect = (value, text, element) => {
-                this._updateSelected();
-            };
         });
+
         headerElement.onclick = () => headerElement.classList.toggle('multi-select-header-active');
         if (this.options.search === true || this.options.search === 'true') {
             let search = this.element.querySelector('.multi-select-search');
@@ -186,6 +168,9 @@ class MultiSelect {
         });
     }
 
+    /**
+     * Updates the selected items in the header to reflect the current state of the selected items.
+     */
     _updateSelected() {
         const headerElement = this.element.querySelector('.multi-select-header');
         headerElement.innerHTML = ''; // Clear previous selections
@@ -210,24 +195,24 @@ class MultiSelect {
                 text.classList.add('lora-name');
                 text.style.flex = '2'; // Ensures text takes up available space
 
-                const closeIcon = document.createElement('span');
-                closeIcon.classList.add('icon-x');
-                closeIcon.style.cursor = 'pointer';
-                closeIcon.style.marginLeft = '8px'; // Adds space between text and icon
-                closeIcon.onclick = () => {
-                    const option = this.element.querySelector(`.multi-select-option[data-value="${item.value}"]`);
-                    option.click();
-                };
-
                 const loraStrengthSelector = document.createElement('input');
                 loraStrengthSelector.type = 'number';
-                loraStrengthSelector.classList.add ('lora-strength');
+                loraStrengthSelector.classList.add('lora-strength');
                 loraStrengthSelector.name = 'lora-strength';
                 loraStrengthSelector.value = '0.8';
                 loraStrengthSelector.step = '0.05';
                 loraStrengthSelector.style.marginLeft = '8px';
-                loraStrengthSelector.style.marginRight = '4px'; // Space between closeIcon and selector
+                loraStrengthSelector.style.marginRight = '4px'; // Space between text and close icon
                 loraStrengthSelector.style.width = '25px'; // Ensures a consistent width for the input
+
+                const closeIcon = document.createElement('span');
+                closeIcon.classList.add('icon-x');
+                closeIcon.style.cursor = 'pointer';
+                closeIcon.style.marginLeft = '8px'; // Adds space between loraStrengthSelector and icon
+                closeIcon.onclick = () => {
+                    const option = this.element.querySelector(`.multi-select-option[data-value="${item.value}"]`);
+                    if (option) option.click();
+                };
 
                 row.appendChild(text);
                 row.appendChild(loraStrengthSelector);
@@ -238,78 +223,6 @@ class MultiSelect {
             headerElement.textContent = this.placeholder;
         }
     }
-    // Function to select a LoRA with strength
-    addLoraWithStrength(loraName, strength) {
-        const headerElement = this.element.querySelector('.multi-select-header');
-
-        // Find or create the LoRA item
-        const dataItem = this.data.find(item => item.text === loraName);
-        if (!dataItem) {
-            // If LoRA doesn't exist, add it to the data array
-            const newItem = {
-                value: loraName.toLowerCase().replace(/\s+/g, '-'), // Generate a unique value
-                text: loraName,
-                selected: true,
-            };
-            this.data.push(newItem);
-        } else {
-            dataItem.selected = true; // Mark it as selected if it exists
-        }
-
-        // Clear the header
-        headerElement.innerHTML = '';
-
-        // Update the header with selected LoRAs
-        this.selectedItems.forEach(item => {
-            const row = document.createElement('div');
-            row.className = 'multi-select-header-option-row';
-            row.style.background = 'var(--font-color)';
-            row.style.color = 'black';
-            row.style.margin = '4px 0';
-            row.style.padding = '4px 8px';
-            row.style.display = 'flex';
-            row.style.flexDirection = 'row';
-            row.style.alignItems = 'center';
-            row.style.borderRadius = '5px';
-            row.style.width = '100%';
-            row.style.overflow = 'hidden';
-
-            const text = document.createElement('span');
-            text.textContent = item.text;
-            text.classList.add('lora-name');
-            text.style.flex = '2';
-
-            const closeIcon = document.createElement('span');
-            closeIcon.classList.add('icon-x');
-            closeIcon.style.cursor = 'pointer';
-            closeIcon.style.marginLeft = '8px';
-            closeIcon.onclick = () => {
-                const option = this.element.querySelector(`.multi-select-option[data-value="${item.value}"]`);
-                option.click();
-            };
-
-            const loraStrengthSelector = document.createElement('input');
-            loraStrengthSelector.type = 'number';
-            loraStrengthSelector.classList.add('lora-strength');
-            loraStrengthSelector.name = 'lora-strength';
-            loraStrengthSelector.value = item.text === name ? strength : '0.8'; // Set the strength
-            loraStrengthSelector.step = '0.05';
-            loraStrengthSelector.style.marginLeft = '8px';
-            loraStrengthSelector.style.marginRight = '4px';
-            loraStrengthSelector.style.width = '25px';
-
-            row.appendChild(text);
-            row.appendChild(loraStrengthSelector);
-            row.appendChild(closeIcon);
-            headerElement.appendChild(row);
-        });
-
-        if (this.selectedValues.length === 0) {
-            headerElement.textContent = this.placeholder;
-        }
-    }
-
-
 
     get selectedValues() {
         return this.data.filter(data => data.selected).map(data => data.value);
@@ -375,11 +288,31 @@ class MultiSelect {
         return this.options.height;
     }
 
+    addLoraWithStrength(name, strength) {
+        // Find the LoRA item
+        let dataItem = this.data.find(item => item.text === name);
+        if (!dataItem) {
+            console.log('LoRA not found:', name);
+            return;
+        }
+
+        // Mark the existing LoRA as selected
+        dataItem.selected = true;
+        const option = this.element.querySelector(`.multi-select-option[data-value="${dataItem.value}"]`);
+        if (option && !option.classList.contains('multi-select-selected')) {
+            option.classList.add('multi-select-selected');
+        }
+
+        // Update the selections
+        this._updateSelected();
+
+        // Set the strength value
+        const strengthInput = this.element.querySelector(`.lora-strength[data-value="${dataItem.value}"]`);
+        if (strengthInput) {
+            strengthInput.value = strength;
+        }
+    }
 
 }
+
 document.querySelectorAll('multi-select').forEach(select => new MultiSelect(select));
-
-
-
-
-

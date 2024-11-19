@@ -66,13 +66,13 @@ def generate_cleaned_parameters(image_path):
     # get first sampler (there may be more than one (i.e., in upscaled comfy images)
     sampler = next(iter(parsed_data.samplers), None)
     prompt = parsed_data.full_prompt
-    
+
     width = parsed_data.metadata.get("width", None)
     height = parsed_data.metadata.get("height", None)
 
     if not width or not height:
-        get_size_from_image_metadata(image_path)
-    
+        width, height = get_size_from_image_metadata(image_path)
+
     log.info(f"Image Width: {width} | Image Height: {height}")
 
     if parsed_data.generator == Generators.AUTOMATIC1111:
@@ -82,6 +82,16 @@ def generate_cleaned_parameters(image_path):
     if not loras:
         if prompt:
             loras = get_lora_from_prompt(prompt)
+            if loras:
+                lora_dict_list = []
+                for lora in loras:
+                    lora_dict_list.append(
+                        {
+                            "lora_name": lora[0],
+                            "lora_strength": lora[1],
+                        }
+                    )
+                loras = lora_dict_list
 
     if sampler is not None:  # return if no samplers found in image
         params = {
@@ -89,17 +99,17 @@ def generate_cleaned_parameters(image_path):
             "ad_sampler": sampler.name or "Euler a",
             "loras": loras,
             "ad_scheduler": sampler.parameters.get("scheduler", "Automatic"),
-            "ad_clip_skip": "2",
-            "seed": sampler.parameters.get("seed", "-1"),
-            "ad_steps": sampler.parameters.get("steps", "24"),
+            "ad_clip_skip": 2,
+            "seed": sampler.parameters.get("seed", -1),
+            "ad_steps": sampler.parameters.get("steps", 24),
             "width": width,
             "height": height,
-            "ad_cfg_scale": sampler.parameters.get("cfg_scale", "7"),
-            "ad_denoising_strength": "0.4",
-            "prompt": parsed_data.full_prompt,
-            "negative_prompt": parsed_data.full_negative_prompt,
+            "ad_cfg_scale": sampler.parameters.get("cfg_scale", 7),
+            "ad_denoising_strength": 0.4,
+            "ad_prompt": parsed_data.full_prompt,
+            "ad_negative_prompt": parsed_data.full_negative_prompt,
         }
-    
+
     return params
 
 def generate_uncleaned_params(image_path): 
