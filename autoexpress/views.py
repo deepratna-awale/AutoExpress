@@ -165,7 +165,7 @@ def generate():
     for lora_item in lora_list:
         lora_name = lora_item.get("lora_name")
         lora_strength = lora_item.get("lora_strength")
-        data["prompt"] += f" <lora: {lora_name}: {lora_strength}>, "
+        data["ad_prompt"] += f" <lora: {lora_name}: {lora_strength}>, "
     
     data.pop("output_dir")
     data.pop("loras")
