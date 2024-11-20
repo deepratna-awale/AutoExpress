@@ -1,5 +1,5 @@
 var data = null;
-
+let uncleaned_data = null;
 document.querySelectorAll("#drop-zone-input-field").forEach((inputElement) => {
     const dropZoneElement = inputElement.closest(".drop-zone");
 
@@ -34,6 +34,14 @@ document.querySelectorAll("#drop-zone-input-field").forEach((inputElement) => {
 
         dropZoneElement.classList.remove("drop-zone--over");
     });
+});
+
+const infoIcon = document.getElementById("info-icon");
+
+// Show uncleaned data in an alert on click
+infoIcon.addEventListener('click', function (event) {
+    event.stopPropagation(); // Prevents the click from triggering file input dialog
+    alert(globalThis.uncleaned_data);
 });
 
 function updateThumbnail(dropZoneElement, file) {
@@ -82,23 +90,11 @@ function uploadImage(file) {
         .then(data => {
             console.log('Upload successful. Recieved metadata for the image:', data)
             globalThis.image_data = data;
-            const uncleaned_data = data.uncleaned_data;
-            createInfoAlert(uncleaned_data);
-            createImageHoverTooltip(uncleaned_data);
+            globalThis.uncleaned_data = data.uncleaned_data;
+            createImageHoverTooltip(globalThis.uncleaned_data);
             updateUI(globalThis.image_data);
         })
         .catch(error => console.error('Error uploading file:', error));
-}
-
-
-function createInfoAlert(uncleaned_data) {
-    const element = document.getElementById("info-icon");
-
-    // Show uncleaned data in an alert on click
-    element.addEventListener('click', function (event) {
-        event.stopPropagation(); // Prevents the click from triggering file input dialog
-        alert(uncleaned_data);
-    });
 }
 
 
