@@ -1,6 +1,6 @@
 
 var multiSelectElement = null;
-var image_data = null;
+let image_data = null;
 
 document.querySelector('.sd-connect').addEventListener('click', function () {
     var inputText = document.querySelector('#ip-input').value;  // Get the input value
@@ -106,6 +106,7 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
                 value: model,
                 text: model
             }));
+
             multiSelectElement = new MultiSelect('#lora-input', {
                 data: multiSelectData, // Array of model names
                 placeholder: 'Select Lora(s)',
@@ -114,6 +115,7 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
                 listAll: false,
             });
 
+
         })
         .catch(error => {
             console.error('Error loading models:', error);
@@ -121,7 +123,10 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
         });
 
 
-    if (image_data != null) {
-        updateUI(image_data);
-    }
+    setTimeout(() => {
+        if (globalThis.image_data != null) {
+            console.log('Found Image Data');
+            updateUI(globalThis.image_data);
+        }
+    }, 2000);
 });
