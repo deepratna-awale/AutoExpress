@@ -86,21 +86,21 @@ Run
 ```bash
 docker run -p 5000:5000 deepratna/autoexpress
 ```
-### OR
-Build (skip if you have pulled image)
-```bash 
+## Using Installer
+- Clone repository
+```bash
 git clone https://github.com/deepratnaawale/AutoExpress.git
 cd AutoExpress
 ```
-```bash
-docker buildx build --tag ${your_dockerhub_username}/autoexpress .
-```
-Run
-```bash
-docker run -p 5000:5000 ${your_dockerhub_username}/autoexpress
-```
+- Run installer
+  - Linux
+  ```bash
+  chmod +x install.sh
+  ./install.sh
+  ```
+  - Windows (Simply execute the [install.bat](install.bat) file)
 
-## Clone Github Repo and cd into it
+## Manual Installation
 ```bash
 git clone https://github.com/deepratnaawale/AutoExpress.git
 cd AutoExpress
@@ -123,14 +123,21 @@ source .venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+---
 
-- Launch App
+## Launch App
+- Linux
 ```bash
-flask --app autoexpress run
+chmod +x ./run.sh
+./run.sh
 ```
+- Windows (Simply execute the [run.bat](run.bat) file)
 
-- Connect to the AutoExpress UI at
+> Connect to the AutoExpress UI at
 [http://127.0.0.1:5000](http:127.0.0.1:5000)
+
+
+---
 
 ## Launch Your A1111 Stable Diffusion WebUI Api
 > You can check if the api is active by accessing the docs (if running locally)
