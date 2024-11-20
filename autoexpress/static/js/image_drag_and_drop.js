@@ -95,7 +95,8 @@ function createInfoAlert(uncleaned_data) {
     const element = document.getElementById("info-icon");
 
     // Show uncleaned data in an alert on click
-    element.addEventListener('click', () => {
+    element.addEventListener('click', function (event) {
+        event.stopPropagation(); // Prevents the click from triggering file input dialog
         alert(uncleaned_data);
     });
 }

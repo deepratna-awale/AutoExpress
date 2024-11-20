@@ -165,11 +165,17 @@
   position: absolute;
   bottom: 10px;
   right: 10px;
-  font-size: 18px;
-  cursor: pointer;
-  color: var(--icon-color);
-  z-index:20;
-  
+  z-index: 90; /* Ensure it's above other elements */
+  pointer-events: auto; /* Make the icon itself clickable */
+}
+
+.info-icon-overlay {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 50px; /* Adjust to match the clickable area */
+  height: 50px; /* Adjust to match the clickable area */
+  pointer-events: none; /* Make this area unclickable */
 }
 
 /* Tooltip styling (optional) */
@@ -186,8 +192,11 @@
   z-index: 20;
   max-width: 200px;
 }
-
+.input-container.drop-zone {
+  position: relative;
+}
 /* Show tooltip when info icon is clicked */
 .input-container.drop-zone .tooltip.show {
   display: block;
+  
 }
