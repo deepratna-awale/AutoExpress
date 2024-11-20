@@ -81,11 +81,11 @@ function uploadImage(file) {
         .then(response => response.json())
         .then(data => {
             console.log('Upload successful. Recieved metadata for the image:', data)
-            image_data = data;
+            globalThis.image_data = data;
             const uncleaned_data = data.uncleaned_data;
             createInfoAlert(uncleaned_data);
             createImageHoverTooltip(uncleaned_data);
-            updateUI(image_data);
+            updateUI(globalThis.image_data);
         })
         .catch(error => console.error('Error uploading file:', error));
 }
@@ -143,11 +143,12 @@ function updateUI(data) {
     document.getElementById('negative-prompt-textfield').value = data.ad_negative_prompt;
     
     if (multiSelectElement === null) {
+        
         const multiSelectData = data.loras.map(lora => ({
             value: lora.lora_name,
             text: lora.lora_name
         }));
-
+        
         multiSelectElement = new MultiSelect('#lora-input', {
             data: multiSelectData, // Array of model names
             placeholder: 'Select Lora(s)',
@@ -157,9 +158,11 @@ function updateUI(data) {
         });
 
     }
+
     data.loras.forEach(lora => {
         multiSelectElement.addLoraWithStrength(lora.lora_name, lora.lora_strength);
     });
+    
 
 }
 
