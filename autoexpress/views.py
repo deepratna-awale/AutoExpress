@@ -14,7 +14,6 @@ from loguru import logger as log
 import requests
 import re
 
-
 autoexpress = Flask(__name__)
 sd = a1111_client.A1111Client()
 
@@ -40,8 +39,11 @@ def index():
 # Stable diffusion API Calls
 @autoexpress.route("/interrupt", methods=["POST"])
 def interrupt_generation():
+    print("Interrupting generation...")
+    global PAUSE_EXECUTION
     # Simulate fetching models from an API
     try:
+        PAUSE_EXECUTION = not PAUSE_EXECUTION
         response = sd.interrupt()
     except requests.exceptions.ConnectionError:
         response = "Failed to Interrupt the SD Session."

@@ -7,6 +7,7 @@ document.querySelector('.interrupt-button').addEventListener('click', function (
         },
     })
         .then(response => {
+            console.log('User Interrupted.');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }

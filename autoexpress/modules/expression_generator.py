@@ -8,6 +8,7 @@ import pathlib
 
 from PIL import Image, PngImagePlugin
 
+PAUSE_EXECUTION = False
 
 def generate_expressions(
     sd: a1111_client.A1111Client,
@@ -17,7 +18,7 @@ def generate_expressions(
     input_image_path: str = None,
     is_realistic: bool = False,
 ):
-
+    global PAUSE_EXECUTION
     image_str = utils.is_image_valid(input_image_path, image_str)
 
     output_path = pathlib.Path(output_path)
@@ -32,6 +33,11 @@ def generate_expressions(
     log.info(f"Output Directory: {output_path.absolute()}")
 
     for expression_name, tags in expressions.items():
+        if PAUSE_EXECUTION:
+            PAUSE_EXECUTION = not PAUSE_EXECUTION
+            log.info("Interrupted by user. Stopping..")
+            return
+
         log.info(f"Generating image for {expression_name} expression.")
 
         default_request_body = json_handler.get_img2img_payload()
