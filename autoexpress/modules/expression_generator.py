@@ -33,12 +33,11 @@ def generate_expressions(
     log.info(f"Output Directory: {output_path.absolute()}")
 
     for expression_name, tags in expressions.items():
-        with pause_lock:
-            if PAUSE_EXECUTION:
-                sd.interrupt()
-                PAUSE_EXECUTION = not PAUSE_EXECUTION
-                log.info("Interrupted by user. Stopping..")
-                return
+        if PAUSE_EXECUTION:
+            sd.interrupt()
+            PAUSE_EXECUTION = not PAUSE_EXECUTION
+            log.info("Interrupted by user. Stopping..")
+            return
 
         log.info(f"Generating image for {expression_name} expression.")
 
