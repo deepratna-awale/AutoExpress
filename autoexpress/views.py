@@ -14,12 +14,15 @@ from loguru import logger as log
 import requests
 import re
 
+from threading import Lock
+
 autoexpress = Flask(__name__)
 sd = a1111_client.A1111Client()
 
 uploaded = False
 filepath = None
 is_realistic = False
+pause_lock = Lock()
 
 # Assuming you want to save uploaded files in a folder called 'uploads'
 UPLOAD_FOLDER = "uploads"
@@ -43,7 +46,8 @@ def interrupt_generation():
     global PAUSE_EXECUTION
     # Simulate fetching models from an API
     try:
-        PAUSE_EXECUTION = not PAUSE_EXECUTION
+        with pause_lock:  # Acquire lock to modify the PAUSE_EXECUTION flag
+            PAUSE_EXECUTION = not PAUSE_EXECUTION
         response = sd.interrupt()
     except requests.exceptions.ConnectionError:
         response = "Failed to Interrupt the SD Session."
