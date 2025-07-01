@@ -10,4 +10,4 @@ autoexpress = Flask(__name__)
 from autoexpress.views import autoexpress
 
 if __name__ == "__main__":
-    autoexpress.run(debug=True)
+    autoexpress.run()
