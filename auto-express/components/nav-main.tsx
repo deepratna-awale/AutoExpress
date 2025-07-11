@@ -20,6 +20,7 @@ import {
 
 export function NavMain({
   items,
+  onNavigate,
 }: {
   items: {
     title: string
@@ -31,6 +32,7 @@ export function NavMain({
       url: string
     }[]
   }[]
+  onNavigate?: (url: string) => void
 }) {
   return (
     <SidebarGroup>
@@ -55,10 +57,23 @@ export function NavMain({
                 <SidebarMenuSub>
                   {item.items?.map((subItem) => (
                     <SidebarMenuSubItem key={subItem.title}>
-                      <SidebarMenuSubButton asChild>
-                        <a href={subItem.url}>
-                          <span>{subItem.title}</span>
-                        </a>
+                      <SidebarMenuSubButton 
+                        asChild={!onNavigate || !subItem.url.startsWith('#')}
+                        onClick={() => {
+                          if (onNavigate && subItem.url.startsWith('#')) {
+                            onNavigate(subItem.url);
+                          }
+                        }}
+                      >
+                        {onNavigate && subItem.url.startsWith('#') ? (
+                          <div className="cursor-pointer">
+                            <span>{subItem.title}</span>
+                          </div>
+                        ) : (
+                          <a href={subItem.url}>
+                            <span>{subItem.title}</span>
+                          </a>
+                        )}
                       </SidebarMenuSubButton>
                     </SidebarMenuSubItem>
                   ))}

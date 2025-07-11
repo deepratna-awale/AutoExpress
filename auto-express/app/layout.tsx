@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { ResponsiveProvider } from "@/components/responsive-provider";
+import { LiveThemeProvider } from "@/lib/theme";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -55,9 +56,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <ResponsiveProvider>
-            {children}
-          </ResponsiveProvider>
+          <LiveThemeProvider>
+            <ResponsiveProvider>
+              {children}
+            </ResponsiveProvider>
+          </LiveThemeProvider>
         </ThemeProvider>
       </body>
     </html>
