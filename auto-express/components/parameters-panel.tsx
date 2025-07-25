@@ -46,12 +46,21 @@ export function ParametersPanel({ selectedFiles }: ParametersPanelProps) {
   const { data: schedulersData, execute: fetchSchedulers, loading: schedulersLoading } = useSchedulers();
   const { data: lorasData, execute: fetchLoRAs, loading: lorasLoading } = useLoRAs();
 
+  // Helper function to clean model names (remove extension and hash)
+  const cleanModelName = (name: string): string => {
+    // Remove common extensions (.safetensors, .ckpt, .pt, .pth)
+    let cleanName = name.replace(/\.(safetensors|ckpt|pt|pth)$/i, '');
+    // Remove hash information [hash]
+    cleanName = cleanName.replace(/\s*\[[a-f0-9]+\]$/i, '');
+    return cleanName.trim();
+  };
+
   // Transform API data to dropdown options
   const modelOptions = modelsData && Array.isArray(modelsData) ? modelsData.map((model: SDModel) => {
-    // Use the model_name for consistent identification
+    const cleanName = cleanModelName(model.model_name);
     return {
-      value: model.model_name,
-      label: model.title, // Show the full title in the UI
+      value: model.model_name, // Keep original for API calls
+      label: cleanName, // Show clean name in UI
     };
   }) : [
     { value: "model1", label: "Model 1" },
@@ -79,10 +88,23 @@ export function ParametersPanel({ selectedFiles }: ParametersPanelProps) {
     { value: "exponential", label: "Exponential" },
   ];
 
-  const loraOptions = lorasData && Array.isArray(lorasData) ? lorasData.map((lora: LoRA) => ({
-    value: lora.name,
-    label: lora.alias || lora.name,
-  })) : [
+  // Helper function to clean LoRA names (remove path and extension)
+  const cleanLoRAName = (name: string): string => {
+    // Extract just the filename from path
+    let cleanName = name.split('/').pop() || name;
+    // Remove common extensions
+    cleanName = cleanName.replace(/\.(safetensors|ckpt|pt|pth)$/i, '');
+    return cleanName.trim();
+  };
+
+  const loraOptions = lorasData && Array.isArray(lorasData) ? lorasData.map((lora: LoRA) => {
+    const cleanName = cleanLoRAName(lora.name);
+    console.log('LoRA:', lora);
+    return {
+      value: lora.name, // Keep original for API calls
+      label: lora.name || cleanName, // Use alias if available, otherwise clean name
+    };
+  }) : [
     { value: "lora1", label: "LoRA 1" },
     { value: "lora2", label: "LoRA 2" },
     { value: "character_lora", label: "Character LoRA" },
@@ -122,6 +144,13 @@ export function ParametersPanel({ selectedFiles }: ParametersPanelProps) {
         return;
       }
 
+      // Always refetch options when a new image is dropped
+      const baseUrl = apiUrl.startsWith('http') ? apiUrl : `http://${apiUrl}`;
+      fetchModels(undefined, baseUrl);
+      fetchSamplers(undefined, baseUrl);
+      fetchSchedulers(undefined, baseUrl);
+      fetchLoRAs(undefined, baseUrl);
+
       // Parse the first selected file
       const file = selectedFiles[0];
       if (!file.type.startsWith('image/')) return;
@@ -131,42 +160,45 @@ export function ParametersPanel({ selectedFiles }: ParametersPanelProps) {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('apiUrl', `http://${apiUrl}`);
-        
+
         const response = await fetch('/api/parse-metadata', {
           method: 'POST',
           body: formData,
         });
-        
+
         if (!response.ok) {
           throw new Error('Failed to parse metadata');
         }
-        
+
         const result: ParseMetadataResponse = await response.json();
-        
+
         if (result.success && result.updatedValues) {
           console.log('Parsed metadata:', result.rawMetadata);
           console.log('Updated values:', result.updatedValues);
-          
+
           // Update form fields using validated values, with fallbacks to raw metadata
           const values = result.updatedValues;
           const rawMetadata = result.rawMetadata;
-          
+
           if (values.model !== undefined) setModel(values.model);
           else if (rawMetadata?.model !== undefined) setModel(rawMetadata.model);
-          
+
           if (values.sampler !== undefined) setSampler(values.sampler);
           else if (rawMetadata?.sampler !== undefined) setSampler(rawMetadata.sampler);
-          
+
           if (values.scheduler !== undefined) setScheduler(values.scheduler);
           else if (rawMetadata?.scheduler !== undefined) setScheduler(rawMetadata.scheduler);
-          
-          if (values.lora !== undefined) setLora(values.lora);
-          else if (rawMetadata?.loras !== undefined && rawMetadata.loras.length > 0) {
-            // Convert loras array to string format for the UI as fallback
-            const loraString = rawMetadata.loras.map(lora => `${lora.name}:${lora.strength}`).join(', ');
-            setLora(loraString);
+
+          if (values.lora !== undefined) {
+            // Extract just the LoRA name without strength for combobox selection
+            const loraName = values.lora.split(':')[0];
+            setLora(loraName);
           }
-          
+          else if (rawMetadata?.loras !== undefined && rawMetadata.loras.length > 0) {
+            // Use just the first LoRA name without strength as fallback
+            setLora(rawMetadata.loras[0].name);
+          }
+
           if (values.clipSkip !== undefined) setClipSkip(values.clipSkip);
           if (values.seed !== undefined) setSeed(values.seed);
           if (values.steps !== undefined) setSteps([values.steps]);

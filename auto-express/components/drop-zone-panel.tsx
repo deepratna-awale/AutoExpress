@@ -127,8 +127,21 @@ export function DropZonePanel({
       
       const result = await response.json();
       
-      if (result.success && result.rawMetadata) {
-        setRawMetadata(result.rawMetadata);
+      if (result.success) {
+        // Set raw metadata for tooltip display
+        if (result.rawMetadata) {
+          setRawMetadata(result.rawMetadata);
+        }
+        
+        // Update prompt and negative prompt if found in metadata
+        if (result.updatedValues) {
+          if (result.updatedValues.prompt) {
+            setPrompt(result.updatedValues.prompt);
+          }
+          if (result.updatedValues.negativePrompt) {
+            setNegativePrompt(result.updatedValues.negativePrompt);
+          }
+        }
       } else {
         setRawMetadata(null);
       }
@@ -136,7 +149,7 @@ export function DropZonePanel({
       console.error('Error parsing image metadata:', error);
       setRawMetadata(null);
     }
-  }, []);
+  }, [setPrompt, setNegativePrompt]);
 
   const handleRemoveFile = useCallback((index: number) => {
     const newFiles = selectedFiles.filter((_, i) => i !== index);
@@ -182,10 +195,10 @@ export function DropZonePanel({
                 handleRemoveFile(index);
               }
             }}
-            className="absolute top-2 right-2 z-10 h-8 w-8 p-0 rounded-full shadow-sm cursor-pointer flex items-center justify-center bg-white/70 hover:bg-white/90 transition-colors"
+            className="absolute top-2 right-2 z-10 h-8 w-8 p-0 rounded-full shadow-sm cursor-pointer flex items-center justify-center bg-gray border border-blue-400 hover:bg-gray-500 transition-colors"
             aria-label={`Remove ${file.name}`}
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4 text-blue-300 hover:text-blue-500" />
           </div>
           <div className="relative w-full h-full">
             <Image

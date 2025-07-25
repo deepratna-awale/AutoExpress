@@ -46,9 +46,30 @@ export async function POST(request: NextRequest) {
       makeWebUIRequest('/sdapi/v1/loras', { baseUrl: apiUrl }),
     ]);
 
+    // Helper function to clean model names (remove extension and hash)
+    const cleanModelName = (name: string): string => {
+      // Remove common extensions (.safetensors, .ckpt, .pt, .pth)
+      let cleanName = name.replace(/\.(safetensors|ckpt|pt|pth)$/i, '');
+      // Remove hash information [hash]
+      cleanName = cleanName.replace(/\s*\[[a-f0-9]+\]$/i, '');
+      return cleanName.trim();
+    };
+
+    // Helper function to clean LoRA names (remove path and extension)
+    const cleanLoRAName = (name: string): string => {
+      // Extract just the filename from path
+      let cleanName = name.split('/').pop() || name;
+      // Remove common extensions
+      cleanName = cleanName.replace(/\.(safetensors|ckpt|pt|pth)$/i, '');
+      return cleanName.trim();
+    };
+
     // Transform API data to options format, with fallbacks for when API is unavailable
     const modelOptions = modelsResponse.status === 'fulfilled' && modelsResponse.value.data && Array.isArray(modelsResponse.value.data) 
-      ? modelsResponse.value.data.map((model: any) => ({ value: model.title, label: model.model_name }))
+      ? modelsResponse.value.data.map((model: any) => ({ 
+          value: model.model_name, // Use model_name for consistent identification
+          label: cleanModelName(model.model_name) // Show clean name in UI
+        }))
       : [];
     
     const samplerOptions = samplersResponse.status === 'fulfilled' && samplersResponse.value.data && Array.isArray(samplersResponse.value.data)
@@ -60,7 +81,10 @@ export async function POST(request: NextRequest) {
       : [];
     
     const loraOptions = lorasResponse.status === 'fulfilled' && lorasResponse.value.data && Array.isArray(lorasResponse.value.data)
-      ? lorasResponse.value.data.map((lora: any) => ({ value: lora.name, label: lora.alias }))
+      ? lorasResponse.value.data.map((lora: any) => ({ 
+          value: lora.name, // Keep original for API calls
+          label: lora.alias || cleanLoRAName(lora.name) // Use alias if available, otherwise clean name
+        }))
       : [];
 
     // Validate parameters against available options

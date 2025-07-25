@@ -41,7 +41,7 @@ export function AutoExpressApp() {
   const { isLargeScreen } = useResponsive();
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <div className="flex w-full mobile-safe" style={{ height: '100dvh', minHeight: '100vh' }}>
         {/* Sidebar - uses default behavior, overlays on small screens */}
         <AppSidebar />
@@ -163,7 +163,7 @@ export function AutoExpressApp() {
                 {showCarousel && (
                   <>
                     <ResizableHandle withHandle />
-                    <ResizablePanel defaultSize={25} minSize={0} maxSize={50}>
+                    <ResizablePanel defaultSize={40} minSize={0} maxSize={50}>
                       <div className="h-full overflow-hidden">
                         <ImageCarousel isInDrawer={false} />
                       </div>

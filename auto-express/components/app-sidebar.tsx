@@ -111,10 +111,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     if (url === "#theme-editor") {
       setThemeEditorOpen(true);
     }
-  };
+  }
 
   return (
     <>
+      
       <Sidebar collapsible="icon" {...props}>
         <SidebarHeader>
           <SidebarMenu>
