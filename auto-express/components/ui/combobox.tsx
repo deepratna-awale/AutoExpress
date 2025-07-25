@@ -32,6 +32,7 @@ interface ComboboxProps {
   searchPlaceholder?: string;
   emptyText?: string;
   className?: string;
+  validationState?: 'valid' | 'invalid' | 'none';
 }
 
 export function Combobox({
@@ -42,10 +43,23 @@ export function Combobox({
   searchPlaceholder = "Search...",
   emptyText = "No option found.",
   className,
+  validationState = 'none',
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
 
   const selectedOption = options.find((option) => option.value === value);
+
+  // Determine border color class based on validation state
+  const getBorderClass = () => {
+    switch (validationState) {
+      case 'valid':
+        return 'border-green-500 focus:border-green-600 ring-green-500';
+      case 'invalid':
+        return 'border-red-500 focus:border-red-600 ring-red-500';
+      default:
+        return '';
+    }
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -54,7 +68,7 @@ export function Combobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className={cn("w-full justify-between", className)}
+          className={cn("w-full justify-between", getBorderClass(), className)}
         >
           {selectedOption ? selectedOption.label : placeholder}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />

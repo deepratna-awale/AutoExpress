@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dropzone, DropzoneEmptyState } from "@/components/ui/shadcn-io/dropzone";
+import type { SDMetadata } from "@/lib/metadata-parser";
 
 // Types
 interface DropZonePanelProps {
@@ -52,6 +53,8 @@ export function DropZonePanel({
   // Convert File[] to FileWithUrl[] for display and maintain URLs
   const [filesWithUrls, setFilesWithUrls] = useState<FileWithUrl[]>([]);
   const filesWithUrlsRef = useRef<FileWithUrl[]>([]);
+  // Store raw metadata for tooltip display
+  const [rawMetadata, setRawMetadata] = useState<SDMetadata | null>(null);
 
   // Sync selectedFiles with filesWithUrls and create URLs
   useEffect(() => {
@@ -81,6 +84,13 @@ export function DropZonePanel({
 
     filesWithUrlsRef.current = newFilesWithUrls;
     setFilesWithUrls(newFilesWithUrls);
+
+    // Parse metadata from the first selected file
+    if (selectedFiles.length > 0) {
+      parseImageMetadata(selectedFiles[0]);
+    } else {
+      setRawMetadata(null);
+    }
   }, [selectedFiles]); // Only depend on selectedFiles to avoid infinite loop
 
   // Cleanup function for object URLs to prevent memory leaks
@@ -97,6 +107,36 @@ export function DropZonePanel({
   const handleDrop = useCallback((acceptedFiles: File[]) => {
     setSelectedFiles(acceptedFiles);
   }, [setSelectedFiles]);
+
+  // Parse metadata from image file
+  const parseImageMetadata = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch('/api/parse-metadata', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to parse metadata');
+      }
+      
+      const result = await response.json();
+      
+      if (result.success && result.rawMetadata) {
+        setRawMetadata(result.rawMetadata);
+      } else {
+        setRawMetadata(null);
+      }
+    } catch (error) {
+      console.error('Error parsing image metadata:', error);
+      setRawMetadata(null);
+    }
+  }, []);
 
   const handleRemoveFile = useCallback((index: number) => {
     const newFiles = selectedFiles.filter((_, i) => i !== index);
@@ -181,15 +221,24 @@ export function DropZonePanel({
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-5 w-5 sm:h-6 sm:w-6">
+            <Button id="info-button" variant="ghost" size="icon" className="h-5 w-5 sm:h-6 sm:w-6">
               <Info className="h-3 w-3 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>
-            <p className="max-w-xs text-xs sm:text-sm">
-              Drop image and click on this icon or hover over the image to see the raw generation data. 
-              This can help you fill in the missing parameters manually if not autodetected.
-            </p>
+          <TooltipContent side="left" className="bg-muted max-w-md max-h-96 overflow-auto rounded-lg border-2xl">
+            {rawMetadata ? (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold">Raw Image Metadata:</p>
+                <pre className="text-xs whitespace-pre-wrap break-words">
+                  {JSON.stringify(rawMetadata, null, 2)}
+                </pre>
+              </div>
+            ) : (
+              <p className="max-w-xs text-xs sm:text-sm">
+                Drop image and click on this icon or hover over the image to see the raw generation data. 
+                This can help you fill in the missing parameters manually if not autodetected.
+              </p>
+            )}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

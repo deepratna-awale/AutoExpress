@@ -1,6 +1,0 @@
-flask
-sd-parsers==0.4
-matplotlib
-pillow
-requests
-loguru

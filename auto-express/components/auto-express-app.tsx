@@ -71,7 +71,7 @@ export function AutoExpressApp() {
                         Adjust generation parameters
                       </SheetDescription>
                     </SheetHeader>
-                    <ParametersPanel />
+                    <ParametersPanel selectedFiles={selectedFiles} />
                   </SheetContent>
                 </Sheet>
               )}
@@ -116,7 +116,7 @@ export function AutoExpressApp() {
               <ResizablePanelGroup direction="horizontal" className="h-full">
                 {/* Parameters Panel - Column 1 - Only show on lg+ */}
                 <ResizablePanel defaultSize={20} minSize={0} maxSize={30}>
-                  <ParametersPanel />
+                  <ParametersPanel selectedFiles={selectedFiles} />
                 </ResizablePanel>
                 <ResizableHandle withHandle />
                 
