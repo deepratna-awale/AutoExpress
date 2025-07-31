@@ -35,7 +35,7 @@ jobs:
       - name: Create virtual environment and install dependencies
         run: |
           ls -la
-          echo "PWD=$PWD"
+          echo "$PWD"
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
@@ -57,20 +57,20 @@ jobs:
           find . -name "*.pyc" -delete
 
           # Check if RELEASE_README.md exists and copy/rename it
-          if [ -f "${{ github.workspace }}/RELEASE_README.md" ]; then
-            mv "${{ github.workspace }}/RELEASE_README.md" "${{ github.workspace }}/README.md"
+          if [ -f "AutoExpress/RELEASE_README.md" ]; then
+            mv "AutoExpress/RELEASE_README.md" "AutoExpress/README.md"
           else
             echo "Warning: RELEASE_README.md not found"
           fi
 
           # Make run script executable
-          if [ -f "${{ github.workspace }}/run.sh" ]; then
-            chmod +x "${{ github.workspace }}/run.sh"
+          if [ -f "AutoExpress/run.sh" ]; then
+            chmod +x "AutoExpress/run.sh"
           else
             echo "Warning: run.sh not found"
           fi
 
-          mv "${{ github.workspace }}" "$folder"
+          mv "AutoExpress" "$folder"
 
           # Archive the folder
           zip -r "${folder}_Release.zip" "$folder"
