@@ -34,35 +34,42 @@ jobs:
       
       - name: Create virtual environment and install dependencies
         run: |
+          cd ${{ github.workspace }}
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           deactivate
+          cd ..
 
       - name: Create Linux release package
         run: |
           version="${{ inputs.tag_name }}"
+
           version_clean=$(echo "$version" | tr '.' '_')
           folder="autoexpress-${version_clean}-Linux"
+
+
           # Remove excluded files and directories from current directory
-          rm -rf .git __pycache__ Output uploads
+          rm -rf .git __pycache__
           find . -name "*.pyc" -delete
+
           # Check if RELEASE_README.md exists and copy/rename it
-          if [ -f "RELEASE_README.md" ]; then
-            mv "RELEASE_README.md" "README.md"
+          if [ -f "${{ github.workspace }}/RELEASE_README.md" ]; then
+            mv "${{ github.workspace }}/RELEASE_README.md" "${{ github.workspace }}/README.md"
           else
             echo "Warning: RELEASE_README.md not found"
           fi
+
           # Make run script executable
-          if [ -f "run.sh" ]; then
-            chmod +x "run.sh"
+          if [ -f "${{ github.workspace }}/run.sh" ]; then
+            chmod +x "${{ github.workspace }}/run.sh"
           else
             echo "Warning: run.sh not found"
           fi
-          # Rename current directory to desired folder name
-          cd ..
-          mv "$(basename "$GITHUB_WORKSPACE")" "$folder"
+
+          mv "${{ github.workspace }}" "$folder"
+
           # Archive the folder
           zip -r "${folder}_Release.zip" "$folder"
       
@@ -70,12 +77,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-release
-          path: ../autoexpress-*-Linux_Release.zip
+          path: autoexpress-*-Linux_Release.zip
           retention-days: 1
       
       - name: Set output
         id: set_output
         run: |
           version="${{ inputs.tag_name }}"
-          version_clean=$(echo "$version" | tr '.' '_')
+          version_clean=$(echo "$version" | tr '_' '.')
           echo "artifact_name=autoexpress-${version_clean}-Linux_Release.zip" >> $GITHUB_OUTPUT
