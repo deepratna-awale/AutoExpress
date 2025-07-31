@@ -29,22 +29,35 @@ jobs:
       
       - name: Create virtual environment and install dependencies
         run: |
-          cd AutoExpress
           python -m venv .venv
           .venv\Scripts\activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           deactivate
-          cd ..
         shell: cmd
       
       - name: Create Windows release package
         run: |
           $version = "${{ inputs.tag_name }}" -replace '\.', '_'
-          $folder = "autoexpress_${version}_windows"
-          mv AutoExpress "$folder"
-          # Copy release README and rename it
-          mv "$folder/RELEASE_README.md" "$folder/README.md"
+          $folder = "autoexpress-${version}-Windows"
+          # Remove excluded files and directories
+          Remove-Item -Path .git -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -Path . -Recurse -Name "__pycache__" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -Path . -Recurse -Name "*.pyc" | Remove-Item -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path Output -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path uploads -Recurse -Force -ErrorAction SilentlyContinue
+          # Check if RELEASE_README.md exists and copy/rename it
+          if (Test-Path "RELEASE_README.md") {
+            Move-Item "RELEASE_README.md" "README.md"
+          } else {
+            Write-Host "Warning: RELEASE_README.md not found"
+          }
+          # Rename current directory to desired folder name
+          $currentPath = Get-Location
+          $parentPath = Split-Path $currentPath -Parent
+          $newPath = Join-Path $parentPath $folder
+          Move-Item $currentPath $newPath
+          Set-Location $parentPath
           # Archive the folder
           Compress-Archive -Path $folder -DestinationPath "${folder}_Release.zip"
         shell: powershell
@@ -54,10 +67,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: autoexpress_${{ inputs.tag_name }}_windows_Release.zip
+          path: ../autoexpress-${{ inputs.tag_name }}-Windows_Release.zip
           retention-days: 1
       
       - name: Set output
         id: set_output
-        run: echo "artifact_name=autoexpress_${{ inputs.tag_name }}_windows_Release.zip" >> $GITHUB_OUTPUT
-        shell: bash
+        run: |
+          $version = "${{ inputs.tag_name }}" -replace '\.', '_'
+          echo "artifact_name=autoexpress-${version}-Windows_Release.zip" >> $env:GITHUB_OUTPUT
+        shell: powershell
