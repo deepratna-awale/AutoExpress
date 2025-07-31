@@ -67,7 +67,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: ../autoexpress-${{ inputs.tag_name }}-Windows_Release.zip
+          path: autoexpress-${{ inputs.tag_name }}-Windows_Release.zip
           retention-days: 1
       
       - name: Set output
