@@ -46,18 +46,18 @@ jobs:
           Get-ChildItem -Path . -Recurse -Name "*.pyc" | Remove-Item -Force -ErrorAction SilentlyContinue
           Remove-Item -Path Output -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path uploads -Recurse -Force -ErrorAction SilentlyContinue
+          # Create release folder
+          New-Item -ItemType Directory -Path $folder
+          # Copy all files except excluded ones
+          Get-ChildItem -Path . -Exclude $folder,'.git','.github','.venv','Output','uploads' | ForEach-Object {
+            Copy-Item $_.FullName -Destination $folder -Recurse -Force
+          }
           # Check if RELEASE_README.md exists and copy/rename it
-          if (Test-Path "RELEASE_README.md") {
-            Move-Item "RELEASE_README.md" "README.md" -Force
+          if (Test-Path "$folder\RELEASE_README.md") {
+            Move-Item "$folder\RELEASE_README.md" "$folder\README.md" -Force
           } else {
             Write-Host "Warning: RELEASE_README.md not found"
           }
-          # Rename current directory to desired folder name
-          $currentPath = Get-Location
-          $parentPath = Split-Path $currentPath -Parent
-          $newPath = Join-Path $parentPath $folder
-          Move-Item $currentPath $newPath
-          Set-Location $parentPath
           # Archive the folder
           Compress-Archive -Path $folder -DestinationPath "${folder}_Release.zip"
         shell: powershell
