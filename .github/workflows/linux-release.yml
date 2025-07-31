@@ -29,26 +29,22 @@ jobs:
       
       - name: Create virtual environment and install dependencies
         run: |
+          cd AutoExpress
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           deactivate
-      
+          cd ..
+
       - name: Create Linux release package
         run: |
           version="${{ inputs.tag_name }}"
           version_underscore="${version//./_}"
           folder="autoexpress_${version_underscore}_linux"
-          mkdir "$folder"
-          # Create and activate virtual environment
-          python3 -m venv "$folder/.venv"
-          source "$folder/.venv/bin/activate"
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          deactivate
+          mv AutoExpress "$folder"
           # Copy release README and rename it
-          cp RELEASE_README.md "$folder/README.md"
+          mv "$folder/RELEASE_README.md" "$folder/README.md"
           # Make run script executable
           chmod +x "$folder/run.sh"
           # Archive the folder

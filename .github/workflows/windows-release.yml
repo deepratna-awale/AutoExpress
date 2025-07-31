@@ -29,28 +29,22 @@ jobs:
       
       - name: Create virtual environment and install dependencies
         run: |
+          cd AutoExpress
           python -m venv .venv
           .venv\Scripts\activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           deactivate
+          cd ..
         shell: cmd
       
       - name: Create Windows release package
         run: |
           $version = "${{ inputs.tag_name }}" -replace '\.', '_'
           $folder = "autoexpress_${version}_windows"
-          mkdir $folder
-          # Copy all project files except .git, __pycache__, etc.
-          robocopy $PWD $folder /E /XD .git __pycache__ .pytest_cache .github Output uploads /XF .gitignore *.pyc *.pyo
-          # Create and activate virtual environment
-          python -m venv $folder\.venv
-          & $folder\.venv\Scripts\activate
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          deactivate
+          mv AutoExpress "$folder"
           # Copy release README and rename it
-          copy RELEASE_README.md $folder\README.md
+          mv "$folder/RELEASE_README.md" "$folder/README.md"
           # Archive the folder
           Compress-Archive -Path $folder -DestinationPath "${folder}_Release.zip"
         shell: powershell
