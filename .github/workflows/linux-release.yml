@@ -51,26 +51,25 @@ jobs:
           version_clean=$(echo "$version" | tr '.' '_')
           folder="autoexpress-${version_clean}-Linux"
 
+          # Create the release folder
+          mkdir -p "$folder"
 
-          # Remove excluded files and directories from current directory
-          rm -rf .git __pycache__
-          find . -name "*.pyc" -delete
+          # Copy all files except excluded ones
+          rsync -av --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='.github' --exclude='.venv' . "$folder/"
 
           # Check if RELEASE_README.md exists and copy/rename it
-          if [ -f "./AutoExpress/RELEASE_README.md" ]; then
-            mv "./AutoExpress/RELEASE_README.md" "./AutoExpress/README.md"
+          if [ -f "$folder/RELEASE_README.md" ]; then
+            mv "$folder/RELEASE_README.md" "$folder/README.md"
           else
             echo "Warning: RELEASE_README.md not found"
           fi
 
           # Make run script executable
-          if [ -f "./AutoExpress/run.sh" ]; then
-            chmod +x "./AutoExpress/run.sh"
+          if [ -f "$folder/run.sh" ]; then
+            chmod +x "$folder/run.sh"
           else
             echo "Warning: run.sh not found"
           fi
-
-          mv "./AutoExpress" "$folder"
 
           # Archive the folder
           zip -r "${folder}_Release.zip" "$folder"
