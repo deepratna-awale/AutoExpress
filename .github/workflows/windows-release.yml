@@ -48,7 +48,7 @@ jobs:
           Remove-Item -Path uploads -Recurse -Force -ErrorAction SilentlyContinue
           # Check if RELEASE_README.md exists and copy/rename it
           if (Test-Path "RELEASE_README.md") {
-            Move-Item "RELEASE_README.md" "README.md"
+            Move-Item "RELEASE_README.md" "README.md" -Force
           } else {
             Write-Host "Warning: RELEASE_README.md not found"
           }
