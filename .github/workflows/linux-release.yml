@@ -34,6 +34,7 @@ jobs:
       
       - name: Create virtual environment and install dependencies
         run: |
+          ls -la
           echo "PWD=$PWD"
           python -m venv .venv
           source .venv/bin/activate
