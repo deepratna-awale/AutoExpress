@@ -1,22 +1,23 @@
 import json
 from loguru import logger as log
+import pathlib
 
 def get_opaque_payload():
-    with open(r"autoexpress\resources\empty_bg.json", "r") as payload_file:
+    with open(pathlib.Path("autoexpress/resources/empty_bg.json"), "r") as payload_file:
         return json.load(payload_file)
 
 def get_expression_list():
-    with open(r"autoexpress\resources\expressions.json", "r") as exp_file:
+    with open(pathlib.Path("autoexpress/resources/expressions.json"), "r") as exp_file:
         return json.load(exp_file)
 
 
 def get_clip_expression_list():
-    with open(r"autoexpress\resources\clip_expressions.json", "r") as exp_file:
+    with open(pathlib.Path("autoexpress/resources/clip_expressions.json"), "r") as exp_file:
         return json.load(exp_file)
 
 
 def get_img2img_payload():
-    with open(r"autoexpress\resources\payload.json", "r") as payload_file:
+    with open(pathlib.Path("autoexpress/resources/payload.json"), "r") as payload_file:
         return json.load(payload_file)
 
 def update_nested_key(data, key_to_update, new_value):

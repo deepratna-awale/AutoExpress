@@ -1,0 +1,67 @@
+name: Build Windows Release
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        required: true
+        type: string
+        description: 'The tag name for the release'
+    outputs:
+      artifact_name:
+        description: 'Name of the Windows release artifact'
+        value: ${{ jobs.build-windows.outputs.artifact_name }}
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    outputs:
+      artifact_name: ${{ steps.set_output.outputs.artifact_name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Create virtual environment and install dependencies
+        run: |
+          python -m venv .venv
+          .venv\Scripts\activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          deactivate
+        shell: cmd
+      
+      - name: Create Windows release package
+        run: |
+          mkdir autoexpress-${{ inputs.tag_name }}-windows
+          
+          # Copy all project files except .git, __pycache__, etc.
+          robocopy . autoexpress-${{ inputs.tag_name }}-windows /E /XD .git __pycache__ .pytest_cache .github Output uploads /XF .gitignore *.pyc *.pyo
+          
+          # Copy the virtual environment
+          robocopy .venv autoexpress-${{ inputs.tag_name }}-windows\.venv /E
+          
+          # Copy release README and rename it
+          copy RELEASE_README.md autoexpress-${{ inputs.tag_name }}-windows\README.md
+          
+          # Create the zip file
+          Compress-Archive -Path autoexpress-${{ inputs.tag_name }}-windows -DestinationPath autoexpress-${{ inputs.tag_name }}-Windows_Release.zip
+        shell: powershell
+      
+      - name: Upload Windows artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: autoexpress-${{ inputs.tag_name }}-Windows_Release.zip
+          retention-days: 1
+      
+      - name: Set output
+        id: set_output
+        run: echo "artifact_name=autoexpress-${{ inputs.tag_name }}-Windows_Release.zip" >> $GITHUB_OUTPUT
+        shell: bash

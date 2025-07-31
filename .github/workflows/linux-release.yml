@@ -1,0 +1,66 @@
+name: Build Linux Release
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        required: true
+        type: string
+        description: 'The tag name for the release'
+    outputs:
+      artifact_name:
+        description: 'Name of the Linux release artifact'
+        value: ${{ jobs.build-linux.outputs.artifact_name }}
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.set_output.outputs.artifact_name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Create virtual environment and install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          deactivate
+      
+      - name: Create Linux release package
+        run: |
+          mkdir autoexpress-${{ inputs.tag_name }}-linux
+          
+          # Copy all project files except .git, __pycache__, etc.
+          rsync -av --exclude='.git' --exclude='__pycache__' --exclude='.pytest_cache' \
+                    --exclude='.github' --exclude='Output' --exclude='uploads' \
+                    --exclude='.gitignore' --exclude='*.pyc' --exclude='*.pyo' \
+                    . autoexpress-${{ inputs.tag_name }}-linux/
+          
+          # Copy release README and rename it
+          cp RELEASE_README.md autoexpress-${{ inputs.tag_name }}-linux/README.md
+          
+          # Make run script executable
+          chmod +x autoexpress-${{ inputs.tag_name }}-linux/run.sh
+          
+          # Create the zip file
+          zip -r autoexpress-${{ inputs.tag_name }}-Linux_Release.zip autoexpress-${{ inputs.tag_name }}-linux
+      
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: autoexpress-${{ inputs.tag_name }}-Linux_Release.zip
+          retention-days: 1
+      
+      - name: Set output
+        id: set_output
+        run: echo "artifact_name=autoexpress-${{ inputs.tag_name }}-Linux_Release.zip" >> $GITHUB_OUTPUT

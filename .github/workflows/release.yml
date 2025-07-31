@@ -1,0 +1,142 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0, v2.1.3, etc.
+      - 'v*.*.*-*'  # Also triggers on pre-release tags like v1.0.0-beta, v1.0.0-rc1
+
+jobs:
+  # Build platform-specific releases
+  build-windows:
+    uses: ./.github/workflows/windows-release.yml
+    with:
+      tag_name: ${{ github.ref_name }}
+  
+  build-linux:
+    uses: ./.github/workflows/linux-release.yml
+    with:
+      tag_name: ${{ github.ref_name }}
+  
+  create-release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to create releases
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for changelog generation
+      
+      - name: Get tag name
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Check if pre-release
+        id: prerelease
+        run: |
+          if [[ "${{ steps.tag.outputs.tag }}" =~ -.*$ ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "${{ steps.tag.outputs.tag }}" | head -n 1)
+          
+          # Generate changelog from commits
+          if [ -z "$PREV_TAG" ]; then
+            # If no previous tag, get all commits
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            # Get commits since previous tag
+            CHANGELOG=$(git log ${PREV_TAG}..${{ steps.tag.outputs.tag }} --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          # Create release notes
+          cat > release_notes.md << EOF
+          ## AutoExpress ${{ steps.tag.outputs.tag }}
+          
+          AutoExpress automatically creates 28 different expressions from a given image using Automatic1111 Stable Diffusion WebUI API.
+          
+          ### What's Changed
+          ${CHANGELOG}
+          
+          ### Downloads
+          
+          #### 🚀 Ready-to-Run Releases (Recommended)
+          - **Windows**: Download \`autoexpress-${{ steps.tag.outputs.tag }}-Windows_Release.zip\`, extract and run \`run.bat\`
+          - **Linux**: Download \`autoexpress-${{ steps.tag.outputs.tag }}-Linux_Release.zip\`, extract and run \`./run.sh\`
+          
+          These releases include all dependencies pre-installed in a virtual environment. No additional setup required!
+          
+          #### 📦 Installation Options
+          
+          **Option 1: Docker (Cross-platform)**
+          \`\`\`bash
+          docker pull deepratna/autoexpress:${{ steps.tag.outputs.tag }}
+          docker run -p 7860:7860 deepratna/autoexpress:${{ steps.tag.outputs.tag }}
+          \`\`\`
+          
+          **Option 2: From Source**
+          1. Download and extract the source code (\`autoexpress-${{ steps.tag.outputs.tag }}-source.zip\`)
+          2. Install dependencies: \`pip install -r requirements.txt\`
+          3. Run the application: \`python -m autoexpress\`
+          
+          ### Requirements
+          - Automatic1111 Stable Diffusion WebUI with API enabled
+          - After Detailer Extension installed
+          
+          ### Links
+          - 🌐 [Try it online](https://autoexpress.live)
+          - 🐳 [Docker Hub](https://hub.docker.com/r/deepratna/autoexpress)
+          - 📖 [Documentation](https://github.com/deepratna-awale/AutoExpress/blob/main/README.md)
+          
+          **Full Changelog**: https://github.com/deepratna-awale/AutoExpress/compare/${PREV_TAG}...${{ steps.tag.outputs.tag }}
+          EOF
+          
+          echo "changelog_file=release_notes.md" >> $GITHUB_OUTPUT
+      
+      - name: Create source code archive
+        run: |
+          # Create a clean archive without .git, __pycache__, etc.
+          mkdir -p artifacts
+          git archive --format=zip --prefix=autoexpress-${{ steps.tag.outputs.tag }}/ HEAD > artifacts/autoexpress-${{ steps.tag.outputs.tag }}-source.zip
+          git archive --format=tar.gz --prefix=autoexpress-${{ steps.tag.outputs.tag }}/ HEAD > artifacts/autoexpress-${{ steps.tag.outputs.tag }}-source.tar.gz
+      
+      - name: Download Windows Release
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: artifacts/
+      
+      - name: Download Linux Release
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-release
+          path: artifacts/
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: AutoExpress ${{ steps.tag.outputs.tag }}
+          body_path: ${{ steps.changelog.outputs.changelog_file }}
+          prerelease: ${{ steps.prerelease.outputs.prerelease }}
+          draft: false
+          files: |
+            artifacts/*
+          generate_release_notes: false  # We're providing our own notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Update latest release info
+        if: steps.prerelease.outputs.prerelease == 'false'
+        run: |
+          echo "✅ Release ${{ steps.tag.outputs.tag }} created successfully!"
+          echo "🎉 This is now the latest stable release of AutoExpress"

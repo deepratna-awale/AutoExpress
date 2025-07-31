@@ -87,7 +87,28 @@ Run
 ```bash
 docker run -p 5000:5000 deepratna/autoexpress
 ```
-## Using Installer
+
+## Quick Start with Pre-built Releases (Recommended)
+
+Download the latest pre-built release for your platform from the [Releases page](https://github.com/deepratna-awale/AutoExpress/releases):
+
+### Windows
+1. Download `autoexpress-v*.*.* -Windows_Release.zip`
+2. Extract the zip file
+3. Double-click `run.bat` to start AutoExpress
+4. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser
+
+### Linux
+1. Download `autoexpress-v*.*.* -Linux_Release.zip`
+2. Extract the zip file
+3. Run `./run.sh` to start AutoExpress
+4. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser
+
+**Note**: Pre-built releases include all dependencies pre-installed in a virtual environment. No additional setup required!
+
+## Alternative Installation Methods
+
+### Using Installer
 - Clone repository
 ```bash
 git clone https://github.com/deepratnaawale/AutoExpress.git
@@ -101,7 +122,7 @@ cd AutoExpress
   ```
   - Windows (Simply execute the [install.bat](install.bat) file)
 
-## Manual Installation
+### Manual Installation
 ```bash
 git clone https://github.com/deepratnaawale/AutoExpress.git
 cd AutoExpress
