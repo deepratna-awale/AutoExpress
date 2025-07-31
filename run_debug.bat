@@ -13,7 +13,7 @@ echo "                                     |_|                         ";
 call .venv\Scripts\activate
 
 :: Run the Flask application in debug mode
-flask --app autoexpress run --debug
+flask --app autoexpress run --debug --host=0.0.0.0 --port=5000
 
 :: Deactivate the virtual environment after Flask stops
 call deactivate
