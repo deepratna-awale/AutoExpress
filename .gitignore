@@ -152,8 +152,11 @@ cython_debug/
 #.idea/
 
 # Project Specific
-Output/
-uploads/
+Output/**/*
+uploads/**/*
+!uploads/.gitkeep
+!Output/.gitkeep
 .vscode/
+.DS_Store
 QOL CHANGES.txt
 install_logs.txt
