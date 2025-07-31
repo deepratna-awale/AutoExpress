@@ -57,20 +57,20 @@ jobs:
           find . -name "*.pyc" -delete
 
           # Check if RELEASE_README.md exists and copy/rename it
-          if [ -f "AutoExpress/RELEASE_README.md" ]; then
-            mv "AutoExpress/RELEASE_README.md" "AutoExpress/README.md"
+          if [ -f "./AutoExpress/RELEASE_README.md" ]; then
+            mv "./AutoExpress/RELEASE_README.md" "./AutoExpress/README.md"
           else
             echo "Warning: RELEASE_README.md not found"
           fi
 
           # Make run script executable
-          if [ -f "AutoExpress/run.sh" ]; then
-            chmod +x "AutoExpress/run.sh"
+          if [ -f "./AutoExpress/run.sh" ]; then
+            chmod +x "./AutoExpress/run.sh"
           else
             echo "Warning: run.sh not found"
           fi
 
-          mv "AutoExpress" "$folder"
+          mv "./AutoExpress" "$folder"
 
           # Archive the folder
           zip -r "${folder}_Release.zip" "$folder"
