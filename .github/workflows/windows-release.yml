@@ -49,7 +49,7 @@ jobs:
           # Create release folder
           New-Item -ItemType Directory -Path $folder
           # Copy all files except excluded ones
-          Get-ChildItem -Path . -Exclude $folder,'.git','.github','.venv','Output','uploads' | ForEach-Object {
+          Get-ChildItem -Path . -Exclude $folder,'.git','.github' | ForEach-Object {
             Copy-Item $_.FullName -Destination $folder -Recurse -Force
           }
           # Check if RELEASE_README.md exists and copy/rename it
