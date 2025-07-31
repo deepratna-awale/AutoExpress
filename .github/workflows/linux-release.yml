@@ -55,7 +55,7 @@ jobs:
           mkdir -p "$folder"
 
           # Copy all files except excluded ones
-          rsync -av --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='.github' --exclude='$folder'. "$folder/"
+          rsync -av --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='.github' --exclude='$folder/' . "$folder/"
 
           # Check if RELEASE_README.md exists and copy/rename it
           if [ -f "$folder/RELEASE_README.md" ]; then
