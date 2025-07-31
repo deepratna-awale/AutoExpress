@@ -34,7 +34,7 @@ jobs:
       
       - name: Create virtual environment and install dependencies
         run: |
-          cd ${{ github.workspace }}
+          echo "PWD=$(pwd)"
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
