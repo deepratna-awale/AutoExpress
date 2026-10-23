@@ -35,6 +35,10 @@ def test_tuned_instructions_for_known_problems():
     embarrassment = instruction_edit.get_instructions(["embarrassment"])["embarrassment"]
     assert "only on the cheeks" in embarrassment and "deep blush" not in embarrassment
     assert "blush" not in instruction_edit.get_instructions(["joy"])["joy"]
+    # On photos "embarrass" itself paints blotches on the cheeks, and surprise/fear blew up the eyes.
+    photo = {name: instruction_edit.build_instruction(name, style="photo") for name in ("embarrassment", "surprise", "fear")}
+    assert "embarrass" not in photo["embarrassment"].lower() and "blush" not in photo["embarrassment"]
+    assert "eyes their normal size" in photo["surprise"] and "eyes their normal size" in photo["fear"]
     assert "does not move" in instruction_edit.get_instructions(["sadness"])["sadness"]
 
 

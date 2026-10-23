@@ -178,7 +178,7 @@ class AutoExpressEditInstructions:
                 }),
                 "intensity": (["auto"] + list(instruction_edit.INTENSITIES), {
                     "default": "auto",
-                    "tooltip": "How far to push the expression. auto: normal for illustrations, subtle for photos.",
+                    "tooltip": "How far to push the expression. auto: normal for illustrations, subtle for photos (normal is usually too strong on real faces).",
                 }),
                 "extra_instruction": ("STRING", {
                     "multiline": True,

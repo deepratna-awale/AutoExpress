@@ -58,9 +58,9 @@
     "disappointment": "The character looks disappointed: eyes slightly lowered and the corners of the mouth turned a little down.",
     "disapproval": "The character looks disapproving: a slight frown and tight lips.",
     "disgust": "The character looks mildly disgusted: the nose slightly wrinkled and the upper lip a little raised.",
-    "embarrassment": "The character looks a little embarrassed: an awkward small smile and eyes glancing away. No added redness.",
-    "excitement": "The character looks excited: a broad natural smile and bright, wide-open eyes.",
-    "fear": "The character looks scared: eyes a little wider, eyebrows slightly raised and drawn together, lips slightly parted.",
+    "embarrassment": "The character has a shy, awkward half-smile with the gaze turned away to the side.",
+    "excitement": "The character looks excited: a broad natural smile and bright eyes, eyes their normal size.",
+    "fear": "The character looks worried and uneasy: eyebrows slightly raised and drawn together, lips slightly parted, eyes their normal size.",
     "gratitude": "The character looks grateful: a soft, warm smile with relaxed eyes.",
     "grief": "The character looks grief-stricken: eyebrows drawn up in the middle, glistening eyes and a trembling, downturned mouth.",
     "joy": "The character looks happy: a natural, genuine smile with slightly squinted eyes.",
@@ -69,10 +69,10 @@
     "neutral": "The character has a calm, neutral expression: relaxed face, mouth closed and a steady gaze.",
     "optimism": "The character looks hopeful: a small confident smile.",
     "pride": "The character looks proud: a slight self-satisfied smile.",
-    "realization": "The character has a realization: eyebrows raised and the lips slightly parted.",
+    "realization": "The character has a realization: eyebrows raised and lips slightly parted, eyes their normal size.",
     "relief": "The character looks relieved: relaxed eyebrows and a small, easy smile.",
     "remorse": "The character looks remorseful: eyes lowered, eyebrows slightly drawn up and lips pressed together.",
     "sadness": "The character looks sad: the inner ends of the eyebrows slightly raised, eyes a little lowered and the corners of the mouth turned slightly down. The head does not move.",
-    "surprise": "The character looks surprised: eyebrows raised and the mouth slightly open."
+    "surprise": "The character looks surprised: eyebrows slightly raised, lips slightly parted, eyes their normal size."
   }
 }
