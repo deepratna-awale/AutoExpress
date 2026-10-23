@@ -26,6 +26,7 @@ from autoexpress_core import (  # noqa: E402
     civitai_key,
     expression_loras,
     expression_names,
+    expression_sets,
     make_sprite_sheet,
     resolve_flavor,
 )
@@ -236,7 +237,7 @@ def generate(
     family = resolve_flavor(flavor, checkpoint_name)
 
     lora_prompt, lora_note = "", ""
-    if use_expression_loras:
+    if use_expression_loras and expression_sets.family_defaults(family)["expression_loras"]:
         yield gallery, "Checking expression LoRAs…", None
         try:
             lora_prompt, lora_note = expression_lora_prompt(checkpoint_name, family, civitai_api_key)

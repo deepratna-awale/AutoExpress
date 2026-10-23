@@ -10,7 +10,8 @@
   "defaults": {
     "method": "inpaint",
     "intensity": 0.5,
-    "edit_style": "illustration"
+    "edit_style": "illustration",
+    "expression_loras": true
   },
   "quality_tags": "score_9, score_8_up, score_7_up",
   "negative": "score_4, score_5, score_6",

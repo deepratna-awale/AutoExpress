@@ -276,3 +276,14 @@ def test_edit_requirements_report_fixes_over_the_api():
     assert any("models/vae" in command and "qwen_image_vae" in command for command in vae["fix"]["commands"])
     assert vae["fix"]["links"][0]["url"].startswith("https://huggingface.co/")
     assert not any(item["required"] for item in backend.edit_requirements(selected=False))
+
+
+def test_capabilities_list_edit_items_as_optional():
+    routes = edit_routes()
+    routes["GET /system_stats"] = {"system": {}, "devices": []}
+    backend = ComfyUIClient()
+    backend.session = ComfySession(routes)
+    items = {item.key: item for item in backend.capabilities()}
+    assert items["qwen_edit_diffusion_model"].ok and not items["qwen_edit_diffusion_model"].required
+    selected = {item.key: item for item in backend.edit_capabilities(selected=True)}
+    assert selected["qwen_edit_vae"].required and selected["qwen_edit_vae"].fix is None

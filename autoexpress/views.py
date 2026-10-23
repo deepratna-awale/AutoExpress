@@ -348,17 +348,21 @@ def generate():
     """
     request_data = validate_generate(request.get_json(silent=True), settings.max_image_pixels)
     backend = current_backend()
+    job_settings = dict(request_data["settings"])
+    family = resolve_flavor(model_family, job_settings.get("ad_checkpoint"), is_realistic)
+    family_defaults = expression_sets.family_defaults(family)
     method = request_data["method"]
+    if method is None:
+        # Realistic families default to the instruction edit where the WebUI has it; inpainting barely moves a photo.
+        method = family_defaults["method"] if family_defaults["method"] in backend.edit_methods else instruction_edit.INPAINT
     if method not in backend.edit_methods:
         raise ValidationError(
             {"method": f"{backend.label} has no {instruction_edit.METHODS[method]['name']} mode. Use the ComfyUI backend for it."}
         )
 
-    job_settings = dict(request_data["settings"])
     for lora_name, lora_strength in request_data["loras"]:
         job_settings["ad_prompt"] = f"{job_settings.get('ad_prompt', '')} <lora:{lora_name}:{lora_strength}>, "
 
-    family = resolve_flavor(model_family, job_settings.get("ad_checkpoint"), is_realistic)
     if method == instruction_edit.INSTRUCT:
         expressions = list(instruction_edit.get_instructions(request_data["expressions"]))
     else:
@@ -393,7 +397,8 @@ def generate():
             expressions=expressions,
             family=family,
             is_realistic=is_realistic,
-            use_expression_loras=lora_settings["enabled"],
+            # Off for families whose models the expression LoRAs don't help (realistic photos).
+            use_expression_loras=lora_settings["enabled"] and family_defaults["expression_loras"],
             lora_dir=lora_settings["lora_dir"] or None,
             civitai_api_key=civitai_api_key,
             method=method,

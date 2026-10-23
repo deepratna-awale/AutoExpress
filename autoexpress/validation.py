@@ -85,7 +85,7 @@ def validate_generate(data, max_pixels: int) -> dict:
     Returns:
         dict: image (base64 str), output_name, loras (list of (name, weight)),
               settings (payload overrides), expressions (list or None), wait (bool),
-              method ("inpaint" or "instruct").
+              method ("inpaint", "instruct" or None for the family's default).
     """
     if not isinstance(data, dict):
         raise ValidationError({"body": "Expected a JSON object."})
@@ -161,8 +161,9 @@ def validate_generate(data, max_pixels: int) -> dict:
         else:
             settings[key] = value
 
-    method = data.get("method") or "inpaint"
-    if method not in METHODS:
+    # None: the model family's default method, picked once the family is known.
+    method = data.get("method") or None
+    if method is not None and method not in METHODS:
         errors["method"] = f"must be one of {', '.join(METHODS)}"
 
     if errors:

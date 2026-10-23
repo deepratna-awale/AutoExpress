@@ -10,9 +10,10 @@
     "Lumina"
   ],
   "defaults": {
-    "method": "inpaint",
-    "intensity": 0.3,
-    "edit_style": "photo"
+    "method": "instruct",
+    "intensity": 0.2,
+    "edit_style": "photo",
+    "expression_loras": false
   },
   "quality_tags": "",
   "negative": "",

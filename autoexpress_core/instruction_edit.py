@@ -114,6 +114,14 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
     return " ".join(part for part in parts if part)
 
 
+def expression_intensity_for(expression: str, intensity: float, style: str = ILLUSTRATION) -> float:
+    """The intensity for one expression: photos shift some expressions (see photo_intensity_offsets)."""
+    if style != PHOTO:
+        return intensity
+    offset = _load().get("photo_intensity_offsets", {}).get(expression, 0.0)
+    return expression_intensity.resolve(intensity + offset)
+
+
 def resolve_style(style: str | None = None, is_realistic: bool = False) -> str:
     """A style id from a user choice; "auto" or None picks PHOTO for realistic images."""
     if style in STYLES:

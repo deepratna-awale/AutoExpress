@@ -9,9 +9,10 @@
     "Realistic Vision"
   ],
   "defaults": {
-    "method": "inpaint",
+    "method": "instruct",
     "intensity": 0.2,
-    "edit_style": "photo"
+    "edit_style": "photo",
+    "expression_loras": false
   },
   "quality_tags": "",
   "negative": "",
@@ -30,7 +31,7 @@
     "disgust": "(disgusted expression:1.4), (wrinkled nose:1.2), curled upper lip, squinting eyes, grimace",
     "embarrassment": "(embarrassed expression:1.4), (deep blush:1.2), averted eyes, awkward smile",
     "excitement": "(excited expression:1.4), (wide open smile:1.2), bright sparkling eyes, raised eyebrows",
-    "fear": "(frightened expression:1.4), (wide terrified eyes:1.2), raised eyebrows, open mouth, pale face",
+    "fear": "(frightened expression:1.4), (wide terrified eyes:1.2), raised eyebrows, open mouth",
     "gratitude": "(grateful expression:1.4), (soft smile:1.2), eyes gently closed, slight blush",
     "grief": "(grieving expression:1.4), (crying:1.2), tears streaming down face, eyes squeezed shut, mouth open in a sob",
     "joy": "(joyful expression:1.4), (big laughing smile:1.2), eyes crinkled, rosy cheeks",

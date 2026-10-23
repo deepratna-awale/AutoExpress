@@ -38,9 +38,14 @@ def test_scale_lora_tags():
 
 def test_families_carry_calibrated_defaults():
     families = {f["id"]: f for f in expression_sets.list_families()}
-    assert families["danbooru"]["defaults"] == {"method": "inpaint", "intensity": 0.5, "edit_style": "illustration"}
-    realistic = families["sdxl_base"]["defaults"]
-    assert realistic["intensity"] < 0.3 and realistic["edit_style"] == "photo"
+    assert families["danbooru"]["defaults"] == {
+        "method": "inpaint", "intensity": 0.5, "edit_style": "illustration", "expression_loras": True,
+    }
+    # RunPod photo tests: inpainting barely moves a real face, the edit at 0.2 looks natural.
+    assert families["sdxl_base"]["defaults"] == {
+        "method": "instruct", "intensity": 0.2, "edit_style": "photo", "expression_loras": False,
+    }
+    assert families["natural_language"]["defaults"]["method"] == "instruct"
     for family in families.values():
         assert 0 <= family["defaults"]["intensity"] <= 1 and family["defaults"]["method"] in ("inpaint", "instruct")
 
@@ -51,7 +56,8 @@ def test_generator_tones_down_realistic_families(face_image, fake_backend):
                        lora_prompt="<lora:expr:0.6>")
     prompt = find_nested_key(fake_backend.payloads[0], "ad_prompt")
     joy = expression_sets.load_family("sdxl_base")["expressions"]["joy"]
-    assert f"({joy}:0.76)" in prompt  # 0.2 -> weight 0.76
+    # 0.2 -> weight 0.76, with the family's own (tag:1.4) weights removed so they don't cancel it
+    assert f"({expression_intensity.strip_weights(joy)}:0.76)" in prompt and ":1.4" not in prompt
     assert "<lora:expr:0.24>" in prompt  # 0.6 * 0.4
     assert find_nested_key(fake_backend.payloads[0], "ad_denoising_strength") == pytest.approx(0.41)
 
@@ -64,3 +70,18 @@ def test_generator_explicit_intensity_wins(face_image, fake_backend):
     joy = expression_sets.load_family("sdxl_base")["expressions"]["joy"]
     assert find_nested_key(payload, "ad_prompt").endswith(joy)
     assert "expression_intensity" not in str(payload)
+
+
+def test_strip_weights_keeps_escaped_parentheses():
+    assert expression_intensity.strip_weights("(angry:1.4), ((frown)), \\(smile\\)") == "angry, frown, \\(smile\\)"
+
+
+def test_photo_offsets_per_expression():
+    from autoexpress_core import instruction_edit
+
+    assert instruction_edit.expression_intensity_for("anger", 0.2, "photo") == pytest.approx(0.1)
+    assert instruction_edit.expression_intensity_for("joy", 0.2, "photo") == 0.2
+    assert instruction_edit.expression_intensity_for("anger", 0.2, "illustration") == 0.2
+    surprise = instruction_edit.build_instruction("surprise", style="photo", intensity=0.1)
+    assert "eyes their normal size, eyebrows slightly raised, lips slightly parted" in surprise
+    assert "pale" not in expression_sets.load_family("sdxl_base")["expressions"]["fear"]

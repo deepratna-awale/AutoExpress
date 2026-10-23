@@ -367,3 +367,15 @@ def test_auto_detect_failures_explain_what_to_do(client, monkeypatch):
     fix = response.get_json()["error"]["fix"]
     assert response.status_code == 409 and fix["steps"][0].startswith("In RunPod, open the pod")
     assert "add 7999 to Expose HTTP Ports" in fix["steps"][0]
+
+
+def test_generate_without_method_uses_the_family_default(client, monkeypatch):
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_edit", FakeEditWebUI)
+    monkeypatch.setattr(views, "model_family", "sdxl_base")
+    views.state.connect("fake_edit", None)
+    FakeEditWebUI.instructions = []
+    result = client.post("/generate", json=body(expressions=["joy"])).get_json()
+    assert result["job"]["method"] == "instruct" and FakeEditWebUI.instructions[0][0].startswith("Edit this photograph")
+
+    views.state.connect("fake", None)  # no edit mode: falls back to inpainting
+    assert client.post("/generate", json=body(expressions=["joy"])).get_json()["job"]["method"] == "inpaint"

@@ -3,10 +3,12 @@
 Each family lives in resources/expressions/<family>.json with:
     name, description, models, defaults, quality_tags, negative, expressions
 
-defaults holds what works best for that family's models: the method
-("inpaint" or "instruct"), the expression intensity (0..1, see intensity.py;
-realistic families sit much lower because full-strength expressions look
-uncanny on real faces) and the instruction edit wording ("illustration" or "photo").
+defaults holds what works best for that family's models, calibrated on RunPod:
+the method ("inpaint" or "instruct"; inpainting barely moves a real face, so
+realistic families use the instruction edit), the expression intensity (0..1,
+see intensity.py; realistic families sit much lower because full-strength
+expressions look uncanny on real faces), the instruction edit wording
+("illustration" or "photo") and whether the expression LoRAs are used.
 
 Only the standard library is used, and paths resolve relative to this file,
 so the module can move into a shared core package unchanged.
@@ -69,11 +71,16 @@ def _load(family_id):
         return json.load(family_file)
 
 
-FALLBACK_DEFAULTS = {"method": "inpaint", "intensity": expression_intensity.DEFAULT, "edit_style": "illustration"}
+FALLBACK_DEFAULTS = {
+    "method": "inpaint",
+    "intensity": expression_intensity.DEFAULT,
+    "edit_style": "illustration",
+    "expression_loras": True,
+}
 
 
 def family_defaults(family_id):
-    """The family's calibrated defaults (method, intensity, edit_style), filled in where the file leaves them out."""
+    """The family's calibrated defaults (method, intensity, edit_style, expression_loras), filled in where the file leaves them out."""
     return {**FALLBACK_DEFAULTS, **(_load(family_id).get("defaults") or {})}
 
 

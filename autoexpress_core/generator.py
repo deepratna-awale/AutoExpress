@@ -1,3 +1,4 @@
+import dataclasses
 import pathlib
 import threading
 from typing import Iterator, Protocol
@@ -148,7 +149,7 @@ class ExpressionGenerator:
         if style == instruction_edit.PHOTO and defaults["edit_style"] != instruction_edit.PHOTO:
             default_intensity = min(default_intensity, expression_intensity.PHOTO_DEFAULT)
         intensity = expression_intensity.resolve(settings.get("expression_intensity", default_intensity))
-        edit_settings = instruction_edit.EditSettings.from_settings({**settings, "expression_intensity": intensity})
+        edit_settings = instruction_edit.EditSettings.from_settings(settings)
         extra = settings.get("edit_instruction", "")
         output_dir = self._prepare_output(output_dir)
         log.info(f"Using {style} instruction edits at intensity {intensity:g} ({len(instructions)} expressions).")
@@ -158,8 +159,9 @@ class ExpressionGenerator:
                 log.info("Interrupted by user. Stopping..")
                 return
             log.info(f"Editing the expression to {expression_name}.")
-            instruction = instruction_edit.build_instruction(expression_name, extra, style, intensity)
-            result = self.backend.instruction_edit(b64_image, instruction, edit_settings)
+            value = instruction_edit.expression_intensity_for(expression_name, intensity, style)
+            instruction = instruction_edit.build_instruction(expression_name, extra, style, value)
+            result = self.backend.instruction_edit(b64_image, instruction, dataclasses.replace(edit_settings, intensity=value))
             if result is None:
                 log.error(f"Instruction edit failed for {expression_name}, stopping.")
                 return

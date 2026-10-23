@@ -73,6 +73,12 @@
     "relief": "The character looks relieved: relaxed eyebrows and a small, easy smile.",
     "remorse": "The character looks remorseful: eyes lowered, eyebrows slightly drawn up and lips pressed together.",
     "sadness": "The character looks sad: the inner ends of the eyebrows slightly raised, eyes a little lowered and the corners of the mouth turned slightly down. The head does not move.",
-    "surprise": "The character looks surprised: eyebrows slightly raised, lips slightly parted, eyes their normal size."
+    "surprise": "The character looks mildly surprised: eyes their normal size, eyebrows slightly raised, lips slightly parted."
+  },
+  "photo_intensity_offsets": {
+    "_comment": "Added to the intensity for photos, from RunPod photo tests: anger and sadness read as natural lower than the rest, surprise still widens the eyes.",
+    "anger": -0.1,
+    "sadness": -0.1,
+    "surprise": -0.1
   }
 }

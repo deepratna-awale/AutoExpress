@@ -11,6 +11,10 @@ uncanny. Each mode maps the slider onto its own knobs:
   sentences) and the sampler's denoise, so low values keep more of the input.
 
 The curves are plain functions so they can be tuned from test renders.
+
+RunPod photo tests: face inpainting barely moves a real face at any setting
+(ADetailer's 0.4 denoise is too low to change a photo, and more breaks the
+likeness), so realistic families default to the instruction edit at 0.2.
 """
 
 import re
@@ -72,7 +76,19 @@ def weight_expression(expression_prompt: str, intensity: float, natural_language
     weight = prompt_weight(intensity)
     if weight == 1.0:
         return expression_prompt
-    return f"({expression_prompt}:{weight:g})"
+    # Nested weights multiply, so the family's own "(angry expression:1.4)" would undo a lower intensity.
+    return f"({strip_weights(expression_prompt)}:{weight:g})"
+
+
+INNER_WEIGHT = re.compile(r"(?<!\\)\(([^()]*?)(?::\s*[-\d.]+)?\s*(?<!\\)\)")
+
+
+def strip_weights(prompt: str) -> str:
+    """'(angry expression:1.4), (furrowed brows), frown' -> 'angry expression, furrowed brows, frown'. Escaped \\( \\) stay."""
+    previous = None
+    while previous != prompt:
+        previous, prompt = prompt, INNER_WEIGHT.sub(r"\1", prompt)
+    return prompt
 
 
 LORA_TAG = re.compile(r"<lora:([^:>]+):([-\d.]+)>", re.IGNORECASE)
