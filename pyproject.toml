@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoexpress"
+description = "Generate 28 facial expressions of a character from one image. Works as a standalone app, an AUTOMATIC1111/Forge/SD.Next extension, ComfyUI nodes and InvokeAI nodes."
+version = "2.0.0"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+# Only what the shared core needs. Every supported WebUI already ships these.
+dependencies = ["pillow", "requests"]
+
+[project.urls]
+Repository = "https://github.com/deepratna-awale/AutoExpress"
+
+[tool.setuptools]
+packages = ["autoexpress_core", "autoexpress_core.backends"]
+
+[tool.setuptools.package-data]
+autoexpress_core = ["resources/*.json"]
+
+# ComfyUI registry (comfy node publish). Fill in PublisherId before publishing.
+[tool.comfy]
+PublisherId = ""
+DisplayName = "AutoExpress"
+Icon = "https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/autoexpress/static/ico/favicon-rounded.png"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -62,7 +62,64 @@ The above is an example realistic expressions on the following image without che
 
 ---
 
-# Requirements
+# Use AutoExpress inside your WebUI
+
+AutoExpress can run inside the WebUI you already use. Inside a WebUI it runs in-process like any other extension, so the `--api` flag is not needed. All integrations share the same expression prompts and generation logic (`autoexpress_core`).
+
+| WebUI | How it shows up | Face inpainting done by |
+| ----- | --------------- | ----------------------- |
+| AUTOMATIC1111, Forge, reForge, SD.Next | **AutoExpress** tab | [ADetailer](https://github.com/Bing-su/adetailer) |
+| ComfyUI (and SwarmUI, which runs ComfyUI) | **AutoExpress** nodes | [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) FaceDetailer |
+| InvokeAI | **AutoExpress Expression Prompts** node | InvokeAI's own inpainting nodes |
+| Standalone (this repo's Flask app) | Web app on port 5000 | ADetailer through the A1111 API |
+
+Fooocus has no extension system, so it is not supported.
+
+## AUTOMATIC1111 / Forge / reForge / SD.Next
+
+1. Install [ADetailer](https://github.com/Bing-su/adetailer) if you have not already.
+2. Go to **Extensions → Install from URL**, paste `https://github.com/deepratna-awale/AutoExpress` and press **Install**. You can also clone the repository into `extensions/`.
+3. Restart the WebUI and open the **AutoExpress** tab.
+4. Drop in a character image. The prompt, sampler, steps, CFG and seed are filled in from the image's metadata when it has any.
+5. Pick a prompt flavor and the expressions you want, then press **Generate**.
+
+Images are saved to `outputs/autoexpress/<character name>/`. You can change that folder under **Settings → AutoExpress**. A labelled sprite sheet is saved next to them when that option is ticked.
+
+## ComfyUI
+
+1. Install [ComfyUI Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and [Impact Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack), which provides the face detector.
+2. Clone this repository into `ComfyUI/custom_nodes/` (or install it from ComfyUI Manager), then restart ComfyUI.
+3. Build the graph:
+
+```
+Load Image ───────────────────────────────┐
+Load Checkpoint ── model / clip / vae ────┤
+CLIP Text Encode (positive / negative) ───┤
+UltralyticsDetectorProvider (bbox/face) ──┤
+                                          ▼
+AutoExpress Expression Prompts ─ prompts ─► FaceDetailer (wildcard input) ─ image ─┬─► AutoExpress Save Expressions
+                               └ names ────────────────────────────────────────────┼─► AutoExpress Save Expressions
+                                                                                   └─► AutoExpress Sprite Sheet ─► Preview Image
+```
+
+`prompts` is a list, so ComfyUI runs FaceDetailer once per expression on its own. Connect `names` to the save and sprite sheet nodes so every file is named after its expression.
+
+| Node | What it does |
+| ---- | ------------ |
+| AutoExpress Expression Prompts | Every expression (or a comma separated subset) as a prompt list, prefixed with your character prompt |
+| AutoExpress Expression Prompt | One expression prompt |
+| AutoExpress Save Expressions | Saves to `output/autoexpress/<character>/<expression>.png` |
+| AutoExpress Sprite Sheet | Tiles the results into one labelled image |
+
+## InvokeAI
+
+Symlink (or copy) `invokeai_nodes/autoexpress` into `<INVOKEAI_ROOT>/nodes/` and restart InvokeAI. If you copied the folder, also run `pip install git+https://github.com/deepratna-awale/AutoExpress` inside InvokeAI's environment. The **AutoExpress Expression Prompts** node outputs one prompt per expression, ready to iterate over in a face inpainting graph.
+
+---
+
+# Standalone App
+
+## Requirements
 - [Python3](https://www.python.org/downloads/) Prefer version 10
 - [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
     - [Online Services](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Online-Services)
