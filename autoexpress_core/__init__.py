@@ -13,7 +13,7 @@ as a top level package and as a sub package of the repository (ComfyUI loads
 the repository root as a package).
 """
 
-from . import expression_loras, expression_sets
+from . import civitai_key, expression_loras, expression_sets
 from .expressions import (
     AUTO,
     FLAVORS,
@@ -31,6 +31,7 @@ from . import images
 __version__ = "2.0.0"
 
 __all__ = [
+    "civitai_key",
     "expression_loras",
     "expression_sets",
     "AUTO",

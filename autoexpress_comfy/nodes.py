@@ -29,6 +29,7 @@ from ..autoexpress_core import (
     AUTO,
     DEFAULT_FLAVOR,
     FLAVORS,
+    civitai_key,
     expression_loras,
     expression_names,
     expression_sets,
@@ -167,7 +168,7 @@ class AutoExpressExpressionLoras:
             "optional": {
                 "civitai_api_key": ("STRING", {
                     "default": "",
-                    "tooltip": f"Needed by Civitai for downloads. Leave empty to use the {expression_loras.CIVITAI_KEY_ENV} environment variable.",
+                    "tooltip": "Needed by Civitai for downloads. Leave empty to reuse the key from ComfyUI LoRA Manager or the CIVITAI_API_KEY / CIVITAI_API_TOKEN environment variable.",
                 }),
             },
         }
@@ -189,11 +190,13 @@ class AutoExpressExpressionLoras:
 
         lora_dir = folder_paths.get_folder_paths("loras")[0]
         if download_missing:
-            _, failures = expression_loras.ensure_loras(
-                architecture, lora_dir, civitai_api_key or None, log=log.info
+            api_key, key_source = civitai_key.find_civitai_key(
+                explicit=civitai_api_key,
+                host_sources=civitai_key.comfyui_sources(folder_paths.get_folder_paths("custom_nodes")),
             )
-            for failure in failures:
-                log.warning(failure)
+            if key_source:
+                log.info(f"AutoExpress: using the Civitai API key from {key_source}")
+            expression_loras.ensure_loras(architecture, lora_dir, api_key, log=log.info)
 
         triggers = []
         for entry in expression_loras.loras_for(architecture):

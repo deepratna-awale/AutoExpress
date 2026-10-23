@@ -23,6 +23,7 @@ from autoexpress_core import (  # noqa: E402
     DEFAULT_FLAVOR,
     FLAVORS,
     ExpressionGenerator,
+    civitai_key,
     expression_loras,
     expression_names,
     make_sprite_sheet,
@@ -95,11 +96,18 @@ def expression_lora_prompt(checkpoint: str, family: str, api_key: str | None) ->
     """The LoRA prompt tags, and a note for the status line when no LoRA could be used."""
     failures = []
     architecture = expression_loras.guess_architecture(checkpoint, family)
+    api_key, key_source = civitai_key.find_civitai_key(
+        explicit=[api_key, shared.opts.data.get("autoexpress_civitai_api_key")],
+        host_sources=civitai_key.webui_option_sources(shared.opts.data),
+    )
+    if key_source:
+        log.info(f"AutoExpress: using the Civitai API key from {key_source}")
+
     prompt = expression_loras.expression_lora_prompt(
         checkpoint,
         family,
         lora_dir=lora_dir(),
-        api_key=api_key or shared.opts.data.get("autoexpress_civitai_api_key") or None,
+        api_key=api_key,
         refresh=refresh_loras,
         log=log.info,
         failures=failures,
@@ -298,7 +306,7 @@ def on_ui_tabs():
                     civitai_api_key = gr.Textbox(
                         label="Civitai API key",
                         type="password",
-                        placeholder="Optional, also settable in Settings → AutoExpress",
+                        placeholder="Optional: Settings → AutoExpress, Civitai Browser+/Helper or CIVITAI_API_KEY also work",
                         elem_id="autoexpress_civitai_key",
                     )
                 all_names = expression_names()

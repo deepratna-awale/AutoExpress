@@ -11,7 +11,6 @@ so the module can move into a shared core package unchanged.
 
 import hashlib
 import json
-import os
 import pathlib
 import re
 import shutil
@@ -97,7 +96,10 @@ def _download_urls(entry, api_key=None):
 
 def download_lora(entry, lora_dir, api_key=None, timeout=60):
     """Download one LoRA into lora_dir, checking its sha256. Returns the file path."""
-    api_key = api_key or os.environ.get(CIVITAI_KEY_ENV)
+    if not api_key:
+        from .civitai_key import find_civitai_key
+
+        api_key, _ = find_civitai_key()
     target = lora_path(entry, lora_dir)
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".part")
@@ -125,7 +127,10 @@ def download_lora(entry, lora_dir, api_key=None, timeout=60):
         shutil.move(str(partial), str(target))
         return target
 
-    hint = "" if api_key else f" Civitai needs an API key for downloads; set {CIVITAI_KEY_ENV}."
+    hint = "" if api_key else (
+        " Civitai needs an API key for downloads: add one in AutoExpress, in a Civitai"
+        f" extension of your WebUI, or set {CIVITAI_KEY_ENV}."
+    )
     raise RuntimeError(f"Could not download {entry['name']}: {'; '.join(errors)}.{hint}")
 
 

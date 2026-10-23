@@ -114,7 +114,7 @@ Fooocus has no extension system, so it is not supported.
 
 Images are saved to `outputs/autoexpress/<character name>/`. You can change that folder under **Settings → AutoExpress**. A labelled sprite sheet is saved next to them when that option is ticked.
 
-With **Expression LoRAs** ticked, the matching [expression LoRA](#expression-loras) is downloaded into the WebUI's LoRA folder (`--lora-dir`, or `models/Lora`) the first time, then added to the prompt. Civitai needs an API key for downloads: paste it into the tab, set it once under **Settings → AutoExpress**, or set `CIVITAI_API_KEY`.
+With **Expression LoRAs** ticked, the matching [expression LoRA](#expression-loras) is downloaded into the WebUI's LoRA folder (`--lora-dir`, or `models/Lora`) the first time, then added to the prompt. Civitai needs an API key for downloads. AutoExpress reuses one you already have: it checks the key typed into the tab, then **Settings → AutoExpress**, then the key saved by [Civitai Browser+](https://github.com/BlafKing/sd-civitai-browser-plus) or [Civitai Helper](https://github.com/zixaphir/Stable-Diffusion-Webui-Civitai-Helper), then `CIVITAI_API_KEY` / `CIVITAI_API_TOKEN`.
 
 ## ComfyUI
 
@@ -143,7 +143,7 @@ AutoExpress Expression Prompts ─ negative ─► CLIP Text Encode ────
 | ---- | ------------ |
 | AutoExpress Expression Prompts | Every expression (or a comma separated subset) as a prompt list in the right [prompt style](#prompt-styles), plus the matching negative prompt |
 | AutoExpress Expression Prompt | One expression prompt |
-| AutoExpress Expression LoRAs | Applies the matching [expression LoRAs](#expression-loras), downloading them into `models/loras` when missing, and outputs their trigger words |
+| AutoExpress Expression LoRAs | Applies the matching [expression LoRAs](#expression-loras), downloading them into `models/loras` when missing, and outputs their trigger words. Leave its key empty to reuse the one from [ComfyUI LoRA Manager](https://github.com/willmiao/ComfyUI-Lora-Manager) or `CIVITAI_API_KEY` / `CIVITAI_API_TOKEN` |
 | AutoExpress Save Expressions | Saves to `output/autoexpress/<character>/<expression>.png` |
 | AutoExpress Sprite Sheet | Tiles the results into one labelled image |
 
