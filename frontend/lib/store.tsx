@@ -12,6 +12,7 @@ import {
   type LoraSelection,
   type UploadResponse,
 } from "@/lib/api";
+import { FAMILY_DEFAULTS, detectFamily, reconcileSelections, type Adjustment } from "@/lib/model-defaults";
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -57,6 +58,8 @@ const POLL_INTERVAL_MS = 2500;
 const JOB_POLL_INTERVAL_MS = 1500;
 const SETTINGS_KEY = "autoexpress-connection";
 
+type Adjustments = Partial<Record<"model" | "sampler" | "scheduler", Adjustment>>;
+
 interface Options {
   models: string[];
   samplers: string[];
@@ -85,6 +88,10 @@ interface AutoExpressState {
   // Parameters
   params: Parameters;
   setParam: <K extends keyof Parameters>(key: K, value: Parameters[K]) => void;
+  /** Values swapped because the connected WebUI doesn't offer them. */
+  adjustments: Adjustments;
+  /** Sets sampler, scheduler, steps, CFG and clip skip to what the selected model's family usually uses. */
+  applyModelDefaults: () => void;
 
   // Input image
   file: File | null;
@@ -145,6 +152,20 @@ function applyLoras(prompt: string, loras: SelectedLora[]) {
   return { adPrompt, extra };
 }
 
+function reconcileParams(base: Parameters, opts: Options, fillMissing: boolean) {
+  if (opts.models.length === 0 && opts.samplers.length === 0) return { params: base, adjustments: {} };
+  const result = reconcileSelections(base, opts);
+  const params = { ...base, model: result.model, sampler: result.sampler, scheduler: result.scheduler };
+  if (fillMissing) {
+    const family = FAMILY_DEFAULTS[detectFamily(params.model)];
+    const pick = (preferred: string[], available: string[]) =>
+      preferred.find((name) => available.includes(name)) ?? available[0] ?? "";
+    if (!params.sampler) params.sampler = pick(family.samplers, opts.samplers);
+    if (!params.scheduler) params.scheduler = pick(family.schedulers, opts.schedulers);
+  }
+  return { params, adjustments: result.adjustments };
+}
+
 function readDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -180,8 +201,51 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [job, setJob] = useState<Job | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [adjustments, setAdjustments] = useState<Adjustments>({});
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
   const setParam = useCallback(<K extends keyof Parameters>(key: K, value: Parameters[K]) => {
     setParams((prev) => ({ ...prev, [key]: value }));
+    if (key === "model" || key === "sampler" || key === "scheduler") {
+      setAdjustments((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key as keyof Adjustments];
+        return next;
+      });
+    }
+  }, []);
+
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+
+  /** Swap auto-filled values the WebUI doesn't have for the closest match or family default. */
+  const reconcile = useCallback((base: Parameters, opts: Options, fillMissing = false) => {
+    const next = reconcileParams(base, opts, fillMissing);
+    paramsRef.current = next.params;
+    setParams(next.params);
+    setAdjustments(next.adjustments);
+  }, []);
+
+  const applyModelDefaults = useCallback(() => {
+    const opts = optionsRef.current;
+    const prev = paramsRef.current;
+    const family = FAMILY_DEFAULTS[detectFamily(prev.model)];
+    const pick = (preferred: string[], available: string[], current: string) =>
+      available.length === 0 ? current : (preferred.find((name) => available.includes(name)) ?? current);
+    const next = {
+      ...prev,
+      sampler: pick(family.samplers, opts.samplers, prev.sampler),
+      scheduler: pick(family.schedulers, opts.schedulers, prev.scheduler),
+      steps: family.steps,
+      cfgScale: family.cfgScale,
+      clipSkip: family.clipSkip,
+    };
+    paramsRef.current = next;
+    setParams(next);
+    setAdjustments({});
+    toast.success(`Applied ${family.label} defaults`);
   }, []);
 
   // Restore the last used connection, then let the server's state win when it has one.
@@ -247,6 +311,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         api.loras(),
       ]);
       setOptions({ models, samplers, schedulers, loras });
+      reconcile(paramsRef.current, { models, samplers, schedulers, loras });
       if (models.length === 0) {
         setConnection("error");
         toast.error("Connected, but the WebUI returned no models. Is it running with its API enabled?");
@@ -258,7 +323,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setConnection("error");
       toast.error(`Could not connect: ${error instanceof Error ? error.message : error}`);
     }
-  }, [apiUrl, backend, backends]);
+  }, [apiUrl, backend, backends, reconcile]);
 
   const setFamily = useCallback((id: string) => {
     const previous = family;
@@ -278,33 +343,38 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const applyImageData = useCallback((data: UploadResponse) => {
+    const prev = paramsRef.current;
     const cleaned = data.cleaned_data;
     if (!cleaned) {
-      setParams((prev) => ({
-        ...prev,
-        width: toNumber(data.width, prev.width),
-        height: toNumber(data.height, prev.height),
-      }));
-      toast.info("No generation parameters found in this image, only its size was used.");
+      toast.info("No generation parameters found in this image, so the model's usual settings are used.");
+      reconcile(
+        { ...prev, width: toNumber(data.width, prev.width), height: toNumber(data.height, prev.height) },
+        optionsRef.current,
+        true
+      );
       return;
     }
-    setParams((prev) => ({
-      ...prev,
-      model: cleaned.ad_checkpoint ?? prev.model,
-      sampler: cleaned.ad_sampler ?? prev.sampler,
-      scheduler: cleaned.ad_scheduler ?? prev.scheduler,
-      loras: normalizeLoras(cleaned.loras),
-      clipSkip: toNumber(cleaned.ad_clip_skip, prev.clipSkip),
-      seed: toNumber(cleaned.seed, prev.seed),
-      steps: toNumber(cleaned.ad_steps, prev.steps),
-      width: toNumber(cleaned.width ?? data.width, prev.width),
-      height: toNumber(cleaned.height ?? data.height, prev.height),
-      cfgScale: toNumber(cleaned.ad_cfg_scale, prev.cfgScale),
-      denoisingStrength: toNumber(cleaned.ad_denoising_strength, prev.denoisingStrength),
-      prompt: cleaned.ad_prompt ?? "",
-      negativePrompt: cleaned.ad_negative_prompt ?? "",
-    }));
-  }, []);
+    reconcile(
+      {
+        ...prev,
+        model: cleaned.ad_checkpoint ?? prev.model,
+        sampler: cleaned.ad_sampler ?? prev.sampler,
+        scheduler: cleaned.ad_scheduler ?? prev.scheduler,
+        loras: normalizeLoras(cleaned.loras),
+        clipSkip: toNumber(cleaned.ad_clip_skip, prev.clipSkip),
+        seed: toNumber(cleaned.seed, prev.seed),
+        steps: toNumber(cleaned.ad_steps, prev.steps),
+        width: toNumber(cleaned.width ?? data.width, prev.width),
+        height: toNumber(cleaned.height ?? data.height, prev.height),
+        cfgScale: toNumber(cleaned.ad_cfg_scale, prev.cfgScale),
+        denoisingStrength: toNumber(cleaned.ad_denoising_strength, prev.denoisingStrength),
+        prompt: cleaned.ad_prompt ?? "",
+        negativePrompt: cleaned.ad_negative_prompt ?? "",
+      },
+      optionsRef.current,
+      true
+    );
+  }, [reconcile]);
 
   const setFile = useCallback(
     async (next: File | null) => {
@@ -320,7 +390,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setUploading(true);
       try {
         const data = await api.upload(next);
-        setRawMetadata(data.uncleaned_data);
+        setRawMetadata(data.uncleaned_data && data.uncleaned_data !== "None" ? data.uncleaned_data : null);
         applyImageData(data);
       } catch (error) {
         toast.error(`Could not read image metadata: ${error instanceof Error ? error.message : error}`);
@@ -496,6 +566,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setRealistic,
       params,
       setParam,
+      adjustments,
+      applyModelDefaults,
       file,
       imageDataUrl,
       rawMetadata,
@@ -514,7 +586,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     }),
     [
       backends, backend, setBackend, apiUrl, connection, connect, options, families, family, setFamily,
-      isRealistic, setRealistic, params, setParam, file, imageDataUrl, rawMetadata, uploading, setFile,
+      isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]
   );

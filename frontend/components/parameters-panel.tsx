@@ -13,6 +13,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { LoraSelect } from "@/components/lora-select";
 import { SliderField } from "@/components/slider-field";
+import { FAMILY_DEFAULTS, detectFamily, type Adjustment } from "@/lib/model-defaults";
+
+function AdjustmentNote({ adjustment }: { adjustment?: Adjustment }) {
+  if (!adjustment) return null;
+  return (
+    <p className="text-xs text-amber-600 dark:text-amber-400" role="status">
+      <span className="font-medium">{adjustment.from}</span> {adjustment.reason}.
+    </p>
+  );
+}
 
 const CONNECT_BUTTON_CLASSES: Record<ConnectionStatus, string> = {
   idle: "",
@@ -66,7 +76,10 @@ export function ParametersPanel() {
     setRealistic,
     params,
     setParam,
+    adjustments,
+    applyModelDefaults,
   } = useAutoExpress();
+  const modelFamily = FAMILY_DEFAULTS[detectFamily(params.model)];
 
   const connected = connection === "connected";
   const currentBackend = backends?.find((b) => b.id === backend);
@@ -133,7 +146,19 @@ export function ParametersPanel() {
         {/* Generation settings */}
         <Section title="Generation Settings">
           <div className="space-y-2">
-            <Label className="text-sm font-medium">Model</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-sm font-medium">Model</Label>
+              {params.model && (
+                <button
+                  type="button"
+                  onClick={applyModelDefaults}
+                  className="text-xs text-primary underline-offset-4 hover:underline"
+                  title={`Sampler, scheduler, steps, CFG and clip skip that ${modelFamily.label} models usually use`}
+                >
+                  Use {modelFamily.label} defaults
+                </button>
+              )}
+            </div>
             <Combobox
               options={toOptions(options.models, params.model, cleanModelName)}
               value={params.model}
@@ -143,6 +168,7 @@ export function ParametersPanel() {
               emptyText={options.models.length ? "No model found." : "Connect to list models."}
               validationState={validation(options.models, params.model, connected)}
             />
+            <AdjustmentNote adjustment={adjustments.model} />
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
@@ -157,6 +183,7 @@ export function ParametersPanel() {
                 emptyText={options.samplers.length ? "No sampler found." : "Connect to list samplers."}
                 validationState={validation(options.samplers, params.sampler, connected)}
               />
+              <AdjustmentNote adjustment={adjustments.sampler} />
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium">Scheduler</Label>
@@ -169,6 +196,7 @@ export function ParametersPanel() {
                 emptyText={options.schedulers.length ? "No scheduler found." : "Connect to list schedulers."}
                 validationState={validation(options.schedulers, params.scheduler, connected)}
               />
+              <AdjustmentNote adjustment={adjustments.scheduler} />
             </div>
           </div>
 
