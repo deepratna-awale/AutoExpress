@@ -91,7 +91,10 @@ def refresh_loras():
         networks.list_available_networks()
 
 
-def expression_lora_prompt(checkpoint: str, family: str, api_key: str | None) -> str:
+def expression_lora_prompt(checkpoint: str, family: str, api_key: str | None) -> tuple[str, str]:
+    """The LoRA prompt tags, and a note for the status line when no LoRA could be used."""
+    failures = []
+    architecture = expression_loras.guess_architecture(checkpoint, family)
     prompt = expression_loras.expression_lora_prompt(
         checkpoint,
         family,
@@ -99,9 +102,17 @@ def expression_lora_prompt(checkpoint: str, family: str, api_key: str | None) ->
         api_key=api_key or shared.opts.data.get("autoexpress_civitai_api_key") or None,
         refresh=refresh_loras,
         log=log.info,
+        failures=failures,
     )
-    log.info(f"AutoExpress: expression LoRAs: {prompt or 'none installed'}")
-    return prompt
+    log.info(f"AutoExpress: expression LoRAs ({architecture}): {prompt or 'none'}")
+
+    if prompt:
+        note = ""
+    elif failures:
+        note = f"Expression LoRAs skipped: {' '.join(failures)}"
+    else:
+        note = f"Expression LoRAs skipped: none are listed for {architecture} models."
+    return prompt, note
 
 
 def output_root() -> str:
@@ -209,16 +220,20 @@ def generate(
     checkpoint_name = current_checkpoint(checkpoint)
     family = resolve_flavor(flavor, checkpoint_name)
 
-    lora_prompt = ""
+    lora_prompt, lora_note = "", ""
     if use_expression_loras:
         yield gallery, "Checking expression LoRAs…", None
         try:
-            lora_prompt = expression_lora_prompt(checkpoint_name, family, civitai_api_key)
+            lora_prompt, lora_note = expression_lora_prompt(checkpoint_name, family, civitai_api_key)
         except Exception as error:  # LoRAs are a bonus, never block generation on them
             log.warning(f"AutoExpress: skipping expression LoRAs: {error}")
+            lora_note = f"Expression LoRAs skipped: {error}"
+
+    def with_note(status: str) -> str:
+        return f"{status}\n\n{lora_note}" if lora_note else status
 
     log.info(f"AutoExpress: generating {total} {family} expressions into {output_dir}")
-    yield gallery, f"Generating 0/{total} ({family} prompts)…", None
+    yield gallery, with_note(f"Generating 0/{total} ({family} prompts)…"), None
 
     try:
         for name, result in generator.iter_generate(
@@ -230,7 +245,7 @@ def generate(
             lora_prompt=lora_prompt,
         ):
             gallery.append((result, name.title()))
-            yield gallery, f"Generating {len(gallery)}/{total}… last: **{name}**", None
+            yield gallery, with_note(f"Generating {len(gallery)}/{total}… last: **{name}**"), None
     except Exception as error:
         log.exception("AutoExpress: generation failed")
         yield gallery, f"**Error:** {type(error).__name__}: {error}. Full traceback in the console.", None
@@ -250,7 +265,7 @@ def generate(
         )
         sheet.save(os.path.join(output_dir, "sprite_sheet.png"))
 
-    yield gallery, status, sheet
+    yield gallery, with_note(status), sheet
 
 
 def interrupt():

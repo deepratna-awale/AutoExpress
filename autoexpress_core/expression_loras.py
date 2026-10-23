@@ -170,6 +170,7 @@ def expression_lora_prompt(
     installed_names=None,
     refresh=None,
     log=None,
+    failures=None,
 ):
     """
     Everything a host needs in one call: pick the LoRAs for a checkpoint, fetch the
@@ -177,16 +178,16 @@ def expression_lora_prompt(
 
     installed_names may be a list or a callable returning one (the host's LoRA list,
     read after the refresh). refresh is called after a download so the host rescans.
+    Download errors are passed to log and, when given, appended to the failures list.
     """
     architecture = guess_architecture(checkpoint_name, family_id)
 
     if lora_dir and download:
-        ready, failures = ensure_loras(architecture, lora_dir, api_key, log=log)
+        ready, errors = ensure_loras(architecture, lora_dir, api_key, log=log)
         if ready and refresh:
             refresh()
-        for failure in failures:
-            if log:
-                log(failure)
+        if failures is not None:
+            failures.extend(errors)
 
     if callable(installed_names):
         installed_names = installed_names()

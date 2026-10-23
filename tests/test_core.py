@@ -170,3 +170,13 @@ def test_generator_keeps_infotext_in_saved_png(tmp_path, face_image):
     ExpressionGenerator(InfoBackend()).generate(face_image, only=["joy"], output_dir=tmp_path)
     with Image.open(tmp_path / "joy.png") as saved:
         assert saved.info["parameters"] == "1girl, smile"
+
+
+def test_expression_lora_prompt_reports_download_failures(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        expression_loras, "ensure_loras", lambda *args, **kwargs: ([], ["Could not download X: set CIVITAI_API_KEY."])
+    )
+    failures = []
+    prompt = expression_loras.expression_lora_prompt("ponyDiffusionV6XL", lora_dir=tmp_path, failures=failures)
+    assert prompt == ""
+    assert failures == ["Could not download X: set CIVITAI_API_KEY."]
