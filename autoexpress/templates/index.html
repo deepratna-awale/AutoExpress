@@ -149,16 +149,13 @@
 
         <div class="sidebar-add-space"></div>
 
-        <!-- Style Selector -->
-        <div class="switch-container">
-          <label class="switch-label">Anime</label>
-          <label class="switch">
-            <input type="checkbox" id="styleSelector" /> <!--checked-->
-            <span class="slider round anime"></span>
-          </label>
-          <label class="switch-label">Realistic</label>
+        <!-- Expression Prompt Style -->
+        <div class="input-container select-container">
+          <label for="expression-family-input">Prompt Style</label>
+          <select id="expression-family-input" name="expression-family">
+            <option value="auto">Auto (from model name)</option>
+          </select>
         </div>
-      
 
         <div class="sidebar-add-space"></div>
         <!-- Settings cog icon -->
@@ -262,7 +259,7 @@
   <script src="{{ url_for('static', filename='js/image_drag_and_drop.js') }}"></script>
   <script src="{{ url_for('static', filename='js/generate.js') }}"></script>
   <script src="{{ url_for('static', filename='js/image_viewer.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/anime_toggle.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/expression_family.js') }}"></script>
   <script src="{{ url_for('static', filename='js/frontend_settings.js') }}"></script>
   <script src="{{ url_for('static', filename='js/multi_select.js') }}"></script>
 </body>

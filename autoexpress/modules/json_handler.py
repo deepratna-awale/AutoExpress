@@ -2,6 +2,8 @@ import json
 from loguru import logger as log
 import pathlib
 
+from . import expression_sets
+
 def get_opaque_payload():
     with open(pathlib.Path("autoexpress/resources/empty_bg.json"), "r") as payload_file:
         return json.load(payload_file)
@@ -64,17 +66,12 @@ def edit_payload_body(b64_image_str: str, payload, settings=None, expression_tag
         for key, value in settings.items():
             update_nested_key(payload, key, value)
 
-    prompt = find_nested_key(payload, "ad_prompt")
-    
-    if prompt:
-        if prompt[-1] not in [","]:
-            update_nested_key(payload, "ad_prompt", prompt + ", ")
-
     if expression_tags:
+        prompt = find_nested_key(payload, "ad_prompt") or ""
         update_nested_key(
             payload,
             "ad_prompt",
-            prompt + str(expression_tags),
+            expression_sets.join_prompt(prompt, expression_tags),
         )
 
     # payload["prompt"] = payload["alwayson_scripts"]["ADetailer"]["args"][2]["ad_prompt"]

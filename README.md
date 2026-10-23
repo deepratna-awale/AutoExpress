@@ -19,6 +19,21 @@ Automatically creates 28 different expressions from a given image using [Automat
 
 </p>
 
+## Prompt Styles
+
+Different checkpoints understand prompts differently, so the expression prompts come in one set per model family. Pick one from the **Prompt Style** dropdown, or leave it on **Auto** to choose from the checkpoint name.
+
+| Prompt Style | Use for | Quality tags added |
+| --- | --- | --- |
+| Danbooru tags | SD1.5 anime models, Animagine, Anything, Counterfeit | `masterpiece, best quality` |
+| e621 tags | Furry/anthro models (FluffyRock, Fluffusion, YiffyMix) | `best quality, detailed` |
+| Pony Diffusion | Pony V6 XL and merges | `score_9, score_8_up, score_7_up` |
+| Illustrious / NoobAI | Illustrious-XL, NoobAI-XL, WAI | `masterpiece, best quality, amazing quality` |
+| SDXL / SD1.5 (CLIP) | General and realistic SDXL/SD1.5 models | none |
+| Natural language | Flux, SD3/3.5, HiDream, Chroma, Qwen-Image, Lumina | none |
+
+Quality and negative tags are only added when your prompt doesn't already contain them. The sets live in `autoexpress/resources/expressions/`, one JSON file per family, so adding a new family is just adding a file.
+
 
 # Examples
 

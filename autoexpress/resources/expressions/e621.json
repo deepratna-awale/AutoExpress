@@ -1,0 +1,43 @@
+{
+  "name": "e621 tags",
+  "description": "Furry and anthro checkpoints trained on e621 tags. Adds ear cues since ears sit inside the face crop.",
+  "models": [
+    "FluffyRock",
+    "Fluffusion",
+    "IndigoFurryMix",
+    "YiffyMix",
+    "BB95 Furry Mix"
+  ],
+  "quality_tags": "best quality, detailed",
+  "negative": "worst quality, low quality",
+  "expressions": {
+    "admiration": "smile, sparkling eyes, raised eyebrows, looking up, ears up, blush",
+    "amusement": "smirk, half-closed eyes, head tilt, tongue out, ears up",
+    "anger": "angry, glaring, narrowed eyes, furrowed brow, bared teeth, snarling, ears back",
+    "annoyance": "annoyed, frown, narrowed eyes, pouting, ears back, looking away",
+    "approval": "smile, closed smile, half-closed eyes, ears up, looking at viewer",
+    "caring": "smile, closed smile, half-closed eyes, head tilt, ears down, blush",
+    "confusion": "confused, question mark, head tilt, raised eyebrow, open mouth, ears down",
+    "curiosity": "curious, head tilt, wide eyed, ears forward, small mouth, looking at viewer",
+    "desire": "bedroom eyes, half-closed eyes, seductive, blush, licking lips, looking at viewer",
+    "disappointment": "sad, frown, looking down, half-closed eyes, ears down, sigh",
+    "disapproval": "frown, narrowed eyes, glaring, raised eyebrow, ears back, looking at viewer",
+    "disgust": "disgust, grimace, narrowed eyes, tongue out, ears back",
+    "embarrassment": "embarrassed, blush, looking away, wavy mouth, sweatdrop, ears down",
+    "excitement": "excited, happy, open smile, starry eyes, blush, ears up",
+    "fear": "scared, wide eyed, constricted pupils, open mouth, sweat, trembling, pinned ears",
+    "gratitude": "smile, eyes closed, happy, blush, tears of joy, ears down",
+    "grief": "crying, tears, sad, eyes closed, open mouth, pinned ears",
+    "joy": "happy, laughing, open smile, eyes closed, blush, ears up",
+    "love": "heart eyes, blush, smile, half-closed eyes, heart symbol, looking at viewer",
+    "nervousness": "nervous, nervous smile, sweat, sweatdrop, wavy mouth, ears down, looking away",
+    "neutral": "neutral expression, closed mouth, looking at viewer, ears up",
+    "optimism": "smile, determined, looking up, open smile, ears up",
+    "pride": "smug, smug face, smirk, half-closed eyes, raised eyebrow, ears up",
+    "realization": "surprised, wide eyed, open mouth, ears up, exclamation point",
+    "relief": "smile, eyes closed, sigh, open mouth, ears down, sweat",
+    "remorse": "sad, frown, looking down, tears, worried, ears down",
+    "sadness": "sad, frown, tears, looking down, half-closed eyes, ears down",
+    "surprise": "surprised, wide eyed, constricted pupils, open mouth, ears up, exclamation point"
+  }
+}
