@@ -3,7 +3,14 @@
 - The Anime/Realistic switch is replaced by a **Prompt Style** dropdown. **Auto** picks the family from the checkpoint name.
 - Family quality tags (e.g. Pony `score_` tags) and negatives are added only when missing from your prompt.
 - Expression LoRAs matched to the checkpoint (Pony, Illustrious/NoobAI, SDXL, SD1.5, Flux) are added to the prompt, and downloaded from Civitai into the WebUI's LoRA folder when they're missing.
-- Fixed the expression tags being glued to the prompt without a comma.
+- AutoExpress now runs inside other WebUIs:
+  - **AUTOMATIC1111 / Forge / reForge / SD.Next extension**: an AutoExpress tab that runs ADetailer in-process, so `--api` is not needed. It reads prompt, sampler and seed from the uploaded image and can build a sprite sheet.
+  - **ComfyUI nodes**: Expression Prompts, Expression Prompt, Expression LoRAs, Save Expressions and Sprite Sheet, used together with Impact Pack's FaceDetailer.
+  - **InvokeAI node**: Expression Prompts.
+- Expression prompt sets, expression LoRAs, payloads and the generation loop moved into a shared `autoexpress_core` package that every integration uses.
+- Fixed the Interrupt button in the standalone app, which raised an error instead of stopping generation.
+- The base prompt and expression prompt are now joined with a comma.
+- The seed setting now reaches A1111 1.9+ (it was overridden by the built-in Seed script).
 
 ## 2024-11-13
 - Docker image available here: [AutoExpress on DockerHub](https://hub.docker.com/r/deepratna/autoexpress)

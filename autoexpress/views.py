@@ -13,6 +13,7 @@ from autoexpress.modules import (
 from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
 
 
+from autoexpress_core import ExpressionGenerator
 from loguru import logger as log
 import requests
 import re
@@ -21,6 +22,7 @@ import re
 
 autoexpress = Flask(__name__)
 sd = a1111_client.A1111Client()
+generator = ExpressionGenerator(sd)
 
 uploaded = False
 filepath = None
@@ -51,12 +53,10 @@ def index():
 # Stable diffusion API Calls
 @autoexpress.route("/interrupt", methods=["POST"])
 def interrupt_generation():
-    print("Interrupting generation...")
-    global PAUSE_EXECUTION
-    # Simulate fetching models from an API
+    log.info("Interrupting generation...")
     try:
-        PAUSE_EXECUTION = not PAUSE_EXECUTION
-        response = sd.interrupt()
+        generator.stop()
+        response = True
     except requests.exceptions.ConnectionError:
         response = "Failed to Interrupt the SD Session."
     return jsonify(response)
@@ -194,6 +194,7 @@ def generate():
             output_path=f"Output/{output_dir}",
             settings=data,
             is_realistic=is_realistic,
+            generator=generator,
             model_family=model_family,
             use_expression_loras=lora_settings["enabled"],
             lora_dir=lora_settings["lora_dir"] or None,

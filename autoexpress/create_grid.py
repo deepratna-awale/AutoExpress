@@ -1,7 +1,11 @@
 import matplotlib.pyplot as plt
 import glob
+import pathlib
+import sys
 import matplotlib.image as mpimg
-from modules.json_handler import get_expression_list
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from autoexpress_core import expression_names
 
 def plot_images(images, labels, rows, cols, output_file):
     fig, axes = plt.subplots(rows, cols, figsize=(12, 12))
@@ -45,7 +49,7 @@ def main():
     output_file = f"Output\\{character_name}_sprite.png"
     rows,cols = 4, 7
 
-    labels = get_expression_list().keys()
+    labels = expression_names("anime")
     images = load_images_from_directory(input_dir)
 
     # plot_images(images, labels, rows, cols, output_file)

@@ -2,7 +2,7 @@ import hashlib
 
 import pytest
 
-from autoexpress.modules import expression_loras
+from autoexpress_core import expression_loras
 
 
 @pytest.mark.parametrize(

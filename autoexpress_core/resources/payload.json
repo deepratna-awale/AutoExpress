@@ -6,7 +6,7 @@
         true,
         {
           "ad_cfg_scale": 7,
-          "ad_checkpoint": "Use  same checkpoint",
+          "ad_checkpoint": "Use same checkpoint",
           "ad_clip_skip": 2,
           "ad_confidence": 0.3,
           "ad_controlnet_guidance_end": 1,
