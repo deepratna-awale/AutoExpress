@@ -18,8 +18,8 @@ jobs:
     if: ${{ github.repository_owner == 'deepratna-awale' }}
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Publish custom node
-        uses: Comfy-Org/publish-node-action@main
+        uses: Comfy-Org/publish-node-action@d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9 # main
         with:
           personal_access_token: ${{ secrets.COMFYUI_REGISTRY_ACCESS_TOKEN }}
