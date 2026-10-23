@@ -1,0 +1,43 @@
+{
+  "name": "SDXL / SD1.5 (CLIP)",
+  "description": "General and realistic SDXL or SD1.5 checkpoints that read short descriptive phrases. Kept under CLIP's 77-token window.",
+  "models": [
+    "SDXL base",
+    "Juggernaut XL",
+    "RealVisXL",
+    "SD 1.5",
+    "Realistic Vision"
+  ],
+  "quality_tags": "",
+  "negative": "",
+  "expressions": {
+    "admiration": "admiring expression, warm gentle smile, bright attentive eyes, softly raised eyebrows, slight blush",
+    "amusement": "amused expression, playful smirk, twinkling eyes, head slightly tilted",
+    "anger": "angry expression, furrowed brows, narrowed glaring eyes, clenched teeth, tense jaw",
+    "annoyance": "annoyed expression, slight frown, pursed lips, eyes rolled to the side",
+    "approval": "approving expression, small satisfied smile, relaxed eyes, slight nod",
+    "caring": "caring expression, soft warm smile, kind gentle eyes, head slightly tilted",
+    "confusion": "confused expression, raised eyebrow, head tilted, lips slightly parted, puzzled look",
+    "curiosity": "curious expression, wide interested eyes, raised eyebrows, head tilted, lips parted",
+    "desire": "sultry expression, half-lidded eyes, subtle smile, flushed cheeks, biting lower lip",
+    "disappointment": "disappointed expression, downturned mouth, lowered gaze, drooping eyebrows",
+    "disapproval": "disapproving expression, stern frown, narrowed eyes, tight lips",
+    "disgust": "disgusted expression, wrinkled nose, curled upper lip, squinting eyes, grimace",
+    "embarrassment": "embarrassed expression, deep blush, averted eyes, awkward smile",
+    "excitement": "excited expression, wide open smile, bright sparkling eyes, raised eyebrows",
+    "fear": "frightened expression, wide terrified eyes, raised eyebrows, open mouth, pale face",
+    "gratitude": "grateful expression, soft smile, eyes gently closed, slight blush",
+    "grief": "grieving expression, crying, tears streaming down face, eyes squeezed shut, mouth open in a sob",
+    "joy": "joyful expression, big laughing smile, eyes crinkled, rosy cheeks",
+    "love": "loving expression, tender smile, warm adoring gaze, soft blush",
+    "nervousness": "nervous expression, uneasy smile, sweat on forehead, darting eyes, worried eyebrows",
+    "neutral": "neutral expression, relaxed face, closed mouth, calm steady gaze",
+    "optimism": "hopeful expression, confident smile, bright eyes looking upward",
+    "pride": "proud expression, confident smug smile, chin raised, half-lidded eyes",
+    "realization": "sudden realization, wide eyes, raised eyebrows, mouth open in an O",
+    "relief": "relieved expression, eyes closed, exhaling sigh, small relaxed smile",
+    "remorse": "remorseful expression, glistening eyes, lowered gaze, pressed lips, worried eyebrows",
+    "sadness": "sad expression, teary eyes, downturned mouth, drooping eyebrows, looking down",
+    "surprise": "surprised expression, wide eyes, raised eyebrows, mouth open in shock"
+  }
+}

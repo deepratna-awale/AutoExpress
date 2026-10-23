@@ -8,6 +8,7 @@ from autoexpress.modules import (
     a1111_client,
     image_parser,
     expression_generator,
+    expression_sets,
 )
 
 from loguru import logger as log
@@ -22,6 +23,7 @@ sd = a1111_client.A1111Client()
 uploaded = False
 filepath = None
 is_realistic = False
+model_family = expression_sets.AUTO
 
 
 # Assuming you want to save uploaded files in a folder called 'uploads'
@@ -185,6 +187,7 @@ def generate():
             output_path=f"Output/{output_dir}",
             settings=data,
             is_realistic=is_realistic,
+            model_family=model_family,
         )
     except KeyboardInterrupt:
         sd.interrupt()
@@ -234,3 +237,26 @@ def handle_toggle():
     is_realistic = data.get("isRealistic")
 
     return jsonify({"message": f"Is realistic status set to {is_realistic}"})
+
+
+@autoexpress.route("/expression-families", methods=["GET"])
+def get_expression_families():
+    return jsonify(
+        {"selected": model_family, "families": expression_sets.list_families()}
+    )
+
+
+@autoexpress.route("/expression-family", methods=["POST"])
+def set_expression_family():
+    global model_family
+    family = (request.get_json() or {}).get("family") or expression_sets.AUTO
+
+    if family != expression_sets.AUTO:
+        try:
+            expression_sets.load_family(family)
+        except KeyError:
+            return jsonify({"error": f"Unknown expression family: {family}"}), 400
+
+    model_family = family
+    log.info(f"Expression family set to {model_family}")
+    return jsonify({"message": f"Expression family set to {model_family}"})

@@ -1,4 +1,4 @@
-from . import utils, json_handler
+from . import utils, json_handler, expression_sets
 from . import a1111_client
 from loguru import logger as log
 
@@ -17,6 +17,7 @@ def generate_expressions(
     image_str: str = None,
     input_image_path: str = None,
     is_realistic: bool = False,
+    model_family: str = None,
 ):
     global PAUSE_EXECUTION
     image_str = utils.is_image_valid(input_image_path, image_str)
@@ -24,15 +25,20 @@ def generate_expressions(
     output_path = pathlib.Path(output_path)
     pathlib.Path(output_path).mkdir(parents=True, exist_ok=True)
 
-    if is_realistic:
-        log.info("Using clip prompts since realistic is set to true.")
-        expressions = json_handler.get_clip_expression_list()
-    else:
-        expressions = json_handler.get_expression_list()
+    settings = dict(settings or {})
+    family = expression_sets.resolve_family(
+        model_family, settings.get("ad_checkpoint"), is_realistic
+    )
+    expressions = expression_sets.load_family(family)["expressions"]
+    base_prompt = settings.get("ad_prompt", "")
+    settings["ad_negative_prompt"] = expression_sets.build_negative(
+        settings.get("ad_negative_prompt", ""), family
+    )
+    log.info(f"Using {family} expression prompts.")
 
     log.info(f"Output Directory: {output_path.absolute()}")
 
-    for expression_name, tags in expressions.items():
+    for expression_name in expressions:
         if PAUSE_EXECUTION:
             sd.interrupt()
             PAUSE_EXECUTION = not PAUSE_EXECUTION
@@ -43,8 +49,12 @@ def generate_expressions(
 
         default_request_body = json_handler.get_img2img_payload()
 
+        settings["ad_prompt"] = expression_sets.build_prompt(
+            base_prompt, expression_name, family
+        )
+
         json_payload = json_handler.edit_payload_body(
-            image_str, default_request_body, settings, tags
+            image_str, default_request_body, settings
         )
 
         output_image_path = pathlib.Path(output_path, expression_name + ".png")
