@@ -320,6 +320,15 @@ chmod +x ./run.sh
 > Connect to the AutoExpress UI at
 [http://127.0.0.1:5000](http:127.0.0.1:5000)
 
+### Web interface (Next.js)
+Release zips and the Docker image already include the new interface. When running from source, build it once (needs [Node.js](https://nodejs.org/) 20+ and [pnpm](https://pnpm.io/)):
+```bash
+cd frontend
+pnpm install
+pnpm build
+```
+Flask then serves it at [http://127.0.0.1:5000](http://127.0.0.1:5000). Without a build, the original interface is served instead; it is always available at [http://127.0.0.1:5000/classic](http://127.0.0.1:5000/classic). See [frontend/README.md](frontend/README.md) for development.
+
 
 ---
 
