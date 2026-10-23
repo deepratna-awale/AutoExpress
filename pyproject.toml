@@ -12,8 +12,12 @@ requires-python = ">=3.10"
 # Only what the shared core needs. Every supported WebUI already ships these.
 dependencies = ["pillow", "requests"]
 
+classifiers = ["Operating System :: OS Independent"]
+
 [project.urls]
 Repository = "https://github.com/deepratna-awale/AutoExpress"
+Documentation = "https://github.com/deepratna-awale/AutoExpress#readme"
+"Bug Tracker" = "https://github.com/deepratna-awale/AutoExpress/issues"
 
 [tool.setuptools]
 packages = ["autoexpress_core", "autoexpress_core.backends"]
@@ -21,11 +25,13 @@ packages = ["autoexpress_core", "autoexpress_core.backends"]
 [tool.setuptools.package-data]
 autoexpress_core = ["resources/*.json", "resources/expressions/*.json"]
 
-# ComfyUI registry (comfy node publish). Fill in PublisherId before publishing.
+# Comfy Registry metadata. .github/workflows/publish-comfy-registry.yml publishes
+# a new version whenever `version` above changes on main. Files listed in
+# .comfyignore are left out of the published archive.
 [tool.comfy]
-PublisherId = ""
+PublisherId = "deepratna-awale"
 DisplayName = "AutoExpress"
-Icon = "https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/autoexpress/static/ico/favicon-rounded.png"
+Icon = "https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/autoexpress_core/resources/icon.png"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
