@@ -252,3 +252,51 @@ def test_civitai_key_comes_from_the_webui_unless_typed_in(client, monkeypatch):
     typed = secrets.token_hex(8)
     monkeypatch.setitem(views.lora_settings, "civitai_api_key", typed)
     assert views.civitai_key_for(views.current_backend()) == (typed, "AutoExpress")
+
+
+def test_auto_detects_the_webui_and_reports_capabilities(client, monkeypatch):
+    from autoexpress_core.backends.detect import Detection
+
+    seen = {}
+
+    def fake_detect(url, **options):
+        seen["url"] = url
+        return Detection("fake", "GET /fake")
+
+    monkeypatch.setattr(views, "detect_backend", fake_detect)
+    response = client.post("/receive_data", json={"text": "https://pod-7860.proxy.example.net/sd", "backend": "auto"})
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "success",
+        "backend": "fake",
+        "name": "Fake WebUI",
+        "url": "https://pod-7860.proxy.example.net/sd",
+        "detected": True,
+    }
+    assert seen["url"] == "https://pod-7860.proxy.example.net/sd"
+    assert client.get("/backends").get_json()["backends"][0]["id"] == "auto"
+
+    report = client.get("/backend/capabilities").get_json()
+    assert report["ready"] and report["detected"] and report["items"][0]["key"] == "api"
+
+    FakeWebUI.ready = False
+    report = client.get("/backend/capabilities").get_json()
+    assert not report["ready"] and report["error"] is None and "ADetailer" in report["items"][0]["detail"]
+
+
+def test_auto_detect_failures_explain_what_to_do(client, monkeypatch):
+    from autoexpress_core.backends.base import BackendUnavailable
+    from autoexpress_core.backends.detect import Detection
+
+    def unreachable(url, **options):
+        raise BackendUnavailable("Could not reach the WebUI.")
+
+    monkeypatch.setattr(views, "detect_backend", unreachable)
+    response = client.post("/receive_data", json={"text": "http://10.0.0.5:7860", "backend": "auto"})
+    assert response.status_code == 503
+    assert "--listen" in " ".join(response.get_json()["error"]["fix"]["steps"])
+    assert views.current_backend().kind == "fake"  # still connected to the previous WebUI
+
+    monkeypatch.setattr(views, "detect_backend", lambda url, **options: Detection(None, tried=["GET /x"]))
+    response = client.post("/receive_data", json={"text": "http://10.0.0.5:7860", "backend": "auto"})
+    assert response.status_code == 409 and "not a WebUI AutoExpress supports" in response.get_json()["message"]

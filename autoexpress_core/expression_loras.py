@@ -20,6 +20,7 @@ from functools import lru_cache
 LORAS_FILE = pathlib.Path(__file__).resolve().parent / "resources" / "expression_loras.json"
 
 CIVITAI_DOWNLOAD_URL = "https://civitai.com/api/download/models/{version_id}"
+CIVITAI_PAGE_URL = "https://civitai.com/models/{model_id}?modelVersionId={version_id}"
 CIVITAI_KEY_ENV = "CIVITAI_API_KEY"
 LORA_EXTENSION = ".safetensors"
 
@@ -166,6 +167,69 @@ def lora_prompt(architecture, lora_dir=None, installed_names=None):
     return ", ".join(parts)
 
 
+def civitai_page(entry):
+    """The LoRA's Civitai page, where a user can download it by hand."""
+    return CIVITAI_PAGE_URL.format(model_id=entry["civitai_model_id"], version_id=entry["civitai_version_id"])
+
+
+def manual_install(entry, host="the WebUI", folder="its LoRA folder"):
+    """What to tell the user when AutoExpress can't put a LoRA on the WebUI itself."""
+    file_name = f"{entry['name']}{LORA_EXTENSION}"
+    return {
+        "name": entry["name"],
+        "title": entry.get("title") or entry["name"],
+        "file_name": file_name,
+        "size_mb": entry.get("size_mb"),
+        "url": entry.get("mirror_url") or civitai_page(entry),
+        "message": (
+            f"Expression LoRA \"{entry.get('title') or entry['name']}\" isn't on {host}. Download it from "
+            f"{entry.get('mirror_url') or civitai_page(entry)}, save it in {folder} as {file_name}, refresh the LoRA list, "
+            "and generate again. Until then the expressions are made without it."
+        ),
+    }
+
+
+def install_remote(architecture, install, installed_names, api_key=None, log=None):
+    """
+    Have the WebUI download missing LoRAs itself (for WebUIs whose LoRA folder isn't on this machine).
+
+    install(url, name, access_token) asks the WebUI to fetch url and returns True once it is installed.
+    Returns (installed entries, failures).
+    """
+    if not api_key:
+        from .civitai_key import find_civitai_key
+
+        api_key, _ = find_civitai_key()
+    installed, failures = [], []
+    for entry in loras_for(architecture):
+        if _installed_name(entry, installed_names=installed_names):
+            continue
+        if log:
+            log(f"Asking the WebUI to download expression LoRA {entry['name']} ({entry.get('size_mb', '?')} MB)")
+        errors = []
+        for url, headers in _download_urls(entry, api_key):
+            token = api_key if headers else None
+            try:
+                if install(url, entry["name"], token):
+                    installed.append(entry)
+                    break
+            except Exception as error:  # try the next source
+                errors.append(str(error))
+        else:
+            failures.append(f"Could not install {entry['name']} on the WebUI: {'; '.join(errors) or 'not supported'}")
+            if log:
+                log(failures[-1])
+    return installed, failures
+
+
+def missing_loras(checkpoint_name, family_id=None, installed_names=None, lora_dir=None):
+    """The expression LoRAs for this checkpoint that the WebUI doesn't have."""
+    architecture = guess_architecture(checkpoint_name, family_id)
+    if callable(installed_names):
+        installed_names = installed_names()
+    return [e for e in loras_for(architecture) if not _installed_name(e, lora_dir=lora_dir, installed_names=installed_names)]
+
+
 def apply_expression_weights(prompt, expression):
     """
     Adjust expression LoRA tags in a prompt for one expression.
@@ -200,6 +264,7 @@ def expression_lora_prompt(
     refresh=None,
     log=None,
     failures=None,
+    install=None,
 ):
     """
     Everything a host needs in one call: pick the LoRAs for a checkpoint, fetch the
@@ -207,12 +272,21 @@ def expression_lora_prompt(
 
     installed_names may be a list or a callable returning one (the host's LoRA list,
     read after the refresh). refresh is called after a download so the host rescans.
+    Without a reachable lora_dir, install(url, name, access_token) lets the WebUI download
+    missing LoRAs itself, for WebUIs that can (see install_remote).
     Download errors are passed to log and, when given, appended to the failures list.
     """
     architecture = guess_architecture(checkpoint_name, family_id)
 
     if lora_dir and download:
         ready, errors = ensure_loras(architecture, lora_dir, api_key, log=log)
+        if ready and refresh:
+            refresh()
+        if failures is not None:
+            failures.extend(errors)
+    elif install and download and installed_names is not None:
+        names = installed_names() if callable(installed_names) else installed_names
+        ready, errors = install_remote(architecture, install, names, api_key, log=log)
         if ready and refresh:
             refresh()
         if failures is not None:

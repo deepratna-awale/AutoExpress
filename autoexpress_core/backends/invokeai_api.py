@@ -25,9 +25,12 @@ from .base import (
     BackendNotReady,
     BackendRejected,
     BackendTimeout,
+    Capability,
     FaceEditRequest,
+    Fix,
     GenerationCancelled,
     RemoteBackend,
+    listed,
     match_choice,
 )
 
@@ -145,6 +148,62 @@ class InvokeAIClient(RemoteBackend):
     def ensure_ready(self) -> None:
         if not self.main_models():
             raise BackendNotReady("InvokeAI has no SD 1.x, SD 2.x or SDXL main models installed.")
+
+    def capabilities(self) -> list[Capability]:
+        version = self._get_json("/api/v1/app/version", timeout=10).get("version") or ""
+        major = int(version.split(".")[0]) if version.split(".")[0].isdigit() else 0
+        items = [
+            Capability(
+                "api",
+                "InvokeAI 5 or newer",
+                major >= 5,
+                f"Version {version or 'unknown'}",
+                fix=Fix(["Update InvokeAI to version 5 or newer with its launcher, then re-check."]),
+            )
+        ]
+        items.append(
+            listed(
+                "Models",
+                [m["name"] for m in self.main_models()],
+                Fix(
+                    [
+                        "Install an SD 1.5 or SDXL main model: open the Model Manager, choose Add Models,",
+                        "paste a model URL or Hugging Face repo, or pick one from Starter Models, then re-check.",
+                    ]
+                ),
+            )
+        )
+        items.append(listed("LoRAs", self.loras, required=False))
+        items.append(
+            Capability(
+                "lora_folder",
+                "Automatic expression LoRA downloads",
+                True,
+                "InvokeAI installs missing expression LoRAs itself through its Model Manager API",
+                required=False,
+            )
+        )
+        return items
+
+    def can_install_models(self) -> bool:
+        return True
+
+    def install_lora(self, url: str, name: str, access_token: str | None = None, timeout: float = 1800) -> bool:
+        """Have InvokeAI download a LoRA from url through its Model Manager. access_token is sent as a bearer token."""
+        params = {"source": url, "inplace": "false"}
+        if access_token:
+            params["access_token"] = access_token
+        job = self._post_json("/api/v2/models/install", {"name": name}, params=params, timeout=60)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = (job.get("status") or "").lower()
+            if status == "completed":
+                return True
+            if status in ("error", "cancelled"):
+                raise BackendRejected(f"InvokeAI could not install {name}: {job.get('error') or status}")
+            time.sleep(self.poll_interval)
+            job = self._get_json(f"/api/v2/models/install/{job['id']}", timeout=30)
+        raise BackendTimeout(f"InvokeAI did not finish installing {name} within {timeout:.0f}s.")
 
     def server_info(self) -> dict:
         return {"version": self._get_json("/api/v1/app/version", timeout=10).get("version")}
