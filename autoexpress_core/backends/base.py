@@ -21,7 +21,7 @@ from urllib3.util.retry import Retry
 from ..payload import SAME_CHECKPOINT, find_nested_key
 from ..log import log
 
-LORA_PATTERN = re.compile(r"<\s*lora\s*:\s*([^:>]+?)\s*(?::\s*([-\d.]+)\s*)?>", re.IGNORECASE)
+LORA_PATTERN = re.compile(r"<\s*lora\s*:([^:<>]+)(?::([^:<>]*))?>", re.IGNORECASE)
 
 
 def normalize_url(url: str | None, default: str) -> str:
@@ -63,12 +63,13 @@ def extract_loras(prompt: str) -> tuple[str, list[tuple[str, float]]]:
     loras = []
     for name, weight in LORA_PATTERN.findall(prompt or ""):
         try:
-            loras.append((name.strip(), float(weight) if weight else 1.0))
+            loras.append((name.strip(), float(weight) if weight.strip() else 1.0))
         except ValueError:
             loras.append((name.strip(), 1.0))
     cleaned = LORA_PATTERN.sub("", prompt or "")
-    cleaned = re.sub(r"\s*,\s*(,\s*)+", ", ", cleaned)
-    return cleaned.strip().strip(",").strip(), loras
+    # Drop the empty entries left behind by removed tags.
+    parts = [part.strip() for part in cleaned.split(",")]
+    return ", ".join(part for part in parts if part), loras
 
 
 def match_choice(value: str | None, choices: list[str]) -> str | None:

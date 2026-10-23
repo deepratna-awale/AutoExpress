@@ -221,7 +221,11 @@ def generate(
         "seed": int(seed),
     }
 
-    output_dir = os.path.join(output_root(), safe_folder_name(character_name))
+    root = os.path.normpath(output_root())
+    output_dir = os.path.normpath(os.path.join(root, safe_folder_name(character_name)))
+    if not output_dir.startswith(root + os.sep):
+        yield [], "Invalid character name.", None
+        return
     total = len(selected)
     gallery = []
 
