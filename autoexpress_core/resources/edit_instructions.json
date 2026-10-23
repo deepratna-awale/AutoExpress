@@ -43,7 +43,8 @@
   "intensity": {
     "subtle": "Keep the change subtle and natural, the way a real person would show it.",
     "normal": "",
-    "strong": "Make the expression strong and clearly readable."
+    "strong": "Make the expression strong and clearly readable.",
+    "minimal": "Make only a barely noticeable change: the faintest hint of this expression, with the face almost exactly as it is."
   },
   "subtle": {
     "admiration": "The character looks on with quiet admiration: eyes a little brighter and a soft, slight smile.",
@@ -75,10 +76,10 @@
     "sadness": "The character looks sad: the inner ends of the eyebrows slightly raised, eyes a little lowered and the corners of the mouth turned slightly down. The head does not move.",
     "surprise": "The character looks mildly surprised: eyes their normal size, eyebrows slightly raised, lips slightly parted."
   },
-  "photo_intensity_offsets": {
-    "_comment": "Added to the intensity for photos, from RunPod photo tests: anger and sadness read as natural lower than the rest, surprise still widens the eyes.",
-    "anger": -0.1,
-    "sadness": -0.1,
-    "surprise": -0.1
+  "photo_intensity_scale": {
+    "_comment": "Multiplies the intensity for photos, from RunPod photo tests: anger, sadness and surprise read as natural at about half the others' value.",
+    "anger": 0.5,
+    "sadness": 0.5,
+    "surprise": 0.5
   }
 }

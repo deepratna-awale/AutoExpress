@@ -100,8 +100,8 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
         raise KeyError(f"No edit instruction for '{expression}'. Valid names: {', '.join(data['expressions'])}")
     if style not in data["styles"]:
         raise KeyError(f"Unknown instruction style '{style}'. Choose from: {', '.join(data['styles'])}")
-    tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO))
-    sentence = data["subtle" if tier == "subtle" else "expressions"][expression]
+    tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO), photo=style == PHOTO)
+    sentence = data["subtle" if tier in ("subtle", "minimal") else "expressions"][expression]
     if style == PHOTO:
         sentence = sentence.replace("The character", "The person")
     parts = [
@@ -115,11 +115,11 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
 
 
 def expression_intensity_for(expression: str, intensity: float, style: str = ILLUSTRATION) -> float:
-    """The intensity for one expression: photos shift some expressions (see photo_intensity_offsets)."""
+    """The intensity for one expression: photos scale some expressions down (see photo_intensity_scale)."""
     if style != PHOTO:
         return intensity
-    offset = _load().get("photo_intensity_offsets", {}).get(expression, 0.0)
-    return expression_intensity.resolve(intensity + offset)
+    scale = _load().get("photo_intensity_scale", {}).get(expression, 1.0)
+    return expression_intensity.resolve(round(intensity * scale, 3))
 
 
 def resolve_style(style: str | None = None, is_realistic: bool = False) -> str:
@@ -146,11 +146,12 @@ class EditSettings:
     # 0..1 expression intensity; below 0.75 the sampler starts from the input's latent so less changes.
     intensity: float | None = None
     denoise: float | None = None
+    photo: bool = False
 
     def resolved_denoise(self) -> float:
         if self.denoise is not None:
             return self.denoise
-        return 1.0 if self.intensity is None else expression_intensity.edit_denoise(self.intensity)
+        return 1.0 if self.intensity is None else expression_intensity.edit_denoise(self.intensity, self.photo)
 
     def resolved_steps(self, lightning: bool) -> int:
         return self.steps or (8 if lightning else 40)

@@ -10,7 +10,7 @@
   ],
   "defaults": {
     "method": "instruct",
-    "intensity": 0.2,
+    "intensity": 0.1,
     "edit_style": "photo",
     "expression_loras": false
   },

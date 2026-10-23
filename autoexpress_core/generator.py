@@ -161,7 +161,7 @@ class ExpressionGenerator:
             log.info(f"Editing the expression to {expression_name}.")
             value = instruction_edit.expression_intensity_for(expression_name, intensity, style)
             instruction = instruction_edit.build_instruction(expression_name, extra, style, value)
-            result = self.backend.instruction_edit(b64_image, instruction, dataclasses.replace(edit_settings, intensity=value))
+            result = self.backend.instruction_edit(b64_image, instruction, dataclasses.replace(edit_settings, intensity=value, photo=style == instruction_edit.PHOTO))
             if result is None:
                 log.error(f"Instruction edit failed for {expression_name}, stopping.")
                 return

@@ -55,7 +55,7 @@ def test_photo_style_keeps_photos_realistic():
 
 def test_intensity_defaults_to_subtle_for_photos():
     photo = instruction_edit.build_instruction("joy", style="photo")
-    assert "natural, genuine smile" in photo and "subtle and natural" in photo and "laughing" not in photo
+    assert "natural, genuine smile" in photo and "barely noticeable" in photo and "laughing" not in photo
     drawn = instruction_edit.build_instruction("joy")
     assert "laughing with a wide open smile" in drawn and "subtle" not in drawn
     strong_photo = instruction_edit.build_instruction("joy", style="photo", intensity=0.9)
