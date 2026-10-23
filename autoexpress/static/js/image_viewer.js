@@ -7,18 +7,21 @@ function loadImagesInput(event) {
 function loadImages() {
     const outputDir = document.getElementById('output-directory').value;
 
-    fetch(`/images/${outputDir}`)
+    // Encode each path segment so the folder name can't change the URL.
+    const outputPath = outputDir.split('/').map(encodeURIComponent).join('/');
+
+    fetch(`/images/${outputPath}`)
         .then(response => response.json())
         .then(files => {
             // Filter files to only include those with the .png extension
-            images = files.filter(file => file.endsWith('.png')).map(file => `/image/${outputDir}/${file}`);
+            images = files.filter(file => file.endsWith('.png')).map(file => `/image/${outputPath}/${encodeURIComponent(file)}`);
             fileNames = files.filter(file => file.endsWith('.png')); // Filter file names as well
             currentIndex = 0; // Reset index when new images are loaded
 
             if (images.length > 0) {
                 displayImage(currentIndex);
             } else {
-                document.getElementsById('image-display').src = "";
+                document.getElementById('image-display').src = "";
                 document.getElementById('expression-image-name').textContent = "No PNG images found.";
             }
         })

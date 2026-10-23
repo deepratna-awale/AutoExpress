@@ -4,6 +4,16 @@
  * 
  * Released under the MIT license
  */
+// Escape text before it goes into an HTML template or attribute.
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 class MultiSelect {
 
     constructor(element, options = {}) {
@@ -39,9 +49,8 @@ class MultiSelect {
             for (let i = 0; i < options.length; i++) {
                 this.options.data.push({
                     value: options[i].value,
-                    text: options[i].innerHTML,
-                    selected: options[i].selected,
-                    html: options[i].getAttribute('data-html')
+                    text: options[i].textContent,
+                    selected: options[i].selected
                 });
             }
         }
@@ -55,9 +64,9 @@ class MultiSelect {
         let optionsHTML = '';
         for (let i = 0; i < this.data.length; i++) {
             optionsHTML += `
-                <div class="multi-select-option${this.selectedValues.includes(this.data[i].value) ? ' multi-select-selected' : ''}" data-value="${this.data[i].value}">
+                <div class="multi-select-option${this.selectedValues.includes(this.data[i].value) ? ' multi-select-selected' : ''}" data-value="${escapeHtml(this.data[i].value)}">
                     <span class="multi-select-option-radio"></span>
-                    <span class="multi-select-option-text">${this.data[i].html ? this.data[i].html : this.data[i].text}</span>
+                    <span class="multi-select-option-text">${escapeHtml(this.data[i].text)}</span>
                 </div>
             `;
         }
@@ -69,13 +78,13 @@ class MultiSelect {
             </div>`;
         }
         let template = `
-            <div class="multi-select ${this.name}"${this.selectElement.id ? ' id="' + this.selectElement.id + '"' : ''} style="${this.width ? 'width:' + this.width + ';' : ''}${this.height ? 'height:' + this.height + ';' : ''}">
-                ${this.selectedValues.map(value => `<input class="lora-input-list" type="hidden" name="${this.name}[]" value="${value}">`).join('')}
-                <div class="multi-select-header" style="${this.width ? 'width:' + '80%' + ';' : ''}${this.height ? 'height:' + this.height + ';' : ''}">
-                    <span class="multi-select-header-max">${this.options.max ? this.selectedValues.length + '/' + this.options.max : ''}</span>
-                    <span class="multi-select-header-placeholder">${this.placeholder}</span>
+            <div class="multi-select ${escapeHtml(this.name)}"${this.selectElement.id ? ' id="' + escapeHtml(this.selectElement.id) + '"' : ''} style="${this.width ? 'width:' + escapeHtml(this.width) + ';' : ''}${this.height ? 'height:' + escapeHtml(this.height) + ';' : ''}">
+                ${this.selectedValues.map(value => `<input class="lora-input-list" type="hidden" name="${escapeHtml(this.name)}[]" value="${escapeHtml(value)}">`).join('')}
+                <div class="multi-select-header" style="${this.width ? 'width:' + '80%' + ';' : ''}${this.height ? 'height:' + escapeHtml(this.height) + ';' : ''}">
+                    <span class="multi-select-header-max">${this.options.max ? this.selectedValues.length + '/' + escapeHtml(this.options.max) : ''}</span>
+                    <span class="multi-select-header-placeholder">${escapeHtml(this.placeholder)}</span>
                 </div>
-                <div class="multi-select-options" style="${this.options.dropdownWidth ? 'width:' + this.options.dropdownWidth + ';' : ''}${this.options.dropdownHeight ? 'height:' + this.options.dropdownHeight + ';' : ''}">
+                <div class="multi-select-options" style="${this.options.dropdownWidth ? 'width:' + escapeHtml(this.options.dropdownWidth) + ';' : ''}${this.options.dropdownHeight ? 'height:' + escapeHtml(this.options.dropdownHeight) + ';' : ''}">
                     ${this.options.search === true || this.options.search === 'true' ? '<input type="text" class="multi-select-search" placeholder="Search...">' : ''}
                     ${selectAllHTML}
                     ${optionsHTML}
@@ -110,11 +119,15 @@ class MultiSelect {
                         return;
                     }
                     option.classList.add('multi-select-selected');
-                    this.element.querySelector('.multi-select').insertAdjacentHTML('afterbegin', `<input type="hidden" name="${this.name}[]" value="${option.dataset.value}">`);
+                    const hiddenInput = document.createElement('input');
+                    hiddenInput.type = 'hidden';
+                    hiddenInput.name = `${this.name}[]`;
+                    hiddenInput.value = option.dataset.value;
+                    this.element.querySelector('.multi-select').prepend(hiddenInput);
                     this.data.filter(data => data.value == option.dataset.value)[0].selected = true;
                 } else {
                     option.classList.remove('multi-select-selected');
-                    this.element.querySelector(`input[value="${option.dataset.value}"]`).remove();
+                    this.element.querySelector(`input[value="${CSS.escape(option.dataset.value)}"]`).remove();
                     this.data.filter(data => data.value == option.dataset.value)[0].selected = false;
                     selected = false;
                 }
@@ -125,11 +138,11 @@ class MultiSelect {
                 if (this.options.closeListOnItemSelect === true || this.options.closeListOnItemSelect === 'true') {
                     headerElement.classList.remove('multi-select-header-active');
                 }
-                this.options.onChange(option.dataset.value, option.querySelector('.multi-select-option-text').innerHTML, option);
+                this.options.onChange(option.dataset.value, option.querySelector('.multi-select-option-text').textContent, option);
                 if (selected) {
-                    this.options.onSelect(option.dataset.value, option.querySelector('.multi-select-option-text').innerHTML, option);
+                    this.options.onSelect(option.dataset.value, option.querySelector('.multi-select-option-text').textContent, option);
                 } else {
-                    this.options.onUnselect(option.dataset.value, option.querySelector('.multi-select-option-text').innerHTML, option);
+                    this.options.onUnselect(option.dataset.value, option.querySelector('.multi-select-option-text').textContent, option);
                 }
             };
         });
@@ -139,7 +152,7 @@ class MultiSelect {
             let search = this.element.querySelector('.multi-select-search');
             search.oninput = () => {
                 this.element.querySelectorAll('.multi-select-option').forEach(option => {
-                    option.style.display = option.querySelector('.multi-select-option-text').innerHTML.toLowerCase().indexOf(search.value.toLowerCase()) > -1 ? 'flex' : 'none';
+                    option.style.display = option.querySelector('.multi-select-option-text').textContent.toLowerCase().indexOf(search.value.toLowerCase()) > -1 ? 'flex' : 'none';
                 });
             };
         }
@@ -210,7 +223,7 @@ class MultiSelect {
                 closeIcon.style.cursor = 'pointer';
                 closeIcon.style.marginLeft = '8px'; // Adds space between loraStrengthSelector and icon
                 closeIcon.onclick = () => {
-                    const option = this.element.querySelector(`.multi-select-option[data-value="${item.value}"]`);
+                    const option = this.element.querySelector(`.multi-select-option[data-value="${CSS.escape(item.value)}"]`);
                     if (option) option.click();
                 };
 
@@ -298,7 +311,7 @@ class MultiSelect {
 
         // Mark the existing LoRA as selected
         dataItem.selected = true;
-        const option = this.element.querySelector(`.multi-select-option[data-value="${dataItem.value}"]`);
+        const option = this.element.querySelector(`.multi-select-option[data-value="${CSS.escape(dataItem.value)}"]`);
         if (option && !option.classList.contains('multi-select-selected')) {
             option.classList.add('multi-select-selected');
         }
@@ -307,7 +320,7 @@ class MultiSelect {
         this._updateSelected();
 
         // Set the strength value
-        const strengthInput = this.element.querySelector(`.lora-strength[data-value="${dataItem.value}"]`);
+        const strengthInput = this.element.querySelector(`.lora-strength[data-value="${CSS.escape(dataItem.value)}"]`);
         if (strengthInput) {
             strengthInput.value = strength;
         }

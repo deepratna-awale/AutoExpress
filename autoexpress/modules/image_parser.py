@@ -1,5 +1,5 @@
 # Read Image Data using sd_parsers
-from sd_parsers import ParserManager
+from sd_parsers import Eagerness, ParserManager
 from sd_parsers.data import Generators
 from loguru import logger as log
 import re
@@ -7,7 +7,7 @@ from PIL import Image
 
 def get_lora_from_prompt(prompt):
     # Regular expression pattern to find text and strength
-    pattern = r"<lora:(.*?):(.*?)>"
+    pattern = r"<lora:([^:<>]*):([^<>]*)>"
 
     # Find all matches
     matches = re.findall(pattern, prompt)
@@ -27,7 +27,7 @@ def get_size_from_image_metadata(image_path):
 
 
 def get_parsed_data(image_path):
-    parser_manager = ParserManager(two_pass=True, normalize_parameters=True)
+    parser_manager = ParserManager(eagerness=Eagerness.EAGER, normalize_parameters=True)
     parsed_data = parser_manager.parse(image_path)
     if not parsed_data:  # return if no metadata found in image
         return None
