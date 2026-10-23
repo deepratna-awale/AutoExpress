@@ -580,3 +580,13 @@ def test_invokeai_logs_in_and_retries_on_expired_token(payload):
     assert backend.img2img(payload) is not None
     assert state["logins"] == 2
     assert backend.session.headers["Authorization"] == "Bearer jwt2"
+
+
+def test_a1111_payload_takes_the_input_image_size():
+    payload = build_expression_payload(pil_to_b64(Image.new("RGB", (1024, 1216))), {"ad_prompt": "1girl"}, "smile")
+    assert (payload["width"], payload["height"]) == (512, 512)  # template default
+    backend = A1111Client()
+    backend.session = FakeSession(a1111_routes())
+    backend.img2img(payload)
+    sent = backend.session.calls[-1][2]["json"]
+    assert (sent["width"], sent["height"]) == (1024, 1216)

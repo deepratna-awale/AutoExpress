@@ -22,6 +22,17 @@ from .base import BackendError, BackendNotReady, BackendRejected, RemoteBackend
 ADETAILER = "adetailer"
 
 
+def _image_size(b64_image) -> tuple[int, int] | None:
+    """Width and height of a base64 image, reading only its header."""
+    if not isinstance(b64_image, str) or not b64_image:
+        return None
+    try:
+        with b64_to_pil(b64_image) as image:
+            return image.size
+    except (ValueError, OSError):
+        return None
+
+
 class A1111Client(RemoteBackend):
 
     kind = "a1111"
@@ -151,13 +162,25 @@ class A1111Client(RemoteBackend):
         return self._alwayson_scripts
 
     def prepare_payload(self, payload: dict) -> dict:
-        """Drop always-on scripts this server does not have; unknown script names make it reject the request."""
+        """
+        Fit the request body to this server and image.
+
+        - width/height follow the input image (as in the in-process backend). The
+          template's 512x512 would make ADetailer inpaint SDXL faces at 512 and
+          garble them.
+        - Always-on scripts this server does not have are dropped; unknown script
+          names make it reject the request.
+        """
+        payload = copy.copy(payload)
+        size = _image_size((payload.get("init_images") or [None])[0])
+        if size:
+            payload["width"], payload["height"] = size
+
         available = self.alwayson_scripts()
         scripts = payload.get("alwayson_scripts")
         if not available or not scripts:
             return payload
 
-        payload = copy.copy(payload)
         kept = {name: args for name, args in scripts.items() if name.lower() in available}
         dropped = sorted(set(scripts) - set(kept))
         if dropped:
