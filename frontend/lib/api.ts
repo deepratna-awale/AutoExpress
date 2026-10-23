@@ -75,9 +75,37 @@ export interface GenerateRequest {
   ad_denoising_strength: number;
 }
 
+export interface JobProgress {
+  done: number;
+  total: number;
+  fraction: number;
+  current: string | null;
+  step: { fraction: number; eta: number | null } | null;
+}
+
+export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+/** A generation job, from backends with the job API (GET /jobs). */
+export interface Job {
+  id: string;
+  status: JobStatus;
+  backend: string;
+  backend_name: string;
+  output_dir: string;
+  progress: JobProgress;
+  images: { expression: string; url: string }[];
+  error: { code: string; message: string } | null;
+}
+
 export interface GenerateResponse {
   status: string;
   message?: string;
+  job_id?: string;
+  job?: Job;
+}
+
+export function isActiveJob(job: Job | null | undefined): job is Job {
+  return !!job && (job.status === "queued" || job.status === "running");
 }
 
 export class ApiError extends Error {
@@ -95,11 +123,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // Non-JSON body (e.g. an HTML error page)
   }
   if (!response.ok) {
-    const error = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : "";
-    const message = error || `${response.status} ${response.statusText}`;
-    throw new ApiError(message, response.status);
+    throw new ApiError(errorMessage(body) || `${response.status} ${response.statusText}`, response.status);
   }
   return body as T;
+}
+
+/** Pulls a readable message out of `{error: "..."}`, `{error: {message}}` or `{message}`. */
+export function errorMessage(body: unknown): string {
+  if (!body || typeof body !== "object") return "";
+  const { error, message } = body as { error?: unknown; message?: unknown };
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string") {
+    return (error as { message: string }).message;
+  }
+  return typeof message === "string" ? message : "";
 }
 
 function postJson<T>(path: string, data: unknown): Promise<T> {
@@ -144,7 +181,15 @@ export const api = {
     return request<UploadResponse>("/upload", { method: "POST", body: formData });
   },
 
-  generate: (data: GenerateRequest) => postJson<GenerateResponse>("/generate", data),
+  /**
+   * Starts a generation. Backends with the job API answer at once with a job to
+   * poll; older ones ignore `wait` and answer when the whole set is done.
+   */
+  generate: (data: GenerateRequest) => postJson<GenerateResponse>("/generate", { ...data, wait: false }),
+
+  jobs: async () => (await optional(request<{ jobs: Job[] }>("/jobs")))?.jobs ?? null,
+  job: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}`),
+  cancelJob: (id: string) => postJson<unknown>(`/jobs/${encodeURIComponent(id)}/cancel`, {}),
 
   interrupt: () => postJson<unknown>("/interrupt", {}),
 

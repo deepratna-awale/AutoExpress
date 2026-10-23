@@ -4,7 +4,9 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { toast } from "sonner";
 import {
   api,
+  isActiveJob,
   resolveOutputDir,
+  type Job,
   type BackendInfo,
   type ExpressionFamily,
   type LoraSelection,
@@ -52,6 +54,7 @@ export const DEFAULT_PARAMETERS: Parameters = {
 
 export const AUTO_FAMILY = "auto";
 const POLL_INTERVAL_MS = 2500;
+const JOB_POLL_INTERVAL_MS = 1500;
 const SETTINGS_KEY = "autoexpress-connection";
 
 interface Options {
@@ -94,6 +97,8 @@ interface AutoExpressState {
   outputDirectory: string;
   setOutputDirectory: (dir: string) => void;
   generating: boolean;
+  /** The running job on backends with the job API, null otherwise. */
+  job: Job | null;
   generate: () => Promise<void>;
   interrupt: () => Promise<void>;
   images: string[];
@@ -172,6 +177,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [images, setImages] = useState<string[]>([]);
   const [galleryDir, setGalleryDir] = useState("");
   const [galleryVersion, setGalleryVersion] = useState(0);
+  const [job, setJob] = useState<Job | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const setParam = useCallback(<K extends keyof Parameters>(key: K, value: Parameters[K]) => {
@@ -348,6 +354,65 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => stopPolling, [stopPolling]);
 
+  const finishJob = useCallback(
+    (finished: Job) => {
+      stopPolling();
+      setGenerating(false);
+      setJob(finished);
+      loadImages(finished.output_dir, false);
+      if (finished.status === "completed") {
+        toast.success(`Finished generating expressions in Output/${finished.output_dir}`);
+      } else if (finished.status === "cancelled") {
+        toast.info(`Stopped after ${finished.progress.done} of ${finished.progress.total} expressions.`);
+      } else {
+        toast.error(finished.error?.message || "Generation failed");
+      }
+    },
+    [loadImages, stopPolling]
+  );
+
+  // Follow a job until it ends, refreshing the gallery as expressions land.
+  const trackJob = useCallback(
+    (started: Job) => {
+      setJob(started);
+      setGenerating(true);
+      setGalleryDir(started.output_dir);
+      loadImages(started.output_dir);
+      stopPolling();
+      let lastDone = started.progress.done;
+      let busy = false;
+      pollRef.current = setInterval(async () => {
+        if (busy) return;
+        busy = true;
+        try {
+          const latest = await api.job(started.id);
+          setJob(latest);
+          if (latest.progress.done !== lastDone) {
+            lastDone = latest.progress.done;
+            loadImages(latest.output_dir, false);
+          }
+          if (!isActiveJob(latest)) finishJob(latest);
+        } catch {
+          // Transient error; try again on the next tick
+        } finally {
+          busy = false;
+        }
+      }, JOB_POLL_INTERVAL_MS);
+    },
+    [finishJob, loadImages, stopPolling]
+  );
+
+  // Pick up a job that is still running, e.g. after a page reload.
+  useEffect(() => {
+    api
+      .jobs()
+      .then((jobs) => {
+        const active = jobs?.find(isActiveJob);
+        if (active) trackJob(active);
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const generate = useCallback(async () => {
     if (!imageDataUrl) {
       toast.error("Drop an input image first.");
@@ -356,10 +421,13 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     const dir = resolveOutputDir(outputDirectory);
     const { adPrompt, extra } = applyLoras(params.prompt, params.loras);
     setGenerating(true);
+    setJob(null);
     loadImages(dir);
     stopPolling();
+    // Older backends answer only when the whole set is done; watch the folder meanwhile.
     pollRef.current = setInterval(() => loadImages(dir, false), POLL_INTERVAL_MS);
 
+    let tracking = false;
     try {
       const result = await api.generate({
         init_images: imageDataUrl,
@@ -376,7 +444,13 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ad_cfg_scale: params.cfgScale,
         ad_denoising_strength: params.denoisingStrength,
       });
-      if (result.status === "success") {
+      if (result.job_id && result.job && isActiveJob(result.job)) {
+        tracking = true;
+        trackJob(result.job);
+      } else if (result.job) {
+        tracking = true;
+        finishJob(result.job);
+      } else if (result.status === "success") {
         toast.success(`Finished generating expressions in Output/${dir}`);
       } else {
         toast.error(result.message || "Generation failed");
@@ -384,20 +458,26 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     } catch (error) {
       toast.error(`Generation failed: ${error instanceof Error ? error.message : error}`);
     } finally {
-      stopPolling();
-      setGenerating(false);
-      loadImages(dir, false);
+      if (!tracking) {
+        stopPolling();
+        setGenerating(false);
+        loadImages(dir, false);
+      }
     }
-  }, [imageDataUrl, outputDirectory, params, loadImages, stopPolling]);
+  }, [imageDataUrl, outputDirectory, params, loadImages, stopPolling, trackJob, finishJob]);
 
   const interrupt = useCallback(async () => {
     try {
-      await api.interrupt();
+      if (isActiveJob(job)) {
+        await api.cancelJob(job.id);
+      } else {
+        await api.interrupt();
+      }
       toast.info("Stopping after the current expression.");
     } catch (error) {
       toast.error(`Could not interrupt: ${error instanceof Error ? error.message : error}`);
     }
-  }, []);
+  }, [job]);
 
   const value = useMemo<AutoExpressState>(
     () => ({
@@ -424,6 +504,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       outputDirectory,
       setOutputDirectory,
       generating,
+      job,
       generate,
       interrupt,
       images,
@@ -434,7 +515,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     [
       backends, backend, setBackend, apiUrl, connection, connect, options, families, family, setFamily,
       isRealistic, setRealistic, params, setParam, file, imageDataUrl, rawMetadata, uploading, setFile,
-      outputDirectory, generating, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
+      outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]
   );
 

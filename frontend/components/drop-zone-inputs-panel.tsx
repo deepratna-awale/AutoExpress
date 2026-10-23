@@ -3,7 +3,9 @@
 import { AlertTriangle, Loader2, Play, RefreshCw } from "lucide-react";
 
 import { useAutoExpress } from "@/lib/store";
+import { expressionName } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -12,8 +14,9 @@ interface DropZoneInputsPanelProps {
 }
 
 export function DropZoneInputsPanel({ onViewImages }: DropZoneInputsPanelProps) {
-  const { file, params, setParam, outputDirectory, setOutputDirectory, generating, generate, interrupt, loadImages } =
+  const { file, params, setParam, outputDirectory, setOutputDirectory, generating, job, generate, interrupt, loadImages } =
     useAutoExpress();
+  const progress = generating && job ? job.progress : null;
 
   const handleLoadImages = () => {
     loadImages();
@@ -41,6 +44,19 @@ export function DropZoneInputsPanel({ onViewImages }: DropZoneInputsPanelProps) 
           Interrupt
         </Button>
       </div>
+
+      {progress && progress.total > 0 && (
+        <div className="space-y-1" aria-live="polite">
+          <Progress value={Math.round(((progress.done + (progress.step?.fraction ?? 0)) / progress.total) * 100)} />
+          <p className="truncate text-xs text-muted-foreground">
+            {job?.status === "queued"
+              ? "Queued..."
+              : `${progress.done} of ${progress.total}${progress.current ? ` · ${expressionName(progress.current)}` : ""}${
+                  progress.step?.eta ? ` · ~${Math.ceil(progress.step.eta)}s` : ""
+                }`}
+          </p>
+        </div>
+      )}
 
       <Textarea
         placeholder="Prompt"

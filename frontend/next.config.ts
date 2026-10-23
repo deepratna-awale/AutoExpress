@@ -1,27 +1,8 @@
 import type { NextConfig } from "next";
 
-// The production build is a static export that the Flask app serves (see autoexpress/views.py).
-// During `next dev`, API calls are proxied to the Flask server instead.
+// The production build is a static export that the Flask app serves (see autoexpress/frontend.py).
+// During `next dev`, every request Next.js doesn't handle itself is proxied to the Flask server.
 const FLASK_URL = process.env.AUTOEXPRESS_BACKEND_URL || "http://127.0.0.1:5000";
-
-const FLASK_ROUTES = [
-  "/backends",
-  "/receive_data",
-  "/get-models",
-  "/get-samplers",
-  "/get-schedulers",
-  "/get-loras",
-  "/upload",
-  "/generate",
-  "/interrupt",
-  "/toggle",
-  "/expression-families",
-  "/expression-family",
-  "/images/:path*",
-  "/image/:path*",
-  "/classic",
-  "/static/:path*",
-];
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -30,7 +11,7 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   ...(isDev && {
     async rewrites() {
-      return FLASK_ROUTES.map((source) => ({ source, destination: `${FLASK_URL}${source}` }));
+      return { beforeFiles: [], afterFiles: [], fallback: [{ source: "/:path*", destination: `${FLASK_URL}/:path*` }] };
     },
   }),
 };
