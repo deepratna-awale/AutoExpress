@@ -1,19 +1,68 @@
+// The button's text node (it also holds an icon).
+function setButtonText(button, text) {
+    const node = Array.from(button.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+    if (node) {
+        node.textContent = ' ' + text + ' ';
+    }
+}
+
+// Follow a queued job until it finishes, showing progress on the generate button.
+function followJob(jobId, button) {
+    const label = 'Generate';
+    const poll = () => {
+        fetch(`/jobs/${jobId}`)
+            .then(response => response.json())
+            .then(job => {
+                const p = job.progress || {};
+                const text = job.status === 'queued' ? 'Queued' : `${p.done || 0}/${p.total || 0}`;
+                setButtonText(button, text);
+                button.setAttribute('title', p.current ? `Generating ${p.current}` : job.status);
+                button.style.opacity = job.status === 'running' || job.status === 'queued' ? 0.6 : 1;
+                if (p.done > 0 && typeof loadImages === 'function' && document.getElementById('output-directory').value) {
+                    loadImages();
+                }
+                if (job.status === 'queued' || job.status === 'running') {
+                    setTimeout(poll, 1500);
+                    return;
+                }
+                setButtonText(button, label);
+                button.removeAttribute('title');
+                if (job.status === 'failed' && job.error) {
+                    // e.g. ADetailer or the ComfyUI Impact Pack is missing on the selected WebUI
+                    alert(job.error.message);
+                }
+            })
+            .catch(error => {
+                console.error('Lost track of the job:', error);
+                setTimeout(poll, 5000);
+            });
+    };
+    poll();
+}
+
 document.querySelector('.generate-button').addEventListener('click', function () {
+    var button = this;
     // Create an XMLHttpRequest to send data
     var xhr = new XMLHttpRequest();
 
     xhr.open("POST", "/generate", true);
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.onreadystatechange = function () {
-
-        if (xhr.readyState === 4 && xhr.status === 200) {
-            console.log('Data sent successfully');
-            var result = JSON.parse(xhr.responseText || '{}');
-            if (result.status === 'Failed') {
-                // e.g. ADetailer or the ComfyUI Impact Pack is missing on the selected WebUI
-                alert(result.message);
-            }
-        } else if (xhr.readyState === 4) {
+        if (xhr.readyState !== 4) {
+            return;
+        }
+        var result = {};
+        try {
+            result = JSON.parse(xhr.responseText || '{}');
+        } catch (e) {
+            console.error('Unexpected response', xhr.responseText);
+        }
+        if (xhr.status === 202 && result.job_id) {
+            followJob(result.job_id, button);
+        } else if (result.status === 'Failed') {
+            // Invalid input, or the WebUI is not ready
+            alert(result.message);
+        } else {
             console.log('Failed to send data');
         }
     };
@@ -37,6 +86,7 @@ document.querySelector('.generate-button').addEventListener('click', function ()
     var data = JSON.stringify({
         init_images: thumbnailSrc,
         output_dir: document.getElementById('output-directory').value,
+        wait: false,
         ad_scheduler: document.getElementById('scheduler-input').value,
         loras: loras,
         seed: document.getElementById('seed-input').value,

@@ -7,10 +7,16 @@ settings back out of that body with FaceEditRequest and translate them into
 their own request format.
 """
 
+import dataclasses
 import re
+import time
 from dataclasses import dataclass, field
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.exceptions import ReadTimeoutError
+from urllib3.util.retry import Retry
 
 from ..payload import SAME_CHECKPOINT, find_nested_key
 from ..log import log
@@ -23,9 +29,28 @@ def normalize_url(url: str | None, default: str) -> str:
     url = (url or "").strip()
     if not url:
         return default
-    if not re.match(r"^https?://", url, re.IGNORECASE):
+    if not re.match(r"^[a-z][a-z0-9+.-]*://", url, re.IGNORECASE):
         url = "http://" + url
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError(f"Not a valid http(s) URL: {url}")
     return url.rstrip("/")
+
+
+def split_credentials(url: str) -> tuple[str, str | None, str | None]:
+    """Move user:password@ out of a URL so it can be sent as basic auth instead."""
+    parts = urlsplit(url)
+    if parts.username is None:
+        return url, None, None
+    netloc = parts.hostname + (f":{parts.port}" if parts.port else "")
+    clean = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    return clean, unquote(parts.username), unquote(parts.password or "")
+
+
+def lora_stem(name: str) -> str:
+    """'SDXL/detail_tweaker.safetensors' -> 'detail_tweaker', the name A1111 style prompts use."""
+    name = name.replace("\\", "/").rsplit("/", 1)[-1]
+    return re.sub(r"\.(safetensors|ckpt|pt|pth|bin)$", "", name, flags=re.IGNORECASE)
 
 
 def extract_loras(prompt: str) -> tuple[str, list[tuple[str, float]]]:
@@ -138,31 +163,140 @@ class FaceEditRequest:
         )
 
 
+# Errors ---------------------------------------------------------------------
 class BackendError(RuntimeError):
-    """Raised when the WebUI answers with an error the user should see."""
+    """A WebUI request failed. code is a stable id the app and UI can switch on."""
+
+    code = "backend_error"
+
+    def to_dict(self) -> dict:
+        return {"code": self.code, "message": str(self)}
+
+
+class BackendUnavailable(BackendError):
+    """The WebUI could not be reached at all."""
+
+    code = "backend_unavailable"
+
+
+class BackendTimeout(BackendError):
+    """The WebUI accepted the connection but did not answer in time."""
+
+    code = "backend_timeout"
+
+
+class BackendAuthError(BackendError):
+    """The WebUI refused the credentials (HTTP 401/403)."""
+
+    code = "backend_auth"
+
+
+class BackendNotReady(BackendError):
+    """The WebUI is up but lacks something AutoExpress needs (extension, nodes, models)."""
+
+    code = "backend_not_ready"
+
+
+class BackendRejected(BackendError):
+    """The WebUI rejected the request itself (validation error, unknown model, ...)."""
+
+    code = "backend_rejected"
+
+
+class GenerationCancelled(BackendError):
+    code = "cancelled"
+
+
+# Base backend -----------------------------------------------------------------
+@dataclass
+class ConnectionOptions:
+    """How to reach a WebUI. Every field has a sensible default for a local install."""
+
+    username: str | None = None
+    password: str | None = None
+    token: str | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+    connect_timeout: float = 5.0
+    timeout: float = 30.0
+    job_timeout: float = 1800.0
+    retries: int = 2
+    verify_tls: bool = True
 
 
 class RemoteBackend:
     """
     Base for backends that reach a WebUI over HTTP.
 
-    Subclasses implement img2img, interrupt, check_ready and the model listings.
-    Listings return an empty list when the server cannot be reached, so the UI
-    simply shows nothing instead of failing.
+    Gives every backend the same transport: connect/read timeouts, retries with
+    backoff on connection errors (and on 502/503/504 for reads), basic or
+    bearer auth, and typed errors. Subclasses implement img2img, interrupt,
+    check_ready and the model listings. Listings return an empty list when the
+    server cannot be reached, so the UI shows nothing instead of failing.
+
+    img2img keeps the core Backend protocol (an image, or None on failure); the
+    reason for a failure is kept in last_error for callers that want it.
     """
 
     kind = ""
     label = ""
     default_url = "http://127.0.0.1:7860"
 
-    def __init__(self, url: str | None = None, timeout: float = 30) -> None:
-        self.session = requests.Session()
-        self.timeout = timeout
-        self._base_url = normalize_url(url, self.default_url)
+    def __init__(self, url: str | None = None, timeout: float | None = None, options: ConnectionOptions | None = None, **option_overrides) -> None:
+        self.connection = dataclasses.replace(options) if options else ConnectionOptions()
+        for key, value in option_overrides.items():
+            if value is not None:
+                setattr(self.connection, key, value)
+        if timeout is not None:
+            self.connection.timeout = timeout
+        self.last_error: BackendError | None = None
+        self.session = self._new_session()
+        self._base_url = self.default_url
+        self.set_url(url, notify=False)
+
+    # Transport ------------------------------------------------------------
+    def _new_session(self) -> requests.Session:
+        session = requests.Session()
+        retry = Retry(
+            total=self.connection.retries,
+            connect=self.connection.retries,
+            read=self.connection.retries,
+            status=self.connection.retries,
+            backoff_factor=0.5,
+            status_forcelist=(502, 503, 504),
+            allowed_methods=frozenset({"GET", "HEAD", "OPTIONS"}),
+            raise_on_status=False,
+            respect_retry_after_header=True,
+        )
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=8)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        session.verify = self.connection.verify_tls
+        session.headers.update({"Accept": "application/json", "User-Agent": "AutoExpress"})
+        return session
+
+    def _apply_auth(self, url_user: str | None, url_password: str | None) -> None:
+        username = self.connection.username or url_user
+        password = self.connection.password if self.connection.username else url_password
+        self.session.auth = (username, password or "") if username else None
+        self.session.headers.pop("Authorization", None)
+        if self.connection.token:
+            self.session.headers["Authorization"] = f"Bearer {self.connection.token}"
+        self.session.headers.update(self.connection.headers or {})
 
     # URL handling ---------------------------------------------------------
-    def set_url(self, url: str | None) -> None:
-        self._base_url = normalize_url(url, self.default_url)
+    def set_url(self, url: str | None, notify: bool = True) -> None:
+        clean, user, password = split_credentials(normalize_url(url, self.default_url))
+        self._base_url = clean
+        if user and not self.connection.username:
+            # Keep URL credentials with the other options so copies of this backend have them too.
+            self.connection.username, self.connection.password = user, password
+        self._apply_auth(None, None)
+        if notify:
+            self.on_url_changed()
+
+    def set_credentials(self, username: str | None = None, password: str | None = None, token: str | None = None) -> None:
+        self.connection.username, self.connection.password, self.connection.token = username or None, password or None, token or None
+        self._apply_auth(None, None)
         self.on_url_changed()
 
     def get_url(self) -> str:
@@ -180,24 +314,68 @@ class RemoteBackend:
 
     # HTTP helpers ---------------------------------------------------------
     def _request(self, method: str, path: str, timeout: float | None = None, **kwargs) -> requests.Response:
-        return self.session.request(method, f"{self._base_url}{path}", timeout=timeout or self.timeout, **kwargs)
+        """
+        Send a request and turn transport failures into typed BackendErrors.
+
+        Args:
+            timeout (float | None): Read timeout in seconds; defaults to options.timeout.
+        """
+        url = f"{self._base_url}{path}"
+        read_timeout = timeout if timeout is not None else self.connection.timeout
+        try:
+            response = self.session.request(method, url, timeout=(self.connection.connect_timeout, read_timeout), **kwargs)
+        except requests.exceptions.ConnectTimeout as e:
+            raise BackendUnavailable(f"Timed out connecting to {self.label} at {self._base_url}.") from e
+        except requests.exceptions.ReadTimeout as e:
+            raise BackendTimeout(f"{self.label} did not answer {method} {path} within {read_timeout:g}s.") from e
+        except requests.exceptions.SSLError as e:
+            raise BackendUnavailable(f"TLS error talking to {self.label} at {self._base_url}: {e}") from e
+        except requests.exceptions.ConnectionError as e:
+            # Once retries are used up, urllib3 reports a read timeout as a connection error.
+            if isinstance(getattr(e.args[0] if e.args else None, "reason", None), ReadTimeoutError):
+                raise BackendTimeout(f"{self.label} did not answer {method} {path} within {read_timeout:g}s.") from e
+            raise BackendUnavailable(f"Could not reach {self.label} at {self._base_url}. Is it running?") from e
+        except requests.exceptions.RequestException as e:
+            raise BackendError(f"{self.label} request {method} {path} failed: {e}") from e
+
+        if response.status_code in (401, 403):
+            raise BackendAuthError(
+                f"{self.label} refused the request ({response.status_code}). Check the username/password or token."
+            )
+        return response
+
+    @staticmethod
+    def _json(response: requests.Response):
+        try:
+            return response.json()
+        except ValueError as e:
+            raise BackendRejected(f"Expected JSON but got: {response.text[:300]!r}") from e
+
+    def _check(self, response: requests.Response, what: str) -> requests.Response:
+        if response.status_code >= 400:
+            raise BackendRejected(f"{self.label} {what} failed ({response.status_code}): {response.text[:1000]}")
+        return response
 
     def _get_json(self, path: str, **kwargs):
-        response = self._request("GET", path, **kwargs)
-        response.raise_for_status()
-        return response.json()
+        return self._json(self._check(self._request("GET", path, **kwargs), f"GET {path}"))
 
     def _post_json(self, path: str, body=None, **kwargs):
-        response = self._request("POST", path, json=body, **kwargs)
-        response.raise_for_status()
-        return response.json()
+        return self._json(self._check(self._request("POST", path, json=body, **kwargs), f"POST {path}"))
 
     def _safe_list(self, what: str, fetch) -> list[str]:
         try:
             return list(fetch())
-        except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+        except (BackendError, requests.RequestException, ValueError, KeyError, TypeError) as e:
             log.warning(f"Could not fetch {what} from {self.label} at {self._base_url}: {e}")
             return []
+
+    def _fail(self, error: Exception, what: str = "generation"):
+        """Record why img2img failed and return None, as the Backend protocol expects."""
+        if not isinstance(error, BackendError):
+            error = BackendError(f"{what} failed: {error}")
+        self.last_error = error
+        log.error(f"{self.label} {what} failed: {error}")
+        return None
 
     # Interface ------------------------------------------------------------
     @property
@@ -216,9 +394,64 @@ class RemoteBackend:
     def loras(self) -> list[str]:
         return []
 
+    @property
+    def lora_stems(self) -> list[str]:
+        """LoRA names as A1111 style <lora:name> tags use them, whatever this WebUI calls the files."""
+        return [lora_stem(name) for name in self.loras]
+
+    @property
+    def lora_dir(self) -> str | None:
+        """The WebUI's LoRA folder when this machine can see it. Unknown for most WebUIs."""
+        return None
+
+    def refresh_loras(self) -> bool:
+        """Ask the WebUI to rescan its LoRA folder. Returns True if it did."""
+        self.on_url_changed()
+        return False
+
+    def server_info(self) -> dict:
+        """Whatever the WebUI says about itself (version, devices, ...). {} when it says nothing."""
+        return {}
+
+    def progress(self) -> dict | None:
+        """Progress of the image being generated: {"fraction": 0..1, "eta": seconds or None}, or None if unknown."""
+        return None
+
     def check_ready(self) -> tuple[bool, str]:
         """Check the server is reachable and has what AutoExpress needs. Returns (ok, message)."""
+        try:
+            self.ensure_ready()
+        except BackendError as e:
+            self.last_error = e
+            return False, str(e)
+        return True, "ok"
+
+    def ensure_ready(self) -> None:
+        """Raise a BackendError explaining what is missing; return quietly when ready."""
         raise NotImplementedError
+
+    def health(self) -> dict:
+        """Reachability, readiness and server info in one dict, for status endpoints."""
+        started = time.monotonic()
+        ready, message = self.check_ready()
+        latency_ms = round((time.monotonic() - started) * 1000)
+        error = self.last_error.to_dict() if not ready and self.last_error else None
+        info = {}
+        if ready or (error and error["code"] not in (BackendUnavailable.code, BackendAuthError.code)):
+            try:
+                info = self.server_info()
+            except (BackendError, requests.RequestException, ValueError, KeyError, TypeError):
+                info = {}
+        return {
+            "backend": self.kind,
+            "name": self.label,
+            "url": self._base_url,
+            "ready": ready,
+            "message": message,
+            "error": error,
+            "latency_ms": latency_ms,
+            "info": info,
+        }
 
     def img2img(self, payload: dict):
         raise NotImplementedError

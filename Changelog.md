@@ -7,6 +7,12 @@
   - New `GET /backends` route, and `POST /receive_data` takes an optional `backend` id.
   - A1111 style requests drop built-in scripts the server does not have, so Forge and SD.Next no longer reject them.
   - `/generate` reports why a WebUI is not ready (API unreachable, ADetailer or Impact Pack missing, no models).
+- Standalone app hardened for production:
+  - Timeouts, retries with backoff, basic/bearer auth (and SwarmUI / InvokeAI logins) for every WebUI, with typed error codes shown in the UI.
+  - Generation runs as a queued background job: `/jobs`, `/jobs/<id>`, `/jobs/<id>/cancel`, live progress on the Generate button, no overlapping runs.
+  - `/health` and `/backend/status` (reachability, readiness, version).
+  - Input validation on `/generate` and `/upload`; output folder names can no longer escape the output directory, and `/images/..` is blocked.
+  - Configuration through `AUTOEXPRESS_*` environment variables, JSON logs and request ids, `python -m autoexpress` serves with waitress, Docker health check.
 - AutoExpress now runs inside other WebUIs:
   - **AUTOMATIC1111 / Forge / reForge / SD.Next extension**: an AutoExpress tab that runs ADetailer in-process, so `--api` is not needed. It reads prompt, sampler and seed from the uploaded image and can build a sprite sheet.
   - **ComfyUI nodes**: Expression Prompts, Expression Prompt, Expression LoRAs, Save Expressions and Sprite Sheet, used together with Impact Pack's FaceDetailer.

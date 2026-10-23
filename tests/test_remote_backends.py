@@ -37,6 +37,7 @@ class FakeSession:
     def __init__(self, routes):
         self.routes = routes
         self.calls = []
+        self.headers = {}
 
     def request(self, method, url, timeout=None, **kwargs):
         path = "/" + url.split("/", 3)[3]
@@ -485,3 +486,97 @@ def test_invokeai_failed_job_and_listings(payload):
 )
 def test_invokeai_scheduler_names(sampler, scheduler, expected):
     assert scheduler_name(sampler, scheduler) == expected
+
+
+# Production behaviour -----------------------------------------------------
+def test_comfyui_reports_node_validation_errors(payload):
+    routes = comfy_routes(done_history())
+    routes["POST /prompt"] = FakeResponse(
+        {
+            "error": {"message": "Prompt outputs failed validation"},
+            "node_errors": {"ckpt": {"class_type": "CheckpointLoaderSimple", "errors": [{"message": "Value not in list", "details": "ckpt_name: 'x' not in []"}]}},
+        },
+        400,
+    )
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = ComfySession(routes)
+    assert backend.img2img(payload) is None
+    assert backend.last_error.code == "backend_rejected"
+    assert "CheckpointLoaderSimple: Value not in list ckpt_name" in str(backend.last_error)
+
+
+def test_comfyui_execution_error_and_interrupt(payload):
+    history = {"p1": {"status": {"status_str": "error", "completed": False, "messages": [
+        ["execution_error", {"node_type": "FaceDetailer", "exception_message": "CUDA out of memory\n"}]]}, "outputs": {}}}
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = ComfySession(comfy_routes(history))
+    assert backend.img2img(payload) is None
+    assert str(backend.last_error) == "ComfyUI failed in FaceDetailer: CUDA out of memory"
+
+    history = {"p1": {"status": {"status_str": "error", "completed": False, "messages": [["execution_interrupted", {}]]}, "outputs": {}}}
+    backend.session = ComfySession(comfy_routes(history))
+    assert backend.img2img(payload) is None and backend.last_error.code == "cancelled"
+
+
+def test_comfyui_interrupt_targets_its_own_prompt():
+    backend = ComfyUIClient()
+    backend.session = ComfySession(comfy_routes(done_history()))
+    backend._prompt_id = "p1"
+    backend.interrupt()
+    calls = [(m, p, kw.get("json")) for m, p, kw in backend.session.calls]
+    assert ("POST", "/queue", {"delete": ["p1"]}) in calls
+    assert ("POST", "/interrupt", {"prompt_id": "p1"}) in calls
+
+
+def test_comfyui_no_face_detected_is_explained(payload):
+    history = done_history()
+    history["p1"]["outputs"] = {}
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = ComfySession(comfy_routes(history))
+    assert backend.img2img(payload) is None and "face detected" in str(backend.last_error)
+
+
+def test_swarmui_token_is_sent_as_cookie():
+    backend = SwarmUIClient(token="tok")
+    assert backend.session.cookies.get("swarm_token") == "tok"
+    assert "Authorization" not in backend.session.headers and backend.session.auth is None
+
+
+def test_swarmui_logs_in_before_opening_a_session(payload):
+    routes = swarm_routes({"images": [pil_to_b64(Image.new("RGB", (64, 96)))]})
+    routes["POST /API/Login"] = {"success": "true"}
+    backend = SwarmUIClient(username="deep", password="pw")
+    backend.session = FakeSession(routes)
+    assert backend.img2img(payload) is not None
+    paths = [p for m, p, kw in backend.session.calls]
+    assert paths.index("/API/Login") < paths.index("/API/GetNewSession")
+    assert backend.server_info() == {"version": None, "server_id": None, "user_id": None}
+
+    routes["POST /API/Login"] = {"error_id": "invalid_login"}
+    backend = SwarmUIClient(username="deep", password="bad")
+    backend.session = FakeSession(routes)
+    ok, message = backend.check_ready()
+    assert not ok and backend.last_error.code == "backend_auth"
+
+
+def test_invokeai_logs_in_and_retries_on_expired_token(payload):
+    state = {"logins": 0, "rejected": False}
+
+    class Session(InvokeSession):
+        def request(self, method, url, timeout=None, **kwargs):
+            path = "/" + url.split("/", 3)[3]
+            if path == "/api/v1/auth/login":
+                state["logins"] += 1
+                self.headers["Authorization"] = None
+                return FakeResponse({"token": f"jwt{state['logins']}", "user": {}, "expires_in": 60})
+            if path == "/api/v2/models/" and not state["rejected"]:
+                state["rejected"] = True
+                return FakeResponse({"detail": "expired"}, 401)
+            return super().request(method, url, timeout, **kwargs)
+
+    backend = InvokeAIClient(poll_interval=0, username="me@x.com", password="pw")
+    backend.session = Session(invoke_done())
+    backend.session.headers = {}
+    assert backend.img2img(payload) is not None
+    assert state["logins"] == 2
+    assert backend.session.headers["Authorization"] == "Bearer jwt2"

@@ -19,8 +19,11 @@ EXPOSE 5000
 
 # Set environment variables for Flask
 ENV FLASK_APP=autoexpress
-ENV FLASK_RUN_HOST=0.0.0.0
-ENV FLASK_RUN_PORT=5000
+ENV AUTOEXPRESS_HOST=0.0.0.0
+ENV AUTOEXPRESS_PORT=5000
 
-# Default command to run the Flask app
-CMD ["flask", "run"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=4)"
+
+# Serve with waitress (see autoexpress/__main__.py)
+CMD ["python", "-m", "autoexpress"]

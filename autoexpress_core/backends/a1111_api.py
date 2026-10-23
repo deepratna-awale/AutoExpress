@@ -17,7 +17,7 @@ from PIL import Image
 
 from ..images import b64_to_pil
 from ..log import log
-from .base import RemoteBackend
+from .base import BackendError, BackendNotReady, BackendRejected, RemoteBackend
 
 ADETAILER = "adetailer"
 
@@ -28,7 +28,7 @@ class A1111Client(RemoteBackend):
     label = "AUTOMATIC1111"
     default_url = "http://127.0.0.1:7860"
 
-    def __init__(self, host: str = "127.0.0.1", port: str = "7860", use_https: bool = False, url: str | None = None) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: str = "7860", use_https: bool = False, url: str | None = None, **options) -> None:
         """
         Initialize the A1111Client object.
 
@@ -37,9 +37,11 @@ class A1111Client(RemoteBackend):
             port (str, optional): The port of the sd server. Defaults to "7860".
             use_https (bool, optional): Whether to use https for the connection. Defaults to False.
             url (str, optional): Full base URL, takes precedence over host/port.
+            **options: ConnectionOptions fields (username, password, token, timeout, retries, ...).
         """
         protocol = "https" if use_https else "http"
-        super().__init__(url or f"{protocol}://{host}:{port}")
+        self._alwayson_scripts: set[str] | None = None
+        super().__init__(url or f"{protocol}://{host}:{port}", **options)
         self._endpoints = {
             "img2img": "/sdapi/v1/img2img",
             "samplers": "/sdapi/v1/samplers",
@@ -52,8 +54,8 @@ class A1111Client(RemoteBackend):
             "script_info": "/sdapi/v1/script-info",
             "refresh_loras": "/sdapi/v1/refresh-loras",
             "cmd_flags": "/sdapi/v1/cmd-flags",
+            "progress": "/sdapi/v1/progress",
         }
-        self._alwayson_scripts: set[str] | None = None
 
     def on_url_changed(self) -> None:
         self._alwayson_scripts = None
@@ -69,7 +71,7 @@ class A1111Client(RemoteBackend):
         try:
             r = self._get_json(self._endpoints["extensions"])
             return {extension["name"]: extension.get("enabled", True) for extension in r}
-        except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+        except (BackendError, requests.RequestException, ValueError, KeyError, TypeError) as e:
             log.error(f"Could not list extensions: {e}")
             return {}
 
@@ -89,7 +91,7 @@ class A1111Client(RemoteBackend):
         response = None
         try:
             response = self._request("GET", self._endpoints["schedulers"])
-        except requests.RequestException as e:
+        except BackendError as e:
             log.warning(f"Could not fetch schedulers: {e}")
         if response is None or response.status_code == 404:
             return []
@@ -113,7 +115,7 @@ class A1111Client(RemoteBackend):
         """
         try:
             lora_dir = self._get_json(self._endpoints["cmd_flags"]).get("lora_dir")
-        except (requests.RequestException, ValueError, AttributeError):
+        except (BackendError, requests.RequestException, ValueError, AttributeError):
             return None
         if lora_dir and pathlib.Path(lora_dir).is_dir():
             return lora_dir
@@ -128,7 +130,7 @@ class A1111Client(RemoteBackend):
         """
         try:
             return self._request("POST", self._endpoints["refresh_loras"]).status_code == 200
-        except requests.RequestException:
+        except BackendError:
             return False
 
     def alwayson_scripts(self) -> set[str] | None:
@@ -143,7 +145,7 @@ class A1111Client(RemoteBackend):
                     for script in scripts
                     if script.get("is_alwayson") and script.get("is_img2img", True)
                 }
-            except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+            except (BackendError, requests.RequestException, ValueError, KeyError, TypeError) as e:
                 log.debug(f"Could not read script info: {e}")
                 return None
         return self._alwayson_scripts
@@ -171,23 +173,26 @@ class A1111Client(RemoteBackend):
             json_payload (str | dict): The request payload, as a JSON string or a dict.
 
         Returns:
-            requests.Response | bool: The response from the server, or False if the request failed.
+            requests.Response | bool: The response from the server, or False if the request failed
+            (the reason is kept in last_error).
         """
+        try:
+            return self._img2img_response(json_payload)
+        except BackendError as e:
+            self._fail(e, "img2img")
+            return False
+
+    def _img2img_response(self, json_payload: str | dict) -> requests.Response:
         if isinstance(json_payload, str):
             json_payload = json.loads(json_payload)
         json_payload = self.prepare_payload(json_payload)
 
-        try:
-            response = self._request("POST", self._endpoints["img2img"], json=json_payload, timeout=None)
-        except requests.RequestException as e:
-            log.error(f"img2img request failed: {e}")
-            return False
-
+        response = self._request("POST", self._endpoints["img2img"], json=json_payload, timeout=self.connection.job_timeout)
         if response.status_code == 200:
             return response
-
-        log.error(f"Request failed with code: {response.status_code} {response.text[:1000]}")
-        return False
+        if response.status_code == 422:
+            raise BackendRejected(f"{self.label} rejected the request: {response.text[:1000]}")
+        raise BackendRejected(f"{self.label} img2img failed ({response.status_code}): {response.text[:1000]}")
 
     def img2img(self, payload: dict) -> Image.Image | None:
         """
@@ -199,15 +204,21 @@ class A1111Client(RemoteBackend):
         Returns:
             Image.Image | None: The first generated image, or None if the request failed.
         """
-        response = self.img2img_api(payload)
-        if not response:
-            return None
+        self.last_error = None
+        try:
+            r = self._json(self._img2img_response(payload))
+            images = r.get("images") or []
+            if not images:
+                raise BackendRejected(f"{self.label} returned no image.")
+            image = b64_to_pil(images[0])
+        except BackendError as e:
+            return self._fail(e)
+        except (ValueError, KeyError, TypeError) as e:
+            return self._fail(BackendRejected(f"Unexpected img2img response from {self.label}: {e}"))
 
-        r = response.json()
-        image = b64_to_pil(r["images"][0])
         try:
             infotexts = json.loads(r.get("info") or "{}").get("infotexts") or []
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, AttributeError):
             infotexts = []
         if infotexts:
             image.info["parameters"] = infotexts[0]
@@ -227,7 +238,7 @@ class A1111Client(RemoteBackend):
 
         try:
             response = self._request("POST", self._endpoints["image_info"], json=png_payload)
-        except requests.RequestException as e:
+        except BackendError as e:
             log.error(f"png-info request failed: {e}")
             return False
 
@@ -245,8 +256,8 @@ class A1111Client(RemoteBackend):
             bool: True if successful, otherwise False.
         """
         try:
-            response = self._request("POST", self._endpoints["interrupt"])
-        except requests.RequestException as e:
+            response = self._request("POST", self._endpoints["interrupt"], timeout=10)
+        except BackendError as e:
             log.error(f"Interrupt failed: {e}")
             return False
 
@@ -289,14 +300,33 @@ class A1111Client(RemoteBackend):
         log.error(f"Could not find {ext} extension")
         return False
 
-    def check_ready(self) -> tuple[bool, str]:
+    def ensure_ready(self) -> None:
         try:
-            self._get_json(self._endpoints["samplers"])
-        except requests.RequestException as e:
-            return False, f"Could not reach the {self.label} API at {self._base_url}. Start it with --api. ({e})"
+            self._get_json(self._endpoints["samplers"], timeout=10)
+        except BackendRejected as e:
+            raise BackendNotReady(
+                f"{self.label} at {self._base_url} does not serve the API. Start it with --api. ({e})"
+            ) from e
         if not self.is_extension(ADETAILER):
-            return False, f"ADetailer is not installed or not enabled in {self.label}."
-        return True, "ok"
+            raise BackendNotReady(f"ADetailer is not installed or not enabled in {self.label}.")
+        if not self.models:
+            raise BackendNotReady(f"{self.label} has no checkpoints.")
+
+    def server_info(self) -> dict:
+        info = {"alwayson_scripts": sorted(self.alwayson_scripts() or [])}
+        try:
+            flags = self._get_json(self._endpoints["cmd_flags"], timeout=10)
+            info["api_auth"] = bool(flags.get("api_auth"))
+        except (BackendError, AttributeError):
+            pass
+        return info
+
+    def progress(self) -> dict | None:
+        try:
+            r = self._get_json(self._endpoints["progress"], params={"skip_current_image": "true"}, timeout=5)
+        except BackendError:
+            return None
+        return {"fraction": float(r.get("progress") or 0.0), "eta": r.get("eta_relative")}
 
 
 class ForgeClient(A1111Client):

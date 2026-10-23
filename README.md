@@ -179,6 +179,49 @@ Notes:
 - A1111 sampler and scheduler names read from image metadata (e.g. `DPM++ 2M` + `Karras`) are translated to the selected WebUI's names.
 - `<lora:name:weight>` tags in the prompt are turned into that WebUI's lora loaders.
 
+### Protected or remote WebUIs
+
+- **Username and password**: put them in the URL (`https://user:pass@host:7860`) or set `AUTOEXPRESS_BACKEND_USERNAME` / `AUTOEXPRESS_BACKEND_PASSWORD`. A1111/Forge started with `--api-auth` get them as basic auth, SwarmUI logs in with them, and InvokeAI (multi-user mode) trades its email and password for a token and renews it when it expires.
+- **Token**: `AUTOEXPRESS_BACKEND_TOKEN` is sent as `Authorization: Bearer ...` (for proxies such as RunPod or a reverse proxy), or as SwarmUI's `swarm_token` cookie.
+- Connection problems come back as one of these error codes, shown in the UI and returned by the API: `backend_unavailable`, `backend_timeout`, `backend_auth`, `backend_not_ready`, `backend_rejected`, `cancelled`, `invalid_request`.
+
+## Running in production
+
+```bash
+pip install -r requirements.txt
+python -m autoexpress            # waitress on 0.0.0.0:5000
+```
+
+Every setting is an environment variable, listed with defaults in [autoexpress/config.py](autoexpress/config.py). The most useful ones:
+
+| Variable | Default | |
+| --- | --- | --- |
+| `AUTOEXPRESS_BACKEND` / `AUTOEXPRESS_BACKEND_URL` | `a1111` / its default | WebUI to connect to at startup |
+| `AUTOEXPRESS_REQUEST_TIMEOUT` / `AUTOEXPRESS_JOB_TIMEOUT` | `30` / `1800` s | Quick calls / one expression |
+| `AUTOEXPRESS_RETRIES` | `2` | Retries with backoff on connection errors and 502/503/504 |
+| `AUTOEXPRESS_OUTPUT_DIR` | `./Output` | Where expressions are saved |
+| `AUTOEXPRESS_MAX_UPLOAD_MB` | `32` | Request size limit |
+| `AUTOEXPRESS_LOG_JSON` / `AUTOEXPRESS_LOG_FILE` | off | JSON log lines, rotated log file |
+| `AUTOEXPRESS_HOST` / `AUTOEXPRESS_PORT` | `0.0.0.0` / `5000` | Listen address |
+
+Generation runs as a queued job on one worker thread, so several clicks or clients never send overlapping requests to the WebUI. Each job keeps its own connection, so switching WebUI in the sidebar doesn't disturb a running job. Every response carries an `X-Request-ID`, which also appears in the log lines.
+
+### HTTP API
+
+| Route | |
+| --- | --- |
+| `GET /health` | AutoExpress is up (does not call the WebUI) |
+| `GET /backend/status` | Selected WebUI: `ready`, `message`, `error`, `latency_ms`, `info` (version etc.) |
+| `GET /backends` | WebUIs you can pick, the selected one and its URL |
+| `POST /receive_data` | `{"text": url, "backend": id, "username", "password", "token"}` (all optional) |
+| `GET /get-models`, `/get-samplers`, `/get-schedulers`, `/get-loras` | Lists from the selected WebUI (`[]` when unreachable) |
+| `POST /generate` | Settings from the UI. Waits for the result unless `"wait": false`, which returns `202 {"job_id"}`. Optional `"expressions": [...]` picks a subset |
+| `GET /jobs`, `GET /jobs/<id>` | Status (`queued`, `running`, `completed`, `failed`, `cancelled`), `progress` (`done`, `total`, `fraction`, `current`, `step`), `images`, `error` |
+| `POST /jobs/<id>/cancel`, `POST /interrupt` | Cancel one job / every queued and running job |
+| `GET /images/<folder>`, `GET /image/<folder>/<file>` | Saved results |
+
+Invalid input gets HTTP 400 with `{"status": "Failed", "message", "error": {"code": "invalid_request", "fields": {...}}}`.
+
 - ## Additional packages for Linux
 - python3-pip
 - python3-venv
@@ -270,7 +313,7 @@ chmod +x ./run.sh
 
 ---
 
-## Launch Your A1111 Stable Diffusion WebUI Api
+## Launch Your WebUI's API (A1111 / Forge example)
 > You can check if the api is active by accessing the docs (if running locally)
 [http://127.0.0.1:7860/docs#/default/](http://127.0.0.1:7860/docs#/default/)
 
@@ -278,7 +321,7 @@ chmod +x ./run.sh
 # Usage
 ![UI Description](autoexpress/resources/images/UI.png)
 
-It's pretty Straight forward. Keep an eye on the logs in the console. Dropping an image will auto populate all attributes in the UI if the image has Stable Diffusion info text. Only supports A1111 WebUI API for now. 
+It's pretty Straight forward. Keep an eye on the logs in the console. Dropping an image will auto populate all attributes in the UI if the image has Stable Diffusion info text. The Generate button shows how many expressions are done while a job runs.
 
 PS: This is a very handy tool to use with [Silly Tavern](https://github.com/SillyTavern/SillyTavern) to **generate character expressions sprites** for any bot.
 

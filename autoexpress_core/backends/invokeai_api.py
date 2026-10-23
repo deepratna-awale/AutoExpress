@@ -5,18 +5,31 @@ InvokeAI has no ADetailer, so each expression is an inpainting graph built from
 core nodes: face_mask_detection (mediapipe) makes the face mask, and
 denoise_latents repaints only the masked face with the expression prompt.
 SD 1.x, SD 2.x and SDXL main models are supported.
+
+Multi-user InvokeAI servers take a bearer token, or an email and password
+that are exchanged for one through /api/v1/auth/login (and again when the
+token expires).
 """
 
 import io
 import random
 import time
 
-import requests
 from PIL import Image
 
 from ..images import b64_to_pil
 from ..log import log
-from .base import BackendError, FaceEditRequest, RemoteBackend, match_choice
+from .base import (
+    BackendAuthError,
+    BackendError,
+    BackendNotReady,
+    BackendRejected,
+    BackendTimeout,
+    FaceEditRequest,
+    GenerationCancelled,
+    RemoteBackend,
+    match_choice,
+)
 
 QUEUE = "/api/v1/queue/default"
 SUPPORTED_BASES = ("sd-1", "sd-2", "sdxl")
@@ -66,12 +79,49 @@ class InvokeAIClient(RemoteBackend):
     label = "InvokeAI"
     default_url = "http://127.0.0.1:9090"
 
-    def __init__(self, url: str | None = None, timeout: float = 30, job_timeout: float = 1800, poll_interval: float = 0.5) -> None:
-        super().__init__(url, timeout)
-        self.job_timeout = job_timeout
+    def __init__(self, url: str | None = None, timeout: float | None = None, poll_interval: float = 0.5, **options) -> None:
+        self._login: tuple[str | None, str | None] = (None, None)
+        self._jwt: str | None = None
+        super().__init__(url, timeout, **options)
         self.poll_interval = poll_interval
         self._item_id: int | None = None
         self._interrupted = False
+
+    @property
+    def job_timeout(self) -> float:
+        return self.connection.job_timeout
+
+    # Auth -----------------------------------------------------------------
+    def _apply_auth(self, url_user: str | None, url_password: str | None) -> None:
+        super()._apply_auth(url_user, url_password)
+        # InvokeAI has no basic auth; credentials are traded for a JWT instead.
+        self.session.auth = None
+        self._login = (self.connection.username or url_user, self.connection.password if self.connection.username else url_password)
+        self._jwt = None
+
+    def _log_in(self) -> None:
+        email, password = self._login
+        response = self.session.request(
+            "POST", f"{self._base_url}/api/v1/auth/login",
+            json={"email": email, "password": password or ""},
+            timeout=(self.connection.connect_timeout, self.connection.timeout),
+        )
+        if response.status_code != 200:
+            raise BackendAuthError(f"InvokeAI login failed ({response.status_code}): {response.text[:300]}")
+        self._jwt = response.json()["token"]
+        self.session.headers["Authorization"] = f"Bearer {self._jwt}"
+
+    def _request(self, method: str, path: str, timeout: float | None = None, **kwargs):
+        has_login = self._login[0] and not self.connection.token
+        if has_login and not self._jwt:
+            self._log_in()
+        try:
+            return super()._request(method, path, timeout, **kwargs)
+        except BackendAuthError:
+            if not has_login:
+                raise
+            self._log_in()  # the token may have expired
+            return super()._request(method, path, timeout, **kwargs)
 
     # Listings -------------------------------------------------------------
     def _models(self, model_type: str) -> list[dict]:
@@ -92,14 +142,15 @@ class InvokeAIClient(RemoteBackend):
     def samplers(self) -> list[str]:
         return list(SCHEDULERS)
 
-    def check_ready(self) -> tuple[bool, str]:
-        try:
-            models = self.main_models()
-        except (requests.RequestException, ValueError) as e:
-            return False, f"Could not reach InvokeAI at {self._base_url}. ({e})"
-        if not models:
-            return False, "InvokeAI has no SD 1.x, SD 2.x or SDXL main models installed."
-        return True, "ok"
+    def ensure_ready(self) -> None:
+        if not self.main_models():
+            raise BackendNotReady("InvokeAI has no SD 1.x, SD 2.x or SDXL main models installed.")
+
+    def server_info(self) -> dict:
+        return {"version": self._get_json("/api/v1/app/version", timeout=10).get("version")}
+
+    def refresh_loras(self) -> bool:
+        return True  # model lists are read fresh on every call
 
     # Graph ----------------------------------------------------------------
     def pick_model(self, wanted: str | None, models: list[dict], what: str) -> dict | None:
@@ -112,7 +163,7 @@ class InvokeAIClient(RemoteBackend):
         model = self.pick_model(request.checkpoint, models, "model")
         if model is None:
             if not models:
-                raise BackendError("InvokeAI has no SD 1.x, SD 2.x or SDXL models.")
+                raise BackendNotReady("InvokeAI has no SD 1.x, SD 2.x or SDXL models.")
             model = models[0]
             log.warning(
                 f"Checkpoint '{request.checkpoint or 'not set'}' not found in InvokeAI, using {model['name']}. "
@@ -216,51 +267,52 @@ class InvokeAIClient(RemoteBackend):
             "/api/v1/images/upload",
             params={"image_category": "user", "is_intermediate": "true"},
             files={"file": ("autoexpress.png", buffer.getvalue(), "image/png")},
+            timeout=120,
         )
-        response.raise_for_status()
-        return response.json()["image_name"]
+        return self._json(self._check(response, "image upload"))["image_name"]
 
     def enqueue(self, graph: dict) -> int:
         response = self._request("POST", f"{QUEUE}/enqueue_batch", json={"batch": {"graph": graph, "runs": 1}, "prepend": False})
         if response.status_code not in (200, 201):
-            raise BackendError(f"InvokeAI rejected the graph: {response.text[:2000]}")
-        item_ids = response.json().get("item_ids")
+            raise BackendRejected(f"InvokeAI rejected the graph: {response.text[:2000]}")
+        item_ids = self._json(response).get("item_ids")
         if not item_ids:
-            raise BackendError("InvokeAI did not return a queue item. InvokeAI 5 or later is required.")
+            raise BackendRejected("InvokeAI did not return a queue item. InvokeAI 5 or later is required.")
         return item_ids[0]
 
-    def wait_for(self, item_id: int) -> dict | None:
+    def wait_for(self, item_id: int) -> dict:
         deadline = time.monotonic() + self.job_timeout
         while time.monotonic() < deadline:
             item = self._get_json(f"{QUEUE}/i/{item_id}")
             status = item.get("status")
             if status == "completed":
                 return item
-            if status in ("failed", "canceled"):
-                log.error(f"InvokeAI job {item_id} {status}: {item.get('error_message') or item.get('error') or ''}")
-                return None
-            if self._interrupted:
-                return None
+            if status == "canceled" or (self._interrupted and status != "in_progress"):
+                raise GenerationCancelled("Interrupted.")
+            if status == "failed":
+                raise BackendRejected(
+                    f"InvokeAI failed: {item.get('error_type') or ''} {item.get('error_message') or item.get('error') or ''}".strip()
+                )
             time.sleep(self.poll_interval)
-        log.error(f"InvokeAI job {item_id} did not finish within {self.job_timeout}s.")
-        return None
+        raise BackendTimeout(f"InvokeAI job {item_id} did not finish within {self.job_timeout:.0f}s.")
 
-    def fetch_image(self, item: dict) -> Image.Image | None:
+    def fetch_image(self, item: dict) -> Image.Image:
         session = item.get("session") or {}
         prepared = (session.get("source_prepared_mapping") or {}).get("output") or []
         results = session.get("results") or {}
         output = next((results[p] for p in prepared if p in results), None)
         if not output or "image" not in output:
-            log.error("InvokeAI finished without an output image.")
-            return None
-        response = self._request("GET", f"/api/v1/images/i/{output['image']['image_name']}/full")
-        response.raise_for_status()
+            raise BackendRejected("InvokeAI finished without an output image.")
+        response = self._check(
+            self._request("GET", f"/api/v1/images/i/{output['image']['image_name']}/full", timeout=120), "image download"
+        )
         result = Image.open(io.BytesIO(response.content))
         result.load()
         return result
 
     def img2img(self, payload: dict) -> Image.Image | None:
         self._interrupted = False
+        self.last_error = None
         try:
             request = FaceEditRequest.from_payload(payload)
             source = b64_to_pil(request.image).convert("RGB")
@@ -270,14 +322,14 @@ class InvokeAIClient(RemoteBackend):
 
             graph = self.build_graph(request, self.upload_image(work), width, height)
             self._item_id = self.enqueue(graph)
-            item = self.wait_for(self._item_id)
-            result = self.fetch_image(item) if item else None
-            if result is not None and result.size != source.size:
+            result = self.fetch_image(self.wait_for(self._item_id))
+            if result.size != source.size:
                 result = result.resize(source.size, Image.LANCZOS)
             return result
-        except (BackendError, requests.RequestException, KeyError, ValueError) as e:
-            log.error(f"InvokeAI generation failed: {e}")
-            return None
+        except BackendError as e:
+            return self._fail(e)
+        except (KeyError, ValueError, TypeError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from InvokeAI: {e}"))
         finally:
             self._item_id = None
 
@@ -286,6 +338,6 @@ class InvokeAIClient(RemoteBackend):
         if self._item_id is None:
             return
         try:
-            self._request("PUT", f"{QUEUE}/i/{self._item_id}/cancel")
-        except requests.RequestException as e:
+            self._request("PUT", f"{QUEUE}/i/{self._item_id}/cancel", timeout=10)
+        except BackendError as e:
             log.error(f"Interrupt failed: {e}")

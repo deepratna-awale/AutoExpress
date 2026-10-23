@@ -8,21 +8,33 @@ ADetailer pass, so ComfyUI needs ComfyUI-Impact-Pack and ComfyUI-Impact-Subpack.
 
 Node inputs are filled in from the server's /object_info, so required inputs
 added by newer Impact Pack versions get their defaults instead of failing
-validation.
+validation. Step progress is read from ComfyUI's websocket when the optional
+websocket-client package is installed; completion is always confirmed through
+/history, so the websocket is never required.
 """
 
 import hashlib
 import io
+import json
 import random
+import threading
 import time
 import uuid
 
-import requests
 from PIL import Image
 
 from ..images import b64_to_pil
 from ..log import log
-from .base import BackendError, FaceEditRequest, RemoteBackend, match_choice
+from .base import (
+    BackendError,
+    BackendNotReady,
+    BackendRejected,
+    BackendTimeout,
+    FaceEditRequest,
+    GenerationCancelled,
+    RemoteBackend,
+    match_choice,
+)
 
 REQUIRED_NODES = ("CheckpointLoaderSimple", "FaceDetailer", "UltralyticsDetectorProvider")
 
@@ -102,18 +114,28 @@ class ComfyUIClient(RemoteBackend):
     label = "ComfyUI"
     default_url = "http://127.0.0.1:8188"
 
-    def __init__(self, url: str | None = None, timeout: float = 30, job_timeout: float = 1800, poll_interval: float = 0.5) -> None:
-        super().__init__(url, timeout)
-        self.client_id = uuid.uuid4().hex
-        self.job_timeout = job_timeout
-        self.poll_interval = poll_interval
+    def __init__(self, url: str | None = None, timeout: float | None = None, poll_interval: float = 0.5, **options) -> None:
         self._object_info: dict[str, dict] = {}
         self._uploaded: dict[str, str] = {}
-        self._interrupted = False
+        super().__init__(url, timeout, **options)
+        self.client_id = uuid.uuid4().hex
+        self.poll_interval = poll_interval
+        self._interrupted = threading.Event()
+        self._prompt_id: str | None = None
+        self._progress: dict | None = None
+
+    @property
+    def job_timeout(self) -> float:
+        return self.connection.job_timeout
 
     def on_url_changed(self) -> None:
         self._object_info.clear()
         self._uploaded.clear()
+
+    def refresh_loras(self) -> bool:
+        """ComfyUI rescans its model folders on every /object_info call, so dropping the cache is enough."""
+        self._object_info.clear()
+        return True
 
     # Server info ----------------------------------------------------------
     def object_info(self, node: str) -> dict:
@@ -148,29 +170,36 @@ class ComfyUIClient(RemoteBackend):
     def loras(self) -> list[str]:
         return self._safe_list("loras", lambda: self.options("LoraLoader", "lora_name"))
 
-    def check_ready(self) -> tuple[bool, str]:
-        try:
-            self._object_info.clear()
-            missing = [node for node in REQUIRED_NODES if not self.object_info(node)]
-        except requests.RequestException as e:
-            return False, f"Could not reach ComfyUI at {self._base_url}. ({e})"
-
+    def ensure_ready(self) -> None:
+        self._object_info.clear()
+        missing = [node for node in REQUIRED_NODES if not self.object_info(node)]
         if missing:
-            return False, (
+            raise BackendNotReady(
                 f"ComfyUI is missing {', '.join(missing)}. Install ComfyUI-Impact-Pack and "
                 "ComfyUI-Impact-Subpack (for UltralyticsDetectorProvider)."
             )
         if not self.options("CheckpointLoaderSimple", "ckpt_name"):
-            return False, "ComfyUI has no checkpoints in models/checkpoints."
+            raise BackendNotReady("ComfyUI has no checkpoints in models/checkpoints.")
         if not self.options("UltralyticsDetectorProvider", "model_name"):
-            return False, "ComfyUI has no face detection model. Put face_yolov8m.pt in models/ultralytics/bbox."
-        return True, "ok"
+            raise BackendNotReady("ComfyUI has no face detection model. Put face_yolov8m.pt in models/ultralytics/bbox.")
+
+    def server_info(self) -> dict:
+        stats = self._get_json("/system_stats", timeout=10)
+        system = stats.get("system", {})
+        return {
+            "version": system.get("comfyui_version"),
+            "python": system.get("python_version"),
+            "devices": [device.get("name") for device in stats.get("devices", [])],
+        }
+
+    def progress(self) -> dict | None:
+        return self._progress
 
     # Workflow -------------------------------------------------------------
     def detector_model(self, wanted: str | None) -> str:
         choices = self.options("UltralyticsDetectorProvider", "model_name")
         if not choices:
-            raise BackendError("ComfyUI has no Ultralytics detection models.")
+            raise BackendNotReady("ComfyUI has no Ultralytics detection models.")
         match = match_choice(wanted, choices)
         if match:
             return match
@@ -197,7 +226,7 @@ class ComfyUIClient(RemoteBackend):
         checkpoint = match_choice(request.checkpoint, checkpoints)
         if not checkpoint:
             if not checkpoints:
-                raise BackendError("ComfyUI has no checkpoints.")
+                raise BackendNotReady("ComfyUI has no checkpoints.")
             checkpoint = checkpoints[0]
             log.warning(
                 f"Checkpoint '{request.checkpoint or 'not set'}' not found in ComfyUI, using {checkpoint}. "
@@ -283,9 +312,9 @@ class ComfyUIClient(RemoteBackend):
             "/upload/image",
             files={"image": (f"autoexpress_{digest}.png", buffer.getvalue(), "image/png")},
             data={"type": "input", "overwrite": "true"},
+            timeout=120,
         )
-        response.raise_for_status()
-        result = response.json()
+        result = self._json(self._check(response, "image upload"))
         name = f"{result['subfolder']}/{result['name']}" if result.get("subfolder") else result["name"]
         self._uploaded[digest] = name
         return name
@@ -293,11 +322,27 @@ class ComfyUIClient(RemoteBackend):
     def queue_prompt(self, workflow: dict) -> str:
         response = self._request("POST", "/prompt", json={"prompt": workflow, "client_id": self.client_id})
         if response.status_code != 200:
-            raise BackendError(f"ComfyUI rejected the workflow: {response.text[:2000]}")
-        return response.json()["prompt_id"]
+            raise BackendRejected(f"ComfyUI rejected the workflow: {self._describe_rejection(response)}")
+        return self._json(response)["prompt_id"]
 
-    def wait_for(self, prompt_id: str) -> dict | None:
-        """Poll /history until the prompt finished. Returns its history entry, or None when interrupted or timed out."""
+    @staticmethod
+    def _describe_rejection(response) -> str:
+        """Turn ComfyUI's validation error body into one readable line per failing node input."""
+        try:
+            body = response.json()
+        except ValueError:
+            return response.text[:2000]
+        lines = []
+        error = body.get("error") or {}
+        if isinstance(error, dict) and error.get("message"):
+            lines.append(error["message"])
+        for node_id, node in (body.get("node_errors") or {}).items():
+            for err in node.get("errors", []):
+                lines.append(f"{node.get('class_type', node_id)}: {err.get('message')} {err.get('details', '')}".strip())
+        return "; ".join(lines) or response.text[:2000]
+
+    def wait_for(self, prompt_id: str) -> dict:
+        """Poll /history until the prompt finished and return its history entry."""
         deadline = time.monotonic() + self.job_timeout
         while time.monotonic() < deadline:
             history = self._get_json(f"/history/{prompt_id}")
@@ -305,47 +350,106 @@ class ComfyUIClient(RemoteBackend):
             if entry:
                 status = entry.get("status", {})
                 if status.get("status_str") == "error" or (status and not status.get("completed", True)):
-                    messages = [m for m in status.get("messages", []) if m and m[0] in ("execution_error", "execution_interrupted")]
-                    log.error(f"ComfyUI job {prompt_id} failed: {messages}")
-                    return None
+                    messages = status.get("messages", [])
+                    if any(m and m[0] == "execution_interrupted" for m in messages) or self._interrupted.is_set():
+                        raise GenerationCancelled("Interrupted.")
+                    details = [m[1] for m in messages if m and m[0] == "execution_error" and len(m) > 1]
+                    detail = details[0] if details else {}
+                    raise BackendRejected(
+                        f"ComfyUI failed in {detail.get('node_type', 'the workflow')}: "
+                        f"{detail.get('exception_message', 'unknown error').strip()}"
+                    )
                 return entry
-            if self._interrupted:
-                return None
+            if self._interrupted.is_set():
+                raise GenerationCancelled("Interrupted.")
             time.sleep(self.poll_interval)
-        log.error(f"ComfyUI job {prompt_id} did not finish within {self.job_timeout}s.")
-        return None
+        raise BackendTimeout(f"ComfyUI job {prompt_id} did not finish within {self.job_timeout:.0f}s.")
 
-    def fetch_image(self, entry: dict) -> Image.Image | None:
+    def fetch_image(self, entry: dict) -> Image.Image:
         images = entry.get("outputs", {}).get("output", {}).get("images", [])
         if not images:
-            log.error("ComfyUI finished without an output image.")
-            return None
+            raise BackendRejected("ComfyUI finished without an output image (was a face detected?).")
         image = images[0]
         response = self._request(
             "GET",
             "/view",
             params={"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "temp")},
+            timeout=120,
         )
-        response.raise_for_status()
+        self._check(response, "image download")
         result = Image.open(io.BytesIO(response.content))
         result.load()
         return result
 
+    def _listen_for_progress(self) -> "threading.Event | None":
+        """Follow step progress on ComfyUI's websocket. Returns a stop event, or None without websocket-client."""
+        try:
+            import websocket  # websocket-client, optional
+        except ImportError:
+            return None
+
+        ws_url = "ws" + self._base_url[len("http"):] + f"/ws?clientId={self.client_id}"
+        headers = [f"{k}: {v}" for k, v in self.session.headers.items() if k.lower() == "authorization"]
+        try:
+            ws = websocket.create_connection(ws_url, timeout=self.connection.connect_timeout, header=headers)
+        except Exception as e:  # progress is optional, never fail the job over it
+            log.debug(f"ComfyUI progress websocket unavailable: {e}")
+            return None
+
+        stop = threading.Event()
+
+        def run():
+            ws.settimeout(1)
+            try:
+                while not stop.is_set():
+                    try:
+                        message = ws.recv()
+                    except websocket.WebSocketTimeoutException:
+                        continue
+                    if not isinstance(message, str):
+                        continue  # binary preview frames
+                    event = json.loads(message)
+                    data = event.get("data") or {}
+                    if event.get("type") == "progress" and data.get("prompt_id") in (None, self._prompt_id) and data.get("max"):
+                        self._progress = {"fraction": data["value"] / data["max"], "eta": None}
+            except Exception as e:
+                log.debug(f"ComfyUI progress websocket closed: {e}")
+            finally:
+                ws.close()
+
+        threading.Thread(target=run, name="comfyui-progress", daemon=True).start()
+        return stop
+
     def img2img(self, payload: dict) -> Image.Image | None:
-        self._interrupted = False
+        self._interrupted.clear()
+        self.last_error = None
+        self._progress = None
+        stop_listening = None
         try:
             request = FaceEditRequest.from_payload(payload)
             workflow = self.build_workflow(request, self.upload_image(request.image))
-            prompt_id = self.queue_prompt(workflow)
-            entry = self.wait_for(prompt_id)
-            return self.fetch_image(entry) if entry else None
-        except (BackendError, requests.RequestException, KeyError, ValueError) as e:
-            log.error(f"ComfyUI generation failed: {e}")
-            return None
+            stop_listening = self._listen_for_progress()
+            self._prompt_id = self.queue_prompt(workflow)
+            return self.fetch_image(self.wait_for(self._prompt_id))
+        except BackendError as e:
+            return self._fail(e)
+        except (KeyError, ValueError, TypeError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"))
+        finally:
+            if stop_listening:
+                stop_listening.set()
+            self._prompt_id = None
+            self._progress = None
 
     def interrupt(self) -> None:
-        self._interrupted = True
+        """Stop this client's prompt: drop it from the queue if it hasn't started, interrupt it if it has."""
+        self._interrupted.set()
+        prompt_id = self._prompt_id
         try:
-            self._request("POST", "/interrupt")
-        except requests.RequestException as e:
+            if prompt_id:
+                self._request("POST", "/queue", json={"delete": [prompt_id]}, timeout=10)
+                self._request("POST", "/interrupt", json={"prompt_id": prompt_id}, timeout=10)
+            else:
+                self._request("POST", "/interrupt", timeout=10)
+        except BackendError as e:
             log.error(f"Interrupt failed: {e}")
