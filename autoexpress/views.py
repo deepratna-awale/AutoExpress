@@ -5,7 +5,6 @@ import os
 import pathlib
 
 from autoexpress.modules import (
-    a1111_client,
     image_parser,
     expression_generator,
     expression_sets,
@@ -14,6 +13,7 @@ from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
 
 
 from autoexpress_core import ExpressionGenerator
+from autoexpress_core.backends.registry import create_backend, describe_backends
 from loguru import logger as log
 import requests
 import re
@@ -21,7 +21,8 @@ import re
 
 
 autoexpress = Flask(__name__)
-sd = a1111_client.A1111Client()
+# The WebUI being driven. Replaced when the user picks another one in the sidebar.
+sd = create_backend()
 generator = ExpressionGenerator(sd)
 
 uploaded = False
@@ -47,7 +48,12 @@ if not os.path.exists(UPLOAD_FOLDER):
 # AutoExpress UI
 @autoexpress.route("/", methods=["GET"])
 def index():
-    return render_template("index.html")
+    return render_template("index.html", backends=describe_backends(), selected=sd.kind)
+
+
+@autoexpress.route("/backends", methods=["GET"])
+def list_backends():
+    return jsonify({"selected": sd.kind, "url": sd.get_url(), "backends": describe_backends()})
 
 
 # Stable diffusion API Calls
@@ -141,22 +147,26 @@ def allowed_file(filename):
 # Try connecting to SD
 @autoexpress.route("/receive_data", methods=["POST"])
 def receive_data():
-    """Set the Stable Diffusion URL."""
+    """Pick the WebUI backend and set its URL."""
+    global sd, generator
 
-    data = request.json
-    url = data["text"]
+    data = request.json or {}
+    url = data.get("text")
+    kind = data.get("backend") or sd.kind
+
+    if kind != sd.kind:
+        try:
+            backend = create_backend(kind, url)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        sd = backend
+        generator = ExpressionGenerator(sd)
+    else:
+        sd.set_url(url)
 
     if not url:
-        sd.setURL("http://127.0.0.1:7860")
-        log.info("No url found, defaulting to http://127.0.0.1:7860")
-    elif url.endswith("/"):
-        sd.setURL(url[:-1])
-    elif url.startswith("http"):
-        sd.setURL(url)
-    else:
-        sd.setURL("http://" + url)
-
-    log.info(f"SD URL set to: {sd.getURL()}")
+        log.info(f"No url found, defaulting to {sd.get_url()}")
+    log.info(f"{sd.label} URL set to: {sd.get_url()}")
 
     return jsonify({"status": "success"})
 
@@ -165,10 +175,11 @@ def receive_data():
 def generate():
     data = request.json
 
-    adetailer_exists = sd.is_extension()
+    ready, message = sd.check_ready()
 
-    if not adetailer_exists:
-        return jsonify({"status": "Failed", "message": "Could not find adetailer"})
+    if not ready:
+        log.error(message)
+        return jsonify({"status": "Failed", "message": message})
 
     matches = get_lora_from_prompt(data.get("ad_prompt"))
     img_str = data.get("init_images")
@@ -201,7 +212,7 @@ def generate():
             civitai_api_key=lora_settings["civitai_api_key"] or None,
         )
     except KeyboardInterrupt:
-        sd.interrupt()
+        generator.stop()
 
     # Process data here, e.g., generate text based on the model and prompt
     return jsonify({"status": "success", "message": "Data processed successfully"})

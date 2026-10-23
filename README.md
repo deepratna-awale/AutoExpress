@@ -100,7 +100,7 @@ AutoExpress can run inside the WebUI you already use. Inside a WebUI it runs in-
 | AUTOMATIC1111, Forge, reForge, SD.Next | **AutoExpress** tab | [ADetailer](https://github.com/Bing-su/adetailer) |
 | ComfyUI (and SwarmUI, which runs ComfyUI) | **AutoExpress** nodes | [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) FaceDetailer |
 | InvokeAI | **AutoExpress Expression Prompts** node | InvokeAI's own inpainting nodes |
-| Standalone (this repo's Flask app) | Web app on port 5000 | ADetailer through the A1111 API |
+| Standalone (this repo's Flask app) | Web app on port 5000 | Any of the WebUIs above over their HTTP API, see [Supported WebUIs](#supported-webuis) |
 
 Fooocus has no extension system, so it is not supported.
 
@@ -157,10 +157,27 @@ Symlink (or copy) `invokeai_nodes/autoexpress` into `<INVOKEAI_ROOT>/nodes/` and
 
 ## Requirements
 - [Python3](https://www.python.org/downloads/) Prefer version 10
-- [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
-    - [Online Services](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Online-Services)
+- One of the [supported WebUIs](#supported-webuis), running locally or online, with its API reachable.
     - I'm currently working on integrating my [CivitAI-Model-Downloader](https://github.com/deepratna-awale/CivitAI-Model-Downloader) to automatically download LORAs.
-- [After Detailer Extension](https://github.com/Bing-su/adetailer)
+
+## Supported WebUIs
+
+Pick the WebUI in the **WebUI** dropdown at the top of the sidebar, enter its address (or leave it empty for the default shown) and press connect. The model, sampler, scheduler and lora lists are then read from that WebUI.
+
+| WebUI | Default address | What it needs | How the face is repainted |
+| ----- | --------------- | ------------- | ------------------------- |
+| [AUTOMATIC1111](https://github.com/AUTOMATIC1111/stable-diffusion-webui) | `127.0.0.1:7860` | Started with `--api`, [ADetailer](https://github.com/Bing-su/adetailer) installed | ADetailer |
+| [Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge) / [reForge](https://github.com/Panchovix/stable-diffusion-webui-reForge) | `127.0.0.1:7860` | Started with `--api`, ADetailer installed | ADetailer |
+| [SD.Next](https://github.com/vladmandic/sdnext) | `127.0.0.1:7860` | ADetailer installed | ADetailer |
+| [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | `127.0.0.1:8188` | [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) + [Impact Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack), a face model such as `face_yolov8m.pt` in `models/ultralytics/bbox` | FaceDetailer |
+| [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) | `127.0.0.1:7801` | Nothing extra. A YOLO face model in `Models/yolov8` is used when present, otherwise CLIPSeg | `<segment:face>` refining |
+| [InvokeAI](https://github.com/invoke-ai/InvokeAI) 5+ | `127.0.0.1:9090` | An SD 1.x, SD 2.x or SDXL model | Face mask + inpainting graph |
+
+Notes:
+- The A1111 family only receives the built-in scripts that WebUI actually has, so the same request works on A1111, Forge, reForge and SD.Next.
+- ComfyUI, SwarmUI and InvokeAI have no "use same checkpoint", so pick a model. If none is picked the first one is used and a warning is logged.
+- A1111 sampler and scheduler names read from image metadata (e.g. `DPM++ 2M` + `Karras`) are translated to the selected WebUI's names.
+- `<lora:name:weight>` tags in the prompt are turned into that WebUI's lora loaders.
 
 - ## Additional packages for Linux
 - python3-pip

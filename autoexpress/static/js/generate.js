@@ -8,6 +8,11 @@ document.querySelector('.generate-button').addEventListener('click', function ()
 
         if (xhr.readyState === 4 && xhr.status === 200) {
             console.log('Data sent successfully');
+            var result = JSON.parse(xhr.responseText || '{}');
+            if (result.status === 'Failed') {
+                // e.g. ADetailer or the ComfyUI Impact Pack is missing on the selected WebUI
+                alert(result.message);
+            }
         } else if (xhr.readyState === 4) {
             console.log('Failed to send data');
         }
