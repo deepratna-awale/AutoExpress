@@ -166,6 +166,30 @@ def lora_prompt(architecture, lora_dir=None, installed_names=None):
     return ", ".join(parts)
 
 
+def apply_expression_weights(prompt, expression):
+    """
+    Adjust expression LoRA tags in a prompt for one expression.
+
+    An entry's "expression_weights" maps an expression to the weight to use for
+    it instead of the default; 0 drops that LoRA (and its trigger) entirely.
+    """
+    for entries in _load().values():
+        for entry in entries:
+            weight = (entry.get("expression_weights") or {}).get(expression)
+            if weight is None:
+                continue
+            names = [entry["name"], pathlib.Path(entry.get("original_file") or "").stem]
+            for name in filter(None, names):
+                tag = re.compile(r"<lora:\s*" + re.escape(name) + r"\s*:[^>]*>")
+                if weight:
+                    prompt = tag.sub(f"<lora:{name}:{weight}>", prompt)
+                elif tag.search(prompt):
+                    prompt = tag.sub("", prompt)
+                    if entry.get("trigger"):
+                        prompt = re.sub(r"(^|,)\s*" + re.escape(entry["trigger"]) + r"\s*(?=,|$)", r"\1", prompt)
+    return ", ".join(part.strip() for part in prompt.split(",") if part.strip())
+
+
 def expression_lora_prompt(
     checkpoint_name,
     family_id=None,
