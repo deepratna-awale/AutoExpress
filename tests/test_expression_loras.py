@@ -84,3 +84,19 @@ def test_ensure_loras_rejects_bad_hash(tmp_path, monkeypatch):
     assert ready == []
     assert "sha256 mismatch" in failures[0]
     assert not any(lora_dir.iterdir())
+
+
+def test_apply_expression_weights_drops_lora_for_listed_expression():
+    prompt = "1girl, <lora:AutoExpress-expressions-illustrious:0.6>, cinematic expression style, <lora:AutoExpress-face-enhancer-illustrious:0.5>"
+    assert expression_loras.apply_expression_weights(prompt, "anger") == (
+        "1girl, <lora:AutoExpress-face-enhancer-illustrious:0.5>"
+    )
+    assert expression_loras.apply_expression_weights(prompt, "joy") == prompt
+
+
+def test_build_prompt_applies_expression_weights():
+    from autoexpress_core import expression_sets
+
+    base = "<lora:AutoExpress-expressions-illustrious:0.6>, cinematic expression style"
+    assert "AutoExpress-expressions-illustrious" not in expression_sets.build_prompt(base, "anger", "illustrious")
+    assert "AutoExpress-expressions-illustrious:0.6" in expression_sets.build_prompt(base, "joy", "illustrious")

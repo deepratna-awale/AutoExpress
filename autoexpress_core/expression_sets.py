@@ -12,6 +12,8 @@ import pathlib
 import re
 from functools import lru_cache
 
+from . import expression_loras
+
 EXPRESSIONS_DIR = pathlib.Path(__file__).resolve().parent / "resources" / "expressions"
 
 AUTO = "auto"
@@ -98,6 +100,7 @@ def build_prompt(base_prompt, expression, family_id, add_quality_tags=True):
     """Base prompt plus the family's quality tags (if absent) plus the expression."""
     family = _load(family_id)
     quality = _missing_tags(base_prompt, family["quality_tags"]) if add_quality_tags else []
+    base_prompt = expression_loras.apply_expression_weights(base_prompt or "", expression)
     return join_prompt(", ".join(quality), base_prompt, family["expressions"][expression])
 
 

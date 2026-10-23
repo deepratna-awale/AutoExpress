@@ -1,5 +1,5 @@
 {
-  "_comment": "Expression LoRAs per base architecture. Files are fetched from Civitai on demand; 'mirror_url' can point at a self-hosted copy.",
+  "_comment": "Expression LoRAs per base architecture. Files are fetched from Civitai on demand; 'mirror_url' can point at a self-hosted copy. 'expression_weights' overrides the weight for single expressions (0 drops the LoRA for that expression).",
   "pony": [
     {
       "name": "AutoExpress-expressions-pony",
@@ -25,7 +25,10 @@
       "size_mb": 435,
       "weight": 0.6,
       "trigger": "cinematic expression style",
-      "mirror_url": null
+      "mirror_url": null,
+      "expression_weights": {
+        "anger": 0
+      }
     },
     {
       "name": "AutoExpress-face-enhancer-illustrious",
