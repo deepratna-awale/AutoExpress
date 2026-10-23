@@ -20,6 +20,37 @@ def generate_expressions(
     civitai_api_key: str = None,
     generator: ExpressionGenerator = None,
 ):
+    for _ in iter_expressions(
+        sd,
+        output_path,
+        settings,
+        image_str=image_str,
+        input_image_path=input_image_path,
+        is_realistic=is_realistic,
+        model_family=model_family,
+        use_expression_loras=use_expression_loras,
+        lora_dir=lora_dir,
+        civitai_api_key=civitai_api_key,
+        generator=generator,
+    ):
+        pass
+
+
+def iter_expressions(
+    sd: a1111_client.A1111Client,
+    output_path: str,
+    settings: dict,
+    image_str: str = None,
+    input_image_path: str = None,
+    is_realistic: bool = False,
+    model_family: str = None,
+    use_expression_loras: bool = True,
+    lora_dir: str = None,
+    civitai_api_key: str = None,
+    generator: ExpressionGenerator = None,
+    only: list[str] = None,
+):
+    """Same as generate_expressions, but yields (expression name, image) as each one is saved."""
     image_str = utils.is_image_valid(input_image_path, image_str)
     if not image_str:
         return
@@ -34,10 +65,11 @@ def generate_expressions(
             sd, settings.get("ad_checkpoint"), family, is_realistic, lora_dir, civitai_api_key
         )
 
-    generator.generate(
+    yield from generator.iter_generate(
         image_str,
         settings=settings,
         flavor=family,
+        only=only,
         output_dir=output_path,
         lora_prompt=lora_prompt,
         is_realistic=is_realistic,
@@ -69,7 +101,8 @@ def get_expression_lora_prompt(
         family,
         lora_dir=lora_dir,
         api_key=civitai_api_key,
-        installed_names=lambda: sd.loras or [],
+        # lora_stems: the <lora:name> form, also for WebUIs that list files with folders and extensions
+        installed_names=lambda: getattr(sd, "lora_stems", None) or sd.loras or [],
         refresh=sd.refresh_loras,
         log=log.info,
     )

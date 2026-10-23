@@ -4,3 +4,7 @@ matplotlib
 pillow
 requests
 loguru
+# Production server for "python -m autoexpress"
+waitress
+# Optional: live step progress from ComfyUI
+websocket-client
