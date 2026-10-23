@@ -1,4 +1,6 @@
 import hashlib
+import json
+import struct
 
 import pytest
 
@@ -100,3 +102,67 @@ def test_build_prompt_applies_expression_weights():
     base = "<lora:AutoExpress-expressions-illustrious:0.6>, cinematic expression style"
     assert "AutoExpress-expressions-illustrious" not in expression_sets.build_prompt(base, "anger", "illustrious")
     assert "AutoExpress-expressions-illustrious:0.6" in expression_sets.build_prompt(base, "joy", "illustrious")
+
+
+def _safetensors(path, shapes):
+    header = json.dumps({key: {"dtype": "F16", "shape": shape, "data_offsets": [0, 0]} for key, shape in shapes.items()})
+    path.write_bytes(struct.pack("<Q", len(header)) + header.encode())
+    return path
+
+
+SD15_KEYS = {
+    "model.diffusion_model.input_blocks.1.1.transformer_blocks.0.attn2.to_k.weight": [320, 768],
+    "cond_stage_model.transformer.text_model.embeddings.position_ids": [1, 77],
+}
+SDXL_KEYS = {
+    "model.diffusion_model.input_blocks.4.1.transformer_blocks.0.attn2.to_k.weight": [640, 2048],
+    "conditioner.embedders.1.model.ln_final.weight": [1280],
+}
+FLUX_KEYS = {"double_blocks.0.img_attn.qkv.weight": [9216, 3072]}
+
+
+@pytest.mark.parametrize(
+    "tensors, expected",
+    [
+        (SD15_KEYS, "sd15"),
+        (SDXL_KEYS, "sdxl"),
+        (FLUX_KEYS, "flux"),
+        ({"model.diffusion_model.middle_block.1.transformer_blocks.0.attn2.to_k.weight": [1280, 1024]}, "sd2"),
+        ({"diffusion_model.label_emb.0.0.weight": None}, "sdxl"),
+        ({"cond_stage_model.transformer.text_model.final_layer_norm.weight": None}, "sd15"),
+        ({"first_stage_model.decoder.conv_in.weight": [512, 4, 3, 3]}, None),
+    ],
+)
+def test_base_architecture(tensors, expected):
+    assert expression_loras.base_architecture(tensors.items()) == expected
+
+
+@pytest.mark.parametrize(
+    "checkpoint, family, base, expected",
+    [
+        # Names that match nothing used to fall back to SDXL.
+        ("AAM_Anylora_AnimeMix", "danbooru", "sd15", "sd15"),
+        ("AAM_Anylora_AnimeMix", "danbooru", None, "sdxl"),
+        # The base wins over a misleading name or family.
+        ("ponyDiffusionV6XL", "pony", "sd15", "sd15"),
+        ("someMix", "natural_language", "sdxl", "sdxl"),
+        ("someMix", "illustrious", "sdxl", "illustrious"),
+        ("waiNSFWIllustrious_v110", None, "sdxl", "illustrious"),
+        ("ponyDiffusionV6XL", None, "sdxl", "pony"),
+        ("unnamed", None, "flux", "flux"),
+        # SD 2.x has no LoRAs of its own, so the name decides.
+        ("realisticVisionV60B1", None, "sd2", "sd15"),
+    ],
+)
+def test_guess_architecture_with_base(checkpoint, family, base, expected):
+    assert expression_loras.guess_architecture(checkpoint, family, base) == expected
+
+
+def test_checkpoint_base_architecture_reads_header(tmp_path):
+    assert expression_loras.checkpoint_base_architecture(_safetensors(tmp_path / "AAM_Anylora_AnimeMix.safetensors", SD15_KEYS)) == "sd15"
+    assert expression_loras.checkpoint_base_architecture(_safetensors(tmp_path / "mix.safetensors", SDXL_KEYS)) == "sdxl"
+    (tmp_path / "broken.safetensors").write_bytes(b"\x01")
+    assert expression_loras.checkpoint_base_architecture(tmp_path / "broken.safetensors") is None
+    assert expression_loras.checkpoint_base_architecture(tmp_path / "missing.safetensors") is None
+    assert expression_loras.checkpoint_base_architecture(tmp_path / "old.ckpt") is None
+    assert expression_loras.checkpoint_base_architecture(None) is None
