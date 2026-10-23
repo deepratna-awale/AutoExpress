@@ -54,6 +54,15 @@ def checkpoint_choices() -> list[str]:
     return [SAME_CHECKPOINT] + list(sd_models.checkpoint_tiles())
 
 
+def checkpoint_base_architecture(checkpoint: str) -> str | None:
+    """SD 1.5, SDXL or Flux, read from the checkpoint file rather than its name."""
+    from modules import sd_models
+
+    match = getattr(sd_models, "get_closet_checkpoint_match", None)
+    info = match(checkpoint) if match and checkpoint else None
+    return expression_loras.checkpoint_base_architecture(getattr(info, "filename", None))
+
+
 def sampler_choices() -> list[str]:
     from modules import sd_samplers
 
@@ -96,7 +105,8 @@ def refresh_loras():
 def expression_lora_prompt(checkpoint: str, family: str, api_key: str | None) -> tuple[str, str]:
     """The LoRA prompt tags, and a note for the status line when no LoRA could be used."""
     failures = []
-    architecture = expression_loras.guess_architecture(checkpoint, family)
+    base = checkpoint_base_architecture(checkpoint)
+    architecture = expression_loras.guess_architecture(checkpoint, family, base)
     api_key, key_source = civitai_key.find_civitai_key(
         explicit=[api_key, shared.opts.data.get("autoexpress_civitai_api_key")],
         host_sources=civitai_key.webui_option_sources(shared.opts.data),
@@ -112,6 +122,7 @@ def expression_lora_prompt(checkpoint: str, family: str, api_key: str | None) ->
         refresh=refresh_loras,
         log=log.info,
         failures=failures,
+        base=base,
     )
     log.info(f"AutoExpress: expression LoRAs ({architecture}): {prompt or 'none'}")
 

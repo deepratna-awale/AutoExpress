@@ -14,6 +14,7 @@ import json
 import pathlib
 import re
 import shutil
+import struct
 import urllib.request
 from functools import lru_cache
 
@@ -45,9 +46,69 @@ def architectures():
     return sorted(_load())
 
 
-def guess_architecture(checkpoint_name, family_id=None):
-    """Pick the LoRA architecture for a checkpoint, using the prompt family as a hint."""
+# Width of the text conditioning that the UNet's cross-attention reads.
+_CONTEXT_WIDTH_ARCHITECTURE = {768: "sd15", 1024: "sd2", 2048: "sdxl"}
+
+
+def base_architecture(tensors):
+    """
+    The base architecture of a model from its state dict: "sd15", "sd2", "sdxl",
+    "flux", or None when it can't be told.
+
+    tensors maps state-dict keys to their shapes (a shape may be None when only
+    the keys are known). Fine-tunes keep their base's layout, so this works for
+    checkpoints whose names say nothing about what they are.
+    """
+    shapes = dict(tensors)
+    if any("double_blocks." in key for key in shapes):
+        return "flux"
+    for key, shape in shapes.items():
+        if key.endswith("attn2.to_k.weight") and shape and len(shape) == 2:
+            width = _CONTEXT_WIDTH_ARCHITECTURE.get(shape[1])
+            if width:
+                return width
+    if any(key.startswith("conditioner.embedders.1.") or "label_emb." in key for key in shapes):
+        return "sdxl"
+    if any(key.startswith("cond_stage_model.transformer.") for key in shapes):
+        return "sd15"
+    return None
+
+
+def checkpoint_base_architecture(path):
+    """base_architecture() for a .safetensors checkpoint, reading only its header."""
+    if not path or not str(path).lower().endswith(".safetensors"):
+        return None
+    try:
+        with open(path, "rb") as checkpoint:
+            (length,) = struct.unpack("<Q", checkpoint.read(8))
+            if length > 100_000_000:
+                return None
+            header = json.loads(checkpoint.read(length))
+    except (OSError, ValueError, struct.error):
+        return None
+    return base_architecture(
+        (key, info.get("shape")) for key, info in header.items() if isinstance(info, dict)
+    )
+
+
+def guess_architecture(checkpoint_name, family_id=None, base=None):
+    """
+    Pick the LoRA architecture for a checkpoint, using the prompt family as a hint.
+
+    base is the architecture read from the model itself (see base_architecture).
+    It wins over the name: SD 1.5 and Flux are taken as is, and an SDXL model
+    is still told apart into Pony, Illustrious or plain SDXL by name and family.
+    """
     name = (checkpoint_name or "").lower()
+
+    if base in ("sd15", "flux"):
+        return base
+    if base == "sdxl":
+        if re.search(r"pony|pdxl|autismmix", name) or family_id == "pony":
+            return "pony"
+        if re.search(r"illustrious|illu|noob|\bwai", name) or family_id == "illustrious":
+            return "illustrious"
+        return "sdxl"
 
     if re.search(r"pony|pdxl|autismmix", name):
         return "pony"
@@ -308,6 +369,7 @@ def expression_lora_prompt(
     failures=None,
     install=None,
     identities=None,
+    base=None,
 ):
     """
     Everything a host needs in one call: pick the LoRAs for a checkpoint, fetch the
@@ -319,8 +381,9 @@ def expression_lora_prompt(
     missing LoRAs itself, for WebUIs that can (see install_remote). identities (a dict, or a
     callable returning one) maps installed LoRA names to hashes the WebUI reports, to find renamed files.
     Download errors are passed to log and, when given, appended to the failures list.
+    base is the architecture read from the model, when the host knows it.
     """
-    architecture = guess_architecture(checkpoint_name, family_id)
+    architecture = guess_architecture(checkpoint_name, family_id, base)
 
     if lora_dir and download:
         ready, errors = ensure_loras(architecture, lora_dir, api_key, log=log)

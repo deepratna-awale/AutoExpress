@@ -75,6 +75,26 @@ def checkpoint_choices() -> list[str]:
     return [""] + folder_paths.get_filename_list("checkpoints")
 
 
+# ComfyUI's model config classes (comfy.supported_models) for each base.
+_CONFIG_ARCHITECTURE = {"SD15": "sd15", "SD20": "sd2", "SDXL": "sdxl", "Flux": "flux"}
+
+
+def model_base_architecture(model) -> str | None:
+    """The base architecture of a loaded MODEL, from its config or else its weights."""
+    base_model = getattr(model, "model", None)
+    config = getattr(base_model, "model_config", None)
+    for cls in type(config).__mro__ if config is not None else ():
+        if cls.__name__ in _CONFIG_ARCHITECTURE:
+            return _CONFIG_ARCHITECTURE[cls.__name__]
+    try:
+        state = base_model.state_dict()
+    except Exception:
+        return None
+    return expression_loras.base_architecture(
+        (key, tuple(getattr(tensor, "shape", ()) or ()) or None) for key, tensor in state.items()
+    )
+
+
 def safe_folder_name(name: str) -> str:
     keep = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (name or "").strip())
     return keep.strip() or "New_Character"
@@ -250,7 +270,7 @@ class AutoExpressExpressionLoras:
             "required": {
                 "model": ("MODEL",),
                 "clip": ("CLIP",),
-                "ckpt_name": (checkpoint_choices(), {"tooltip": "The checkpoint you loaded, used to pick the LoRA architecture."}),
+                "ckpt_name": (checkpoint_choices(), {"tooltip": "The checkpoint you loaded. Its name tells Pony and Illustrious apart from plain SDXL; the base (SD 1.5, SDXL, Flux) is read from the model."}),
                 "prompt_style": (FLAVORS, {"default": DEFAULT_FLAVOR, "tooltip": PROMPT_STYLE_TOOLTIP}),
                 "architecture": ([AUTO] + expression_loras.architectures(), {"default": AUTO}),
                 "download_missing": ("BOOLEAN", {"default": True}),
@@ -278,7 +298,9 @@ class AutoExpressExpressionLoras:
         family = resolve_flavor(prompt_style, ckpt_name)
         scale = expression_intensity.lora_scale(node_intensity(intensity, family))
         if architecture == AUTO:
-            architecture = expression_loras.guess_architecture(ckpt_name, family)
+            base = model_base_architecture(model)
+            architecture = expression_loras.guess_architecture(ckpt_name, family, base)
+            log.info(f"AutoExpress: {ckpt_name or 'model'} is {base or 'of unknown base'}, using {architecture} expression LoRAs.")
 
         lora_dir = folder_paths.get_folder_paths("loras")[0]
         if download_missing:

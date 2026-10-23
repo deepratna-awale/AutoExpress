@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { JobNotes } from "@/components/job-notes";
 
 interface DropZoneInputsPanelProps {
   onViewImages: () => void;
@@ -57,6 +58,8 @@ export function DropZoneInputsPanel({ onViewImages }: DropZoneInputsPanelProps) 
           </p>
         </div>
       )}
+
+      <JobNotes />
 
       <Textarea
         placeholder="Prompt"

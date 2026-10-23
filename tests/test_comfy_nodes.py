@@ -125,3 +125,46 @@ def test_nodes_apply_intensity(comfy):
     assert prompts[0].startswith("(") is False and ":0.8)" in prompts[0]
     plain, *_ = comfy.nodes["AutoExpressExpressionPrompts"]().build("danbooru", "1girl", "", "joy", "", "", -1.0)
     assert ":0.8)" not in plain[0]
+
+
+class _Tensor:
+    def __init__(self, *shape):
+        self.shape = shape
+
+
+class _Model:
+    """A MODEL stand-in: ModelPatcher.model is the BaseModel holding model_config and the weights."""
+
+    def __init__(self, config=None, weights=None):
+        self.model = types.SimpleNamespace(
+            model_config=config, state_dict=lambda: {key: _Tensor(*shape) for key, shape in (weights or {}).items()}
+        )
+
+    def __add__(self, other):
+        return "model" + other
+
+
+def test_expression_loras_reads_sd15_from_unnamed_checkpoint(comfy):
+    (comfy.lora_dir / "AutoExpress-expressions-sd15.safetensors").write_bytes(b"x")
+    model = _Model(weights={"diffusion_model.input_blocks.1.1.transformer_blocks.0.attn2.to_k.weight": (320, 768)})
+
+    comfy.nodes["AutoExpressExpressionLoras"]().apply(
+        model, "clip", "AAM_Anylora_AnimeMix.safetensors", "auto", "auto", download_missing=False
+    )
+
+    assert comfy.applied and comfy.applied[0][0] == "AutoExpress-expressions-sd15.safetensors"
+
+
+def test_model_base_architecture_from_config(comfy):
+    import importlib
+
+    nodes = importlib.import_module("autoexpress_custom_node.autoexpress_comfy.nodes")
+    SDXL = type("SDXL", (), {})
+    SSD1B = type("SSD1B", (SDXL,), {})
+    Flux = type("Flux", (), {})
+    FluxSchnell = type("FluxSchnell", (Flux,), {})
+
+    assert nodes.model_base_architecture(_Model(SSD1B())) == "sdxl"
+    assert nodes.model_base_architecture(_Model(FluxSchnell())) == "flux"
+    assert nodes.model_base_architecture(_Model(type("SD15", (), {})())) == "sd15"
+    assert nodes.model_base_architecture("model") is None

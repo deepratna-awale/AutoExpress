@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { LoraSelect } from "@/components/lora-select";
 import { SliderField } from "@/components/slider-field";
+import { WebUISetup } from "@/components/webui-setup";
+import { AUTO_BACKEND } from "@/lib/api";
 import { FAMILY_DEFAULTS, detectFamily, type Adjustment } from "@/lib/model-defaults";
 import { INPAINT_METHOD } from "@/lib/api";
 
@@ -69,6 +71,7 @@ export function ParametersPanel() {
     setApiUrl,
     connection,
     connect,
+    connectedBackend,
     options,
     editMethods,
     vramNote,
@@ -93,7 +96,8 @@ export function ParametersPanel() {
 
   const connected = connection === "connected";
   const currentBackend = backends?.find((b) => b.id === backend);
-  const placeholderUrl = currentBackend?.default_url.replace(/^https?:\/\//, "") ?? "127.0.0.1:7860";
+  const autoDetect = backend === AUTO_BACKEND;
+  const urlLabel = currentBackend && !autoDetect ? `${currentBackend.name} URL` : "WebUI URL";
 
   return (
     <ScrollArea className="h-full">
@@ -122,7 +126,7 @@ export function ParametersPanel() {
 
           <div className="space-y-2">
             <Label htmlFor="api-url" className="text-sm font-medium">
-              {currentBackend ? `${currentBackend.name} API` : "A1111 API"}
+              {urlLabel}
             </Label>
             <form
               className="flex gap-2"
@@ -135,7 +139,7 @@ export function ParametersPanel() {
                 id="api-url"
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
-                placeholder={placeholderUrl}
+                placeholder="http://host:7860 or https://your-pod-7860.proxy.runpod.net"
                 className="flex-1 text-sm"
               />
               <Button
@@ -150,7 +154,14 @@ export function ParametersPanel() {
                 {connection === "connecting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
               </Button>
             </form>
+            {autoDetect && connectedBackend && connected && (
+              <p className="text-xs text-muted-foreground" role="status">
+                Detected <span className="font-medium text-foreground">{connectedBackend.name}</span>
+              </p>
+            )}
           </div>
+
+          <WebUISetup />
         </Section>
 
         {/* Generation settings */}
