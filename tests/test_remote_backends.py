@@ -279,6 +279,12 @@ def test_comfyui_builds_face_detailer_workflow(payload):
     assert "sam_threshold" not in detailer  # not declared by this server
     assert workflow["image"]["inputs"]["image"] == "autoexpress_x.png"
 
+    # Saved PNGs read back like A1111's
+    parameters = result.info["parameters"]
+    assert parameters.startswith("1girl, red hair, smile <lora:detail_tweaker:0.5>\nNegative prompt:")
+    assert "Seed: 1234" in parameters and "Model: SDXL/animagine-xl-3.1.safetensors" in parameters
+    assert "Sampler: dpmpp_2m" in parameters and "Version: ComfyUI" in parameters
+
 
 def test_comfyui_uploads_the_image_once(payload, face_image):
     backend = ComfyUIClient(poll_interval=0)

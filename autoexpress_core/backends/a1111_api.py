@@ -346,10 +346,17 @@ class A1111Client(RemoteBackend):
 
     def progress(self) -> dict | None:
         try:
-            r = self._get_json(self._endpoints["progress"], params={"skip_current_image": "true"}, timeout=5)
-        except BackendError:
+            r = self._get_json(self._endpoints["progress"], params={"skip_current_image": "true"}, timeout=10)
+        except BackendError as e:
+            log.debug(f"{self.label} progress unavailable: {e}")
             return None
-        return {"fraction": float(r.get("progress") or 0.0), "eta": r.get("eta_relative")}
+        state = r.get("state") or {}
+        step, steps = state.get("sampling_step") or 0, state.get("sampling_steps") or 0
+        fraction = float(r.get("progress") or 0.0)
+        if not fraction and steps:
+            # ADetailer's inpaint pass runs outside the job count A1111 bases "progress" on.
+            fraction = min(step / steps, 1.0)
+        return {"fraction": fraction, "eta": r.get("eta_relative") or None, "step": step, "steps": steps}
 
 
 class ForgeClient(A1111Client):

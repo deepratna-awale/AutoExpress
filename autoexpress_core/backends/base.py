@@ -162,49 +162,86 @@ class FaceEditRequest:
             inpaint_size=inpaint_size,
         )
 
+    def infotext(self, size: tuple[int, int], sampler: str | None = None, seed: int | None = None, version: str = "") -> str:
+        """A1111 style generation parameters, so PNGs from any WebUI read back like A1111's."""
+        prompt = self.prompt + "".join(f" <lora:{name}:{weight:g}>" for name, weight in self.loras)
+        seed = self.seed if seed is None else seed
+        fields = {
+            "Steps": self.steps,
+            "Sampler": sampler or self.sampler,
+            "Schedule type": self.scheduler,
+            "CFG scale": f"{self.cfg_scale:g}",
+            "Seed": seed if seed is not None and seed >= 0 else None,
+            "Size": f"{size[0]}x{size[1]}",
+            "Model": self.checkpoint,
+            "Denoising strength": f"{self.denoise:g}",
+            "Clip skip": self.clip_skip if self.clip_skip > 1 else None,
+            "ADetailer model": self.detector,
+            "ADetailer confidence": f"{self.confidence:g}",
+            "ADetailer mask blur": self.mask_blur,
+            "Version": version or None,
+        }
+        params = ", ".join(f"{key}: {value}" for key, value in fields.items() if value not in (None, ""))
+        return f"{prompt.strip()}\nNegative prompt: {self.negative_prompt}\n{params}"
+
 
 # Errors ---------------------------------------------------------------------
 class BackendError(RuntimeError):
-    """A WebUI request failed. code is a stable id the app and UI can switch on."""
+    """A WebUI request failed. code is a stable id the app and UI can switch on, http_status what the app answers with."""
 
     code = "backend_error"
+    http_status = 502
 
     def to_dict(self) -> dict:
         return {"code": self.code, "message": str(self)}
+
+    @staticmethod
+    def status_for(code: str | None) -> int:
+        """The HTTP status for an error code, 502 for anything unknown."""
+        for cls in (BackendError, *BackendError.__subclasses__()):
+            if cls.code == code:
+                return cls.http_status
+        return 502
 
 
 class BackendUnavailable(BackendError):
     """The WebUI could not be reached at all."""
 
     code = "backend_unavailable"
+    http_status = 503
 
 
 class BackendTimeout(BackendError):
     """The WebUI accepted the connection but did not answer in time."""
 
     code = "backend_timeout"
+    http_status = 504
 
 
 class BackendAuthError(BackendError):
     """The WebUI refused the credentials (HTTP 401/403)."""
 
     code = "backend_auth"
+    http_status = 401
 
 
 class BackendNotReady(BackendError):
     """The WebUI is up but lacks something AutoExpress needs (extension, nodes, models)."""
 
     code = "backend_not_ready"
+    http_status = 409
 
 
 class BackendRejected(BackendError):
     """The WebUI rejected the request itself (validation error, unknown model, ...)."""
 
     code = "backend_rejected"
+    http_status = 502
 
 
 class GenerationCancelled(BackendError):
     code = "cancelled"
+    http_status = 409
 
 
 # Base backend -----------------------------------------------------------------

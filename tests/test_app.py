@@ -12,7 +12,7 @@ pytest.importorskip("sd_parsers")
 
 from autoexpress import views  # noqa: E402
 from autoexpress_core.backends import registry  # noqa: E402
-from autoexpress_core.backends.base import BackendNotReady, RemoteBackend  # noqa: E402
+from autoexpress_core.backends.base import BackendNotReady, BackendUnavailable, RemoteBackend  # noqa: E402
 from autoexpress_core.images import pil_to_b64  # noqa: E402
 
 
@@ -148,16 +148,38 @@ def test_jobs_run_one_at_a_time(client):
     assert [j["id"] for j in client.get("/jobs").get_json()["jobs"]][:2] == [second, first]
 
 
-def test_backend_not_ready_is_reported(client):
+def test_backend_not_ready_is_reported_before_queueing(client):
     FakeWebUI.ready = False
-    result = client.post("/generate", json=body()).get_json()
+    before = len(client.get("/jobs").get_json()["jobs"])
+    response = client.post("/generate", json=body(wait=False))
+    assert response.status_code == 409
+    result = response.get_json()
     assert result["status"] == "Failed"
     assert result["error"]["code"] == "backend_not_ready" and "ADetailer" in result["message"]
+    assert FakeWebUI.calls == 0 and len(client.get("/jobs").get_json()["jobs"]) == before
+
+
+def test_unreachable_backend_fails_fast_behind_a_running_job(client, monkeypatch):
+    FakeWebUI.delay = 5
+    running = client.post("/generate", json=body(wait=False)).get_json()["job_id"]
+    assert FakeWebUI.started.wait(5)
+
+    def unreachable(self):
+        raise BackendUnavailable("Could not reach Fake WebUI.")
+
+    monkeypatch.setattr(FakeWebUI, "ensure_ready", unreachable)
+    started = time.monotonic()
+    response = client.post("/generate", json=body())
+    assert response.status_code == 503 and response.get_json()["error"]["code"] == "backend_unavailable"
+    assert time.monotonic() - started < 2
+    client.post(f"/jobs/{running}/cancel")
 
 
 def test_backend_failure_mid_job_is_reported(client):
     FakeWebUI.fail_at = 2
-    result = client.post("/generate", json=body()).get_json()
+    response = client.post("/generate", json=body())
+    assert response.status_code == 409  # the job failed with BackendNotReady
+    result = response.get_json()
     assert result["status"] == "Failed" and result["message"] == "boom"
     assert result["job"]["progress"]["done"] == 1
 

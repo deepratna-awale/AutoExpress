@@ -216,11 +216,21 @@ Generation runs as a queued job on one worker thread, so several clicks or clien
 | `POST /receive_data` | `{"text": url, "backend": id, "username", "password", "token"}` (all optional) |
 | `GET /get-models`, `/get-samplers`, `/get-schedulers`, `/get-loras` | Lists from the selected WebUI (`[]` when unreachable) |
 | `POST /generate` | Settings from the UI. Waits for the result unless `"wait": false`, which returns `202 {"job_id"}`. Optional `"expressions": [...]` picks a subset |
-| `GET /jobs`, `GET /jobs/<id>` | Status (`queued`, `running`, `completed`, `failed`, `cancelled`), `progress` (`done`, `total`, `fraction`, `current`, `step`), `images`, `error` |
+| `GET /jobs`, `GET /jobs/<id>` | Status (`queued`, `running`, `completed`, `failed`, `cancelled`), `progress` (`done`, `total`, `fraction`, `current`, and `step` with the sampler's `fraction`, `step`, `steps` and `eta` where the WebUI reports them), `images`, `error` |
 | `POST /jobs/<id>/cancel`, `POST /interrupt` | Cancel one job / every queued and running job |
 | `GET /images/<folder>`, `GET /image/<folder>/<file>` | Saved results |
 
 Invalid input gets HTTP 400 with `{"status": "Failed", "message", "error": {"code": "invalid_request", "fields": {...}}}`.
+
+`/generate` checks the WebUI before queueing, so an unreachable or unready WebUI fails at once instead of after the jobs ahead of it. WebUI failures answer with the same body and an HTTP status that matches `error.code`:
+
+| `error.code` | HTTP |
+| --- | --- |
+| `backend_unavailable` | 503 |
+| `backend_timeout` | 504 |
+| `backend_auth` | 401 |
+| `backend_not_ready` | 409 |
+| `backend_rejected`, `backend_error` | 502 |
 
 - ## Additional packages for Linux
 - python3-pip

@@ -13,6 +13,7 @@ websocket-client package is installed; completion is always confirmed through
 /history, so the websocket is never required.
 """
 
+import dataclasses
 import hashlib
 import io
 import json
@@ -278,8 +279,10 @@ class ComfyUIClient(RemoteBackend):
                 "sampler_name": pick(request.sampler, self.options("FaceDetailer", "sampler_name"), SAMPLERS, "euler"),
                 "scheduler": pick(request.scheduler, self.options("FaceDetailer", "scheduler"), SCHEDULERS, "normal"),
                 "denoise": min(max(request.denoise, 0.0001), 1.0),
-                "feather": request.mask_blur,
+                # Wider feathering than A1111's mask blur: ComfyUI pastes the face back with a harder edge.
+                "feather": max(request.mask_blur * 3, 12),
                 "noise_mask": True,
+                "noise_mask_feather": 20,
                 "force_inpaint": True,
                 "bbox_threshold": request.confidence,
                 "bbox_dilation": request.dilation,
@@ -427,10 +430,18 @@ class ComfyUIClient(RemoteBackend):
         stop_listening = None
         try:
             request = FaceEditRequest.from_payload(payload)
+            if request.seed < 0:
+                request = dataclasses.replace(request, seed=random.randint(0, 2**32 - 1))
             workflow = self.build_workflow(request, self.upload_image(request.image))
             stop_listening = self._listen_for_progress()
             self._prompt_id = self.queue_prompt(workflow)
-            return self.fetch_image(self.wait_for(self._prompt_id))
+            image = self.fetch_image(self.wait_for(self._prompt_id))
+            detailer = workflow["face_detailer"]["inputs"]
+            checkpoint = workflow["ckpt"]["inputs"].get("ckpt_name")
+            image.info["parameters"] = dataclasses.replace(request, checkpoint=checkpoint).infotext(
+                image.size, sampler=detailer.get("sampler_name"), version="ComfyUI"
+            )
+            return image
         except BackendError as e:
             return self._fail(e)
         except (KeyError, ValueError, TypeError) as e:

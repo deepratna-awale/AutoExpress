@@ -64,7 +64,9 @@ class FakeA1111(BaseHTTPRequestHandler):
         if path == "/sdapi/v1/script-info":
             return self._send(200, [{"name": "adetailer", "is_alwayson": True, "is_img2img": True}])
         if path == "/sdapi/v1/progress":
-            return self._send(200, {"progress": 0.25, "eta_relative": 3.5})
+            if "pass=adetailer" in self.path:  # ADetailer pass: A1111 reports 0, the sampler state has the steps
+                return self._send(200, {"progress": 0, "eta_relative": 0, "state": {"sampling_step": 5, "sampling_steps": 20}})
+            return self._send(200, {"progress": 0.25, "eta_relative": 3.5, "state": {"sampling_step": 1, "sampling_steps": 4}})
         if path == "/sdapi/v1/cmd-flags":
             return self._send(200, {"api_auth": None})
         if path == "/sdapi/v1/img2img":
@@ -171,7 +173,9 @@ def test_bearer_token_header(server):
 
 def test_progress_and_health(server):
     backend = A1111Client(url=server)
-    assert backend.progress() == {"fraction": 0.25, "eta": 3.5}
+    assert backend.progress() == {"fraction": 0.25, "eta": 3.5, "step": 1, "steps": 4}
+    backend._endpoints["progress"] += "?pass=adetailer"
+    assert backend.progress() == {"fraction": 0.25, "eta": None, "step": 5, "steps": 20}
     health = backend.health()
     assert health["ready"] and health["info"]["alwayson_scripts"] == ["adetailer"]
 

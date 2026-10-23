@@ -10,12 +10,12 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 from autoexpress.config import Settings, configure_logging
-from autoexpress.jobs import FINISHED, JobManager, JobSpec, run_expression_job, CANCELLED, COMPLETED
+from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, JobManager, JobSpec, run_expression_job
 from autoexpress.modules import expression_sets, image_parser
 from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
 from autoexpress.validation import ValidationError, resolve_inside, validate_generate
 from autoexpress_core import get_expressions, resolve_flavor
-from autoexpress_core.backends.base import BackendError
+from autoexpress_core.backends.base import BackendError, BackendNotReady
 from autoexpress_core.backends.registry import REMOTE_BACKENDS, create_backend, describe_backends
 
 settings = Settings.from_env()
@@ -106,7 +106,7 @@ def handle_validation_error(e: ValidationError):
 
 @autoexpress.errorhandler(BackendError)
 def handle_backend_error(e: BackendError):
-    return error_response(e.code, str(e), 502)
+    return error_response(e.code, str(e), e.http_status)
 
 
 @autoexpress.errorhandler(HTTPException)
@@ -275,6 +275,10 @@ def generate():
 
     # A fresh client per job, so switching WebUI or interrupting never touches another job.
     job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
+    # Fail fast instead of waiting behind queued jobs to find out the WebUI is down.
+    ready, message = job_backend.check_ready()
+    if not ready:
+        raise job_backend.last_error or BackendNotReady(message)
     job = jobs.submit(
         JobSpec(
             backend=job_backend,
@@ -301,7 +305,8 @@ def generate():
     if job.status == CANCELLED:
         return jsonify({"status": "cancelled", "message": "Generation was interrupted.", "job": result})
     error = job.error or {"code": "backend_error", "message": "Generation failed."}
-    return jsonify({"status": "Failed", "message": error["message"], "error": error, "job": result})
+    status = BackendError.status_for(error.get("code")) if error.get("code") != "internal_error" else 500
+    return jsonify({"status": "Failed", "message": error["message"], "error": error, "job": result}), status
 
 
 # Jobs -----------------------------------------------------------------------
