@@ -7,6 +7,7 @@ stays reachable at "/classic" (both routes live in views.py).
 import pathlib
 
 from flask import Blueprint, abort, send_from_directory
+from werkzeug.security import safe_join
 
 FRONTEND_DIR = pathlib.Path(__file__).resolve().parent.parent / "frontend" / "out"
 
@@ -31,6 +32,7 @@ def next_assets(filename):
 @frontend.route("/<path:filename>", methods=["GET"])
 def public_files(filename):
     # Files from frontend/public (icons etc.). Every API route is more specific and wins.
-    if not is_built() or not (FRONTEND_DIR / filename).is_file():
+    path = safe_join(str(FRONTEND_DIR), filename)
+    if not is_built() or path is None or not pathlib.Path(path).is_file():
         abort(404)
     return send_from_directory(FRONTEND_DIR, filename)
