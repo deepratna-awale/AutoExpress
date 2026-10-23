@@ -258,3 +258,17 @@ def test_generator_uses_photo_wording_for_realistic_images(face_image):
     ExpressionGenerator(backend).generate(face_image, settings={"edit_style": "illustration"}, only=["joy"], method="instruct", is_realistic=True)
     prompts = [kw["json"]["prompt"]["positive"]["inputs"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt"]
     assert prompts[0].startswith("Edit this photograph") and prompts[1].startswith("Change only the facial expression.")
+
+
+def test_edit_requirements_report_fixes_over_the_api():
+    routes = edit_routes()
+    routes["GET /object_info/VAELoader"]["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors"]]
+    backend = ComfyUIClient()
+    backend.session = ComfySession(routes)
+    items = {item["key"]: item for item in backend.edit_requirements(selected=True)}
+    assert items["qwen_edit_nodes"]["ok"] and items["qwen_edit_diffusion_model"]["ok"]
+    vae = items["qwen_edit_vae"]
+    assert not vae["ok"] and vae["required"]
+    assert any("models/vae" in command and "qwen_image_vae" in command for command in vae["fix"]["commands"])
+    assert vae["fix"]["links"][0]["url"].startswith("https://huggingface.co/")
+    assert not any(item["required"] for item in backend.edit_requirements(selected=False))

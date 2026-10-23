@@ -221,6 +221,96 @@ class ComfyUIClient(RemoteBackend):
                 "Run: python -m autoexpress_core.instruction_edit download <ComfyUI folder>. " + instruction_edit.VRAM_NOTE
             )
 
+    def edit_requirements(self, selected: bool = False) -> list[dict]:
+        """
+        Everything the instruction edit mode needs, checked over ComfyUI's API, each with how to fix it.
+
+        Each item is {"key", "label", "ok", "detail", "required", "fix": {"steps", "commands", "links"} or None}.
+        required is True only when the mode is selected, so the report doesn't block face inpainting.
+        """
+        self._object_info.clear()
+        update_fix = {
+            "steps": ["Update ComfyUI to 0.3.60 or newer (ComfyUI Manager > Update ComfyUI, or git pull in the ComfyUI folder).", "Restart ComfyUI."],
+            "commands": ["cd ComfyUI && git pull && pip install -r requirements.txt"],
+            "links": [{"label": "ComfyUI releases", "url": "https://github.com/comfyanonymous/ComfyUI/releases"}],
+        }
+        missing_nodes = [node for node in EDIT_NODES if not self.object_info(node)]
+        encoder = next((node for node in EDIT_ENCODERS if self.object_info(node)), None)
+        if not encoder:
+            missing_nodes.append(EDIT_ENCODERS[0])
+        items = [
+            {
+                "key": "qwen_edit_nodes",
+                "label": "Qwen-Image-Edit nodes",
+                "ok": not missing_nodes,
+                "detail": f"Missing: {', '.join(missing_nodes)}" if missing_nodes else f"Core nodes present ({encoder})",
+                "required": selected,
+                "fix": None if not missing_nodes else update_fix,
+            }
+        ]
+        if not missing_nodes:
+            has_type = "qwen_image" in self.options("CLIPLoader", "type")
+            items.append(
+                {
+                    "key": "qwen_edit_clip_type",
+                    "label": "CLIPLoader qwen_image type",
+                    "ok": has_type,
+                    "detail": "Available" if has_type else "This ComfyUI's CLIPLoader can't load the Qwen text encoder.",
+                    "required": selected,
+                    "fix": None if has_type else update_fix,
+                }
+            )
+
+        lists = {
+            "diffusion_model": lambda: self.options("UNETLoader", "unet_name"),
+            "text_encoder": lambda: self.options("CLIPLoader", "clip_name"),
+            "vae": lambda: self.options("VAELoader", "vae_name"),
+            "lightning_lora": lambda: self.options("LoraLoaderModelOnly", "lora_name") or self.options("LoraLoader", "lora_name"),
+        }
+        labels = {
+            "diffusion_model": "Qwen-Image-Edit-2509 model",
+            "text_encoder": "Qwen2.5-VL text encoder",
+            "vae": "Qwen-Image VAE",
+            "lightning_lora": "Lightning 8-step LoRA (optional, 5x faster)",
+        }
+        for role, listing in lists.items():
+            model = instruction_edit.MODEL_BY_ROLE[role]
+            found = instruction_edit.find_model(role, listing())
+            items.append(
+                {
+                    "key": f"qwen_edit_{role}",
+                    "label": labels[role],
+                    "ok": bool(found),
+                    "detail": found or f"Not in ComfyUI/models/{model.folder}",
+                    "required": selected and model.required,
+                    "fix": None
+                    if found
+                    else {
+                        "steps": [
+                            f"Download {model.name} (~{model.size_gb:g} GB) into ComfyUI/models/{model.folder}/.",
+                            "Or fetch every missing file at once with the AutoExpress helper, run where ComfyUI is installed.",
+                            "Refresh ComfyUI (or restart it) so the loader lists the file.",
+                        ],
+                        "commands": [
+                            f"wget -c -P ComfyUI/models/{model.folder} {model.urls[0]}",
+                            "python -m autoexpress_core.instruction_edit download /path/to/ComfyUI",
+                        ],
+                        "links": [{"label": model.name, "url": model.urls[0].replace("/resolve/", "/blob/")}],
+                    },
+                }
+            )
+        items.append(
+            {
+                "key": "qwen_edit_vram",
+                "label": "GPU memory",
+                "ok": True,
+                "detail": instruction_edit.VRAM_NOTE,
+                "required": False,
+                "fix": None,
+            }
+        )
+        return items
+
     def server_info(self) -> dict:
         stats = self._get_json("/system_stats", timeout=10)
         system = stats.get("system", {})
