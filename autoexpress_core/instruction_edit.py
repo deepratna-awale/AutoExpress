@@ -53,6 +53,13 @@ ILLUSTRATION = "illustration"
 PHOTO = "photo"
 STYLES = (ILLUSTRATION, PHOTO)
 
+# How far the expression is pushed. Photos default to subtle: the full expressions look like a cartoon on a real face.
+SUBTLE = "subtle"
+NORMAL = "normal"
+STRONG = "strong"
+INTENSITIES = (SUBTLE, NORMAL, STRONG)
+DEFAULT_INTENSITY = {ILLUSTRATION: NORMAL, PHOTO: SUBTLE}
+
 INSTRUCTIONS_FILE = pathlib.Path(__file__).resolve().parent / "resources" / "edit_instructions.json"
 
 VRAM_NOTE = (
@@ -81,7 +88,7 @@ def get_instructions(only: list[str] | None = None) -> dict[str, str]:
     return expressions
 
 
-def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATION) -> str:
+def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATION, intensity: str | None = None) -> str:
     """
     The full edit instruction for one expression.
 
@@ -89,16 +96,24 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
         expression (str): An expression name, see instruction_names().
         extra (str): Optional text added before the "keep the same ..." sentence, e.g. "Keep the glasses on."
         style (str): ILLUSTRATION (anime, cartoon, furry art) or PHOTO (realistic photos).
+        intensity (str | None): SUBTLE, NORMAL or STRONG; None uses the style's default (subtle for photos).
     """
     data = _load()
     if expression not in data["expressions"]:
         raise KeyError(f"No edit instruction for '{expression}'. Valid names: {', '.join(data['expressions'])}")
     if style not in data["styles"]:
         raise KeyError(f"Unknown instruction style '{style}'. Choose from: {', '.join(data['styles'])}")
-    sentence = data["expressions"][expression]
+    intensity = intensity if intensity in INTENSITIES else DEFAULT_INTENSITY[style]
+    sentence = data["subtle" if intensity == SUBTLE else "expressions"][expression]
     if style == PHOTO:
         sentence = sentence.replace("The character", "The person")
-    parts = [data["styles"][style]["prefix"], sentence, (extra or "").strip(), data["styles"][style]["suffix"]]
+    parts = [
+        data["styles"][style]["prefix"],
+        sentence,
+        data["intensity"][intensity],
+        (extra or "").strip(),
+        data["styles"][style]["suffix"],
+    ]
     return " ".join(part for part in parts if part)
 
 

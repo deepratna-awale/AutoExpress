@@ -76,6 +76,8 @@ export function ParametersPanel() {
     setMethod,
     photoStyle,
     setPhotoStyle,
+    intensity,
+    setIntensity,
     families,
     family,
     setFamily,
@@ -240,6 +242,17 @@ export function ParametersPanel() {
                       Photo
                     </Label>
                   </div>
+                  <Select value={intensity} onValueChange={setIntensity}>
+                    <SelectTrigger id="edit-intensity" className="w-full" aria-label="Expression intensity">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Intensity: auto ({photoStyle ? "subtle" : "normal"})</SelectItem>
+                      <SelectItem value="subtle">Intensity: subtle</SelectItem>
+                      <SelectItem value="normal">Intensity: normal</SelectItem>
+                      <SelectItem value="strong">Intensity: strong</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground">
                     {editMethods.find((m) => m.id === method)?.description} {vramNote}
                   </p>

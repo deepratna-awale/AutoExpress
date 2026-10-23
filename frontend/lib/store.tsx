@@ -88,6 +88,9 @@ interface AutoExpressState {
   /** Instruction edit wording for drawn images or for photos. */
   photoStyle: boolean;
   setPhotoStyle: (value: boolean) => void;
+  /** "auto", "subtle", "normal" or "strong". */
+  intensity: string;
+  setIntensity: (value: string) => void;
 
   // Prompt style
   families: ExpressionFamily[] | null;
@@ -197,6 +200,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [vramNote, setVramNote] = useState("");
   const [method, setMethod] = useState(INPAINT_METHOD);
   const [photoStyle, setPhotoStyle] = useState(false);
+  const [intensity, setIntensity] = useState("auto");
 
   const [families, setFamilies] = useState<ExpressionFamily[] | null>(null);
   const [family, setFamilyState] = useState(AUTO_FAMILY);
@@ -547,7 +551,9 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ad_cfg_scale: params.cfgScale,
         ad_denoising_strength: params.denoisingStrength,
         ...(editMethods ? { method } : {}),
-        ...(method !== INPAINT_METHOD ? { edit_style: photoStyle ? "photo" : "illustration" } : {}),
+        ...(method !== INPAINT_METHOD
+          ? { edit_style: photoStyle ? "photo" : "illustration", ...(intensity !== "auto" ? { edit_intensity: intensity } : {}) }
+          : {}),
       });
       if (result.job_id && result.job && isActiveJob(result.job)) {
         tracking = true;
@@ -569,7 +575,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, loadImages, stopPolling, trackJob, finishJob]);
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, loadImages, stopPolling, trackJob, finishJob]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -600,6 +606,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setMethod,
       photoStyle,
       setPhotoStyle,
+      intensity,
+      setIntensity,
       families,
       family,
       setFamily,
@@ -626,7 +634,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       loadImages,
     }),
     [
-      backends, backend, setBackend, apiUrl, connection, connect, options, editMethods, vramNote, method, photoStyle, families, family, setFamily,
+      backends, backend, setBackend, apiUrl, connection, connect, options, editMethods, vramNote, method, photoStyle, intensity, families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]

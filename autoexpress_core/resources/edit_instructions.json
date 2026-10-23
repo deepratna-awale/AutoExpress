@@ -1,5 +1,5 @@
 {
-  "_comment": "Edit instructions for the instruction edit mode (Qwen-Image-Edit). Each sentence goes between its style's prefix and suffix. They describe only the face, name the features that move, and say what must stay, because the edit model otherwise also changes the pose, the head angle, the skin color, or turns photos into cartoons. Blush is kept faint: stronger wording turns the whole face red.",
+  "_comment": "Edit instructions for the instruction edit mode (Qwen-Image-Edit). Each sentence goes between its style's prefix and suffix. They describe only the face, name the features that move, and say what must stay, because the edit model otherwise also changes the pose, the head angle, the skin color, or turns photos into cartoons. Blush is kept faint: stronger wording turns the whole face red. 'subtle' holds the restrained versions used by default for photos, where the full versions look like a cartoon.",
   "styles": {
     "illustration": {
       "prefix": "Change only the facial expression.",
@@ -39,5 +39,40 @@
     "remorse": "The character is remorseful: eyes glistening with held-back tears, eyebrows drawn up in the middle and lips pressed together.",
     "sadness": "The character is sad: the inner ends of the eyebrows raised, eyes teary and looking slightly down, and the mouth turned down in a small frown. The head does not move or tilt.",
     "surprise": "The character is surprised: eyes wide open, eyebrows raised high and the mouth open in a small round shape. The skin color does not change."
+  },
+  "intensity": {
+    "subtle": "Keep the change subtle and natural, the way a real person would show it.",
+    "normal": "",
+    "strong": "Make the expression strong and clearly readable."
+  },
+  "subtle": {
+    "admiration": "The character looks on with quiet admiration: eyes a little brighter and a soft, slight smile.",
+    "amusement": "The character looks mildly amused: a small half smile and a hint of a smirk.",
+    "anger": "The character looks angry: eyebrows lowered and drawn slightly together, a firm stare and lips pressed tight.",
+    "annoyance": "The character looks mildly annoyed: a slight frown and lips pressed together.",
+    "approval": "The character looks approving: a small satisfied closed-mouth smile.",
+    "caring": "The character looks caring: a gentle, warm half smile and soft eyes.",
+    "confusion": "The character looks a little confused: one eyebrow slightly raised and the lips slightly parted.",
+    "curiosity": "The character looks curious: eyebrows slightly raised and attentive eyes.",
+    "desire": "The character has a longing look: slightly lowered eyelids and a faint smile.",
+    "disappointment": "The character looks disappointed: eyes slightly lowered and the corners of the mouth turned a little down.",
+    "disapproval": "The character looks disapproving: a slight frown and tight lips.",
+    "disgust": "The character looks mildly disgusted: the nose slightly wrinkled and the upper lip a little raised.",
+    "embarrassment": "The character looks a little embarrassed: an awkward small smile and eyes glancing away. No added redness.",
+    "excitement": "The character looks excited: a broad natural smile and bright, wide-open eyes.",
+    "fear": "The character looks scared: eyes a little wider, eyebrows slightly raised and drawn together, lips slightly parted.",
+    "gratitude": "The character looks grateful: a soft, warm smile with relaxed eyes.",
+    "grief": "The character looks grief-stricken: eyebrows drawn up in the middle, glistening eyes and a trembling, downturned mouth.",
+    "joy": "The character looks happy: a natural, genuine smile with slightly squinted eyes.",
+    "love": "The character looks affectionate: a tender, soft smile and warm eyes.",
+    "nervousness": "The character looks nervous: a tight, uneasy smile and slightly raised eyebrows.",
+    "neutral": "The character has a calm, neutral expression: relaxed face, mouth closed and a steady gaze.",
+    "optimism": "The character looks hopeful: a small confident smile.",
+    "pride": "The character looks proud: a slight self-satisfied smile.",
+    "realization": "The character has a realization: eyebrows raised and the lips slightly parted.",
+    "relief": "The character looks relieved: relaxed eyebrows and a small, easy smile.",
+    "remorse": "The character looks remorseful: eyes lowered, eyebrows slightly drawn up and lips pressed together.",
+    "sadness": "The character looks sad: the inner ends of the eyebrows slightly raised, eyes a little lowered and the corners of the mouth turned slightly down. The head does not move.",
+    "surprise": "The character looks surprised: eyebrows raised and the mouth slightly open."
   }
 }

@@ -176,6 +176,10 @@ class AutoExpressEditInstructions:
                     "default": instruction_edit.ILLUSTRATION,
                     "tooltip": "illustration keeps the art style; photo keeps a realistic photo from turning into a cartoon.",
                 }),
+                "intensity": (["auto"] + list(instruction_edit.INTENSITIES), {
+                    "default": "auto",
+                    "tooltip": "How far to push the expression. auto: normal for illustrations, subtle for photos.",
+                }),
                 "extra_instruction": ("STRING", {
                     "multiline": True,
                     "default": "",
@@ -199,13 +203,13 @@ class AutoExpressEditInstructions:
         "no face detector or LoRA. " + instruction_edit.VRAM_NOTE
     )
 
-    def build(self, expressions, style=instruction_edit.ILLUSTRATION, extra_instruction=""):
+    def build(self, expressions, style=instruction_edit.ILLUSTRATION, intensity="auto", extra_instruction=""):
         all_names = instruction_edit.instruction_names()
         wanted = parse_selection(expressions)
         names = [name for name in all_names if wanted is None or name in wanted]
         if not names:
             raise ValueError(f"No expressions matched '{expressions}'. Valid names: {', '.join(all_names)}")
-        instructions = [instruction_edit.build_instruction(name, extra_instruction, style) for name in names]
+        instructions = [instruction_edit.build_instruction(name, extra_instruction, style, intensity) for name in names]
         log.info(f"AutoExpress: {len(names)} edit instructions.")
         return (instructions, names, len(names))
 

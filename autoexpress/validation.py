@@ -20,7 +20,9 @@ NUMERIC_FIELDS = {
     "edit_steps": (int, 1, 100),
     "edit_cfg_scale": (float, 0.0, 20.0),
 }
-TEXT_FIELDS = ("ad_prompt", "ad_negative_prompt", "ad_checkpoint", "ad_sampler", "ad_scheduler", "edit_instruction", "edit_model", "edit_style")
+TEXT_FIELDS = ("ad_prompt", "ad_negative_prompt", "ad_checkpoint", "ad_sampler", "ad_scheduler", "edit_instruction", "edit_model")
+# field: allowed values
+CHOICE_FIELDS = {"edit_style": ("illustration", "photo"), "edit_intensity": ("subtle", "normal", "strong")}
 METHODS = ("inpaint", "instruct")
 MAX_TEXT = 10_000
 MAX_LORAS = 20
@@ -148,6 +150,15 @@ def validate_generate(data, max_pixels: int) -> dict:
         not isinstance(expressions, list) or not all(isinstance(e, str) for e in expressions)
     ):
         errors["expressions"] = "must be a list of expression names"
+
+    for key, allowed in CHOICE_FIELDS.items():
+        value = data.get(key)
+        if value in (None, "", "auto"):
+            continue
+        if value not in allowed:
+            errors[key] = f"must be one of {', '.join(allowed)}"
+        else:
+            settings[key] = value
 
     method = data.get("method") or "inpaint"
     if method not in METHODS:

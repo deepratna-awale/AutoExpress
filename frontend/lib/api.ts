@@ -93,6 +93,8 @@ export interface GenerateRequest {
   method?: string;
   /** Instruction edit wording: "illustration" keeps the art style, "photo" keeps a photo realistic. */
   edit_style?: string;
+  /** "subtle", "normal" or "strong"; omitted means the style's default (subtle for photos). */
+  edit_intensity?: string;
 }
 
 export interface JobProgress {

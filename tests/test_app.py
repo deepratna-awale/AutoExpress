@@ -298,3 +298,9 @@ def test_generate_with_instruction_edit(client, monkeypatch, tmp_path):
     FakeWebUI.ready = False
     response = client.post("/generate", json=body(method="instruct"))
     assert response.status_code == 409 and "Qwen-Image-Edit" in response.get_json()["message"]
+
+
+def test_generate_rejects_unknown_edit_style_or_intensity(client):
+    response = client.post("/generate", json=body(edit_style="sketch", edit_intensity="max"))
+    fields = response.get_json()["error"]["fields"]
+    assert response.status_code == 400 and set(fields) == {"edit_style", "edit_intensity"}

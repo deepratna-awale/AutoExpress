@@ -74,7 +74,8 @@ class ExpressionGenerator:
             method (str): instruction_edit.INPAINT (face inpainting with the family's prompts) or
                 instruction_edit.INSTRUCT (Qwen-Image-Edit with one sentence per expression; flavor,
                 lora_prompt and the ad_* settings are not used, edit_* settings and seed are; is_realistic
-                picks the photo wording unless edit_style says otherwise).
+                picks the photo wording unless edit_style says otherwise, edit_intensity is subtle,
+                normal or strong).
 
         Yields:
             tuple[str, Image.Image]: Expression name and the generated image.
@@ -139,7 +140,7 @@ class ExpressionGenerator:
                 log.info("Interrupted by user. Stopping..")
                 return
             log.info(f"Editing the expression to {expression_name}.")
-            instruction = instruction_edit.build_instruction(expression_name, extra, style)
+            instruction = instruction_edit.build_instruction(expression_name, extra, style, settings.get("edit_intensity"))
             result = self.backend.instruction_edit(b64_image, instruction, edit_settings)
             if result is None:
                 log.error(f"Instruction edit failed for {expression_name}, stopping.")

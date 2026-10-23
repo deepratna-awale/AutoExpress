@@ -40,13 +40,23 @@ def test_tuned_instructions_for_known_problems():
 
 def test_photo_style_keeps_photos_realistic():
     text = instruction_edit.build_instruction("joy", style="photo")
-    assert text.startswith("Edit this photograph: change only the person's facial expression. The person is overjoyed")
+    assert text.startswith("Edit this photograph: change only the person's facial expression. The person looks happy")
     assert text.endswith("Do not stylize or cartoonize.")
     assert instruction_edit.resolve_style(None, is_realistic=True) == "photo"
     assert instruction_edit.resolve_style("illustration", is_realistic=True) == "illustration"
     assert instruction_edit.resolve_style("auto") == "illustration"
     with pytest.raises(KeyError):
         instruction_edit.build_instruction("joy", style="sketch")
+
+
+def test_intensity_defaults_to_subtle_for_photos():
+    photo = instruction_edit.build_instruction("joy", style="photo")
+    assert "natural, genuine smile" in photo and "subtle and natural" in photo and "laughing" not in photo
+    drawn = instruction_edit.build_instruction("joy")
+    assert "laughing with a wide open smile" in drawn and "subtle" not in drawn
+    strong_photo = instruction_edit.build_instruction("joy", style="photo", intensity="strong")
+    assert "laughing" in strong_photo and "strong and clearly readable" in strong_photo
+    assert instruction_edit.build_instruction("joy", intensity="subtle").startswith("Change only the facial expression. The character looks happy")
 
 
 def test_edit_settings_from_app_settings():
