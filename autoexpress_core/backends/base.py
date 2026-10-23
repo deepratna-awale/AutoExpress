@@ -246,6 +246,85 @@ class GenerationCancelled(BackendError):
     http_status = 409
 
 
+# Capabilities -----------------------------------------------------------------
+@dataclass
+class Fix:
+    """How to fix a missing capability: steps to follow, commands to copy and links to open."""
+
+    steps: list[str] = field(default_factory=list)
+    commands: list[str] = field(default_factory=list)
+    links: list[dict] = field(default_factory=list)
+
+    @staticmethod
+    def link(label: str, url: str) -> dict:
+        return {"label": label, "url": url}
+
+
+@dataclass
+class Capability:
+    """One thing AutoExpress needs (or can use) on a WebUI, checked over its API."""
+
+    key: str
+    label: str
+    ok: bool
+    detail: str = ""
+    required: bool = True
+    fix: Fix | None = None
+
+    def to_dict(self) -> dict:
+        data = dataclasses.asdict(self)
+        data["fix"] = None if self.ok or self.fix is None else dataclasses.asdict(self.fix)
+        return data
+
+
+def capability_report(backend: "RemoteBackend", items: list[Capability], error: "BackendError | None" = None) -> dict:
+    missing = [item for item in items if item.required and not item.ok]
+    return {
+        "backend": backend.kind,
+        "name": backend.label,
+        "url": backend.get_url(),
+        "ready": error is None and not missing,
+        "error": error.to_dict() if error else None,
+        "missing": [item.label for item in missing],
+        "items": [item.to_dict() for item in items],
+    }
+
+
+def listed(what: str, names: list[str], fix: Fix | None = None, required: bool = True, key: str | None = None) -> Capability:
+    """A capability that is met when the WebUI lists at least one of something."""
+    shown = ", ".join(names[:5]) + (f" and {len(names) - 5} more" if len(names) > 5 else "")
+    return Capability(
+        key or what.lower().replace(" ", "_"),
+        what,
+        bool(names),
+        f"{len(names)} found: {shown}" if names else "None found",
+        required,
+        fix,
+    )
+
+
+def connection_fix(error: "BackendError", label: str = "the WebUI") -> Fix:
+    """What to do when a WebUI can't be reached or refuses the login. Nothing assumes it runs on this machine."""
+    if isinstance(error, BackendAuthError):
+        return Fix(
+            [
+                f"{label} asked for a login. Enter its username and password (or token) next to the URL,",
+                "or put them in the URL: https://user:password@host",
+            ]
+        )
+    if isinstance(error, (BackendUnavailable, BackendTimeout)):
+        return Fix(
+            [
+                f"Check that {label} is running and that the address is right, including http:// or https:// and any sub-path.",
+                "A WebUI on another machine must listen on the network: start it with --listen (A1111, Forge, SD.Next), "
+                "--listen 0.0.0.0 (ComfyUI) or --host 0.0.0.0 (SwarmUI, InvokeAI).",
+                "On RunPod and similar hosts, use the proxy URL the host shows for the WebUI's port, "
+                "e.g. https://<pod-id>-7860.proxy.runpod.net",
+            ]
+        )
+    return Fix([f"Check the address and that {label} is running."])
+
+
 # Base backend -----------------------------------------------------------------
 @dataclass
 class ConnectionOptions:
@@ -440,6 +519,10 @@ class RemoteBackend:
         """LoRA names as A1111 style <lora:name> tags use them, whatever this WebUI calls the files."""
         return [lora_stem(name) for name in self.loras]
 
+    def lora_identities(self) -> dict[str, set[str]]:
+        """Installed LoRA names (as <lora:name> uses them) to identifiers that survive renaming: hashes, training name."""
+        return {}
+
     @property
     def lora_dir(self) -> str | None:
         """The WebUI's LoRA folder when this machine can see it. Unknown for most WebUIs."""
@@ -487,6 +570,39 @@ class RemoteBackend:
     def instruction_edit(self, image: str, instruction: str, settings):
         """Apply one edit instruction to a base64 image. Only backends listing INSTRUCT in edit_methods have it."""
         raise NotImplementedError
+
+    def capabilities(self) -> list[Capability]:
+        """Everything this WebUI needs for AutoExpress, checked over its API. Override per WebUI."""
+        self.ensure_ready()
+        return [Capability("api", f"{self.label} API", True)]
+
+    def connection_fix(self, error: "BackendError") -> Fix:
+        """What to do when the WebUI can't be reached or refuses the login."""
+        return connection_fix(error, self.label)
+
+    def can_install_models(self) -> bool:
+        """True when the WebUI can download a LoRA itself through its API (see install_lora)."""
+        return False
+
+    def install_lora(self, url: str, name: str, access_token: str | None = None) -> bool:
+        """Ask the WebUI to download a LoRA from url into its own LoRA folder. Returns True once installed."""
+        return False
+
+    def check_capabilities(self) -> dict:
+        """
+        A readiness report the UI can show item by item: what is there, what is missing and how to fix it.
+
+        Never raises: an unreachable WebUI or refused login is reported in "error".
+        """
+        try:
+            items = self.capabilities()
+        except BackendError as e:
+            self.last_error = e
+            item = Capability("api", f"{self.label} API", False, str(e), fix=self.connection_fix(e))
+            if isinstance(e, BackendNotReady):
+                return capability_report(self, [item])
+            return capability_report(self, [item], e)
+        return capability_report(self, items)
 
     def health(self) -> dict:
         """Reachability, readiness and server info in one dict, for status endpoints."""

@@ -51,8 +51,13 @@ def iter_expressions(
     generator: ExpressionGenerator = None,
     only: list[str] = None,
     method: str = INPAINT,
+    notes: list = None,
 ):
-    """Same as generate_expressions, but yields (expression name, image) as each one is saved."""
+    """
+    Same as generate_expressions, but yields (expression name, image) as each one is saved.
+
+    notes, when given, collects things the user should act on, e.g. expression LoRAs to install by hand.
+    """
     image_str = utils.is_image_valid(input_image_path, image_str)
     if not image_str:
         return
@@ -65,7 +70,7 @@ def iter_expressions(
     # The instruction edit mode changes the expression from a sentence, expression LoRAs play no part in it.
     if use_expression_loras and method == INPAINT:
         lora_prompt = get_expression_lora_prompt(
-            sd, settings.get("ad_checkpoint"), family, is_realistic, lora_dir, civitai_api_key
+            sd, settings.get("ad_checkpoint"), family, is_realistic, lora_dir, civitai_api_key, notes
         )
 
     yield from generator.iter_generate(
@@ -87,29 +92,50 @@ def get_expression_lora_prompt(
     is_realistic: bool = False,
     lora_dir: str = None,
     civitai_api_key: str = None,
+    notes: list = None,
 ) -> str:
-    """Download the expression LoRAs for this checkpoint if we can, and return their prompt tags."""
+    """
+    Get the expression LoRAs for this checkpoint onto the WebUI if we can, and return their prompt tags.
+
+    The LoRA folder is only written to when it is on this machine. Otherwise WebUIs that can download
+    models through their API (InvokeAI) are asked to, and for the rest each missing LoRA is added to
+    notes with its download link, so the user can install it.
+    """
     from autoexpress_core import resolve_flavor
 
     family = resolve_flavor(family, checkpoint, is_realistic)
     lora_dir = lora_dir or sd.lora_dir
+    install = None
+    if not lora_dir and getattr(sd, "can_install_models", lambda: False)():
+        install = sd.install_lora
 
-    if not lora_dir:
-        log.info(
-            "WebUI LoRA folder isn't reachable from here, so only expression LoRAs "
-            "already installed on the server will be used."
-        )
+    # lora_stems: the <lora:name> form, also for WebUIs that list files with folders and extensions
+    def installed_names():
+        return getattr(sd, "lora_stems", None) or sd.loras or []
+
+    # Hashes and training names the WebUI reports per LoRA, so renamed files are found too
+    def identities():
+        return getattr(sd, "lora_identities", dict)()
 
     lora_prompt = expression_loras.expression_lora_prompt(
         checkpoint,
         family,
         lora_dir=lora_dir,
         api_key=civitai_api_key,
-        # lora_stems: the <lora:name> form, also for WebUIs that list files with folders and extensions
-        installed_names=lambda: getattr(sd, "lora_stems", None) or sd.loras or [],
+        installed_names=installed_names,
         refresh=sd.refresh_loras,
         log=log.info,
+        install=install,
+        identities=identities,
     )
+
+    missing = expression_loras.missing_loras(checkpoint, family, installed_names=installed_names, identities=identities)
+    if missing and notes is not None:
+        label = getattr(sd, "label", "the WebUI")
+        for entry in missing:
+            note = expression_loras.manual_install(entry, host=label)
+            notes.append({"kind": "missing_lora", **note})
+            log.warning(note["message"])
     log.info(f"Expression LoRAs: {lora_prompt or 'none installed'}")
     return lora_prompt
 

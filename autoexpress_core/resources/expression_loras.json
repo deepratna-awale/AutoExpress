@@ -1,5 +1,5 @@
 {
-  "_comment": "Expression LoRAs per base architecture. Files are fetched from Civitai on demand; 'mirror_url' can point at a self-hosted copy.",
+  "_comment": "Expression LoRAs per base architecture. Files are fetched from Civitai on demand; 'mirror_url' can point at a self-hosted copy. 'expression_weights' overrides the weight for single expressions (0 drops the LoRA for that expression). 'sshs_model_hash' / 'sshs_legacy_hash' are the kohya hashes in the file's metadata, which WebUIs report, so a renamed file is still recognised.",
   "pony": [
     {
       "name": "AutoExpress-expressions-pony",
@@ -8,6 +8,8 @@
       "civitai_version_id": 1815859,
       "original_file": "cinematic expression style pony v1.1.safetensors",
       "sha256": "5690E9734E151D1AC4C164739C960686C823F05D7ADBA9C7E504207F49571167",
+      "sshs_model_hash": "fa072ce5e627dbc986607d97f5327719683d5f6284e991d610eb456ae7dc0bf1",
+      "sshs_legacy_hash": "d0f90718",
       "size_mb": 435,
       "weight": 0.6,
       "trigger": "cinematic expression style",
@@ -22,10 +24,15 @@
       "civitai_version_id": 1815930,
       "original_file": "cinematic expression style illu v1.safetensors",
       "sha256": "24EF6F1C0B0110A08AE01ADF817F4482293AC4BEF8460A123B56C0A74973AA89",
+      "sshs_model_hash": "2df030d159f3a553c1aaec3dce370f806c7b10a5ee0fd941abd7f7e22c31af46",
+      "sshs_legacy_hash": "9c815c48",
       "size_mb": 435,
       "weight": 0.6,
       "trigger": "cinematic expression style",
-      "mirror_url": null
+      "mirror_url": null,
+      "expression_weights": {
+        "anger": 0
+      }
     },
     {
       "name": "AutoExpress-face-enhancer-illustrious",
@@ -34,6 +41,8 @@
       "civitai_version_id": 1839268,
       "original_file": "Face_Enhancer_Illustrious.safetensors",
       "sha256": "7B6EFA9332FF963302938F889BFE9473ABB7BC20EC98E447FCCC3B67D221FA98",
+      "sshs_model_hash": "4f051e13047fefb9117e2eb60710368a6a4ae73b88bbc476a35f039ff096b8e7",
+      "sshs_legacy_hash": "01da4dcd",
       "size_mb": 217,
       "weight": 0.5,
       "trigger": "",
@@ -48,6 +57,8 @@
       "civitai_version_id": 761462,
       "original_file": "facial expression style v3.safetensors",
       "sha256": "257E39B4E5A9D253B444791356D7E1352A3F3D3AEFF0822478910B8278AAC166",
+      "sshs_model_hash": "cac540649d21621820589d38c58c868a367921937d9e44707cd8ea8c525ea61c",
+      "sshs_legacy_hash": "2dd56bf7",
       "size_mb": 870,
       "weight": 0.5,
       "trigger": "facial expression style",
@@ -62,6 +73,8 @@
       "civitai_version_id": 715217,
       "original_file": "facial expression style SD1.5.safetensors",
       "sha256": "8AEDA1C165404B83847400B9B443317C4C07AA1F4E5F176EBB4C666748F77956",
+      "sshs_model_hash": "6678ff57cd453fa27723dfa7883a3b781a5dbd4051d3e15027e115b2a81a489d",
+      "sshs_legacy_hash": "8a90d1f1",
       "size_mb": 288,
       "weight": 0.6,
       "trigger": "facial expression style",
@@ -76,6 +89,8 @@
       "civitai_version_id": 1023284,
       "original_file": "expression_helper2.0.safetensors",
       "sha256": "9FE10127EC96E9F90FF15EDA00241B4DB67F8DA9B469989F2AD09218429F22BF",
+      "sshs_model_hash": "7a945f71909d68611d44dee01312d96ac43e89e102e553d74f38560869186511",
+      "sshs_legacy_hash": "253ea0cd",
       "size_mb": 73,
       "weight": 0.8,
       "trigger": "",

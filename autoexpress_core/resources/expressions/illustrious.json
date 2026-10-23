@@ -1,10 +1,10 @@
 {
   "name": "Illustrious / NoobAI",
-  "description": "Illustrious-XL, NoobAI-XL and merges such as WAI. Strict danbooru tags with the two lead tags weighted up.",
+  "description": "NoobAI-XL, WAI-Illustrious and other Illustrious finetunes (recommended over base Illustrious-XL 0.1, which barely changes expressions). Strict danbooru tags with the two lead tags weighted up.",
   "models": [
-    "Illustrious-XL",
     "NoobAI-XL",
-    "WAI-Illustrious"
+    "WAI-Illustrious",
+    "Illustrious-XL"
   ],
   "defaults": {
     "method": "inpaint",

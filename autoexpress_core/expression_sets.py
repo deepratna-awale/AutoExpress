@@ -17,6 +17,7 @@ import pathlib
 import re
 from functools import lru_cache
 
+from . import expression_loras
 from . import intensity as expression_intensity
 
 EXPRESSIONS_DIR = pathlib.Path(__file__).resolve().parent / "resources" / "expressions"
@@ -118,6 +119,8 @@ def build_prompt(base_prompt, expression, family_id, add_quality_tags=True, inte
     """
     family = _load(family_id)
     quality = _missing_tags(base_prompt, family["quality_tags"]) if add_quality_tags else []
+    lora_scale = 1.0 if intensity is None else expression_intensity.lora_scale(intensity)
+    base_prompt = expression_loras.apply_expression_weights(base_prompt or "", expression, lora_scale)
     expression_prompt = family["expressions"][expression]
     if intensity is not None:
         expression_prompt = expression_intensity.weight_expression(
