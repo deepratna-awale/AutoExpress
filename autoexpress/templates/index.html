@@ -157,6 +157,20 @@
           </select>
         </div>
 
+        <!-- Expression LoRAs -->
+        <div class="input-container">
+          <label for="expression-loras-toggle"
+            title="Adds expression LoRAs that match the model, downloading them from Civitai if the WebUI's LoRA folder is reachable.">Expression LoRAs</label>
+          <div class="switch-container">
+            <label class="switch-label">Off</label>
+            <label class="switch">
+              <input type="checkbox" id="expression-loras-toggle" checked />
+              <span class="slider round"></span>
+            </label>
+            <label class="switch-label">On</label>
+          </div>
+        </div>
+
         <div class="sidebar-add-space"></div>
         <!-- Settings cog icon -->
         <span class="icon-settings settings-cog" onclick="openModal()"></span>
@@ -179,6 +193,15 @@
                   </label>
                   <label class="switch-label">On</label>
                 </div>
+              </div>
+              <h2>Expression LoRAs</h2>
+              <div class="input-container">
+                <label for="lora-dir-input">WebUI LoRA folder</label>
+                <input type="text" id="lora-dir-input" placeholder="Auto-detected when the WebUI runs on this machine" />
+              </div>
+              <div class="input-container">
+                <label for="civitai-key-input">Civitai API key</label>
+                <input type="password" id="civitai-key-input" autocomplete="off" placeholder="Needed to download LoRAs from Civitai" />
               </div>
             </div>
             <!-- End of FrontEnd Settings (Modal Content) -->

@@ -2,6 +2,7 @@
 - Expression prompts now come in one set per model family: Danbooru, e621, Pony, Illustrious/NoobAI, SDXL/SD1.5 (CLIP) and natural language (Flux, SD3, ...).
 - The Anime/Realistic switch is replaced by a **Prompt Style** dropdown. **Auto** picks the family from the checkpoint name.
 - Family quality tags (e.g. Pony `score_` tags) and negatives are added only when missing from your prompt.
+- Expression LoRAs matched to the checkpoint (Pony, Illustrious/NoobAI, SDXL, SD1.5, Flux) are added to the prompt, and downloaded from Civitai into the WebUI's LoRA folder when they're missing.
 - Fixed the expression tags being glued to the prompt without a comma.
 
 ## 2024-11-13

@@ -1,4 +1,4 @@
-from . import utils, json_handler, expression_sets
+from . import utils, json_handler, expression_sets, expression_loras
 from . import a1111_client
 from loguru import logger as log
 
@@ -18,6 +18,9 @@ def generate_expressions(
     input_image_path: str = None,
     is_realistic: bool = False,
     model_family: str = None,
+    use_expression_loras: bool = True,
+    lora_dir: str = None,
+    civitai_api_key: str = None,
 ):
     global PAUSE_EXECUTION
     image_str = utils.is_image_valid(input_image_path, image_str)
@@ -31,6 +34,13 @@ def generate_expressions(
     )
     expressions = expression_sets.load_family(family)["expressions"]
     base_prompt = settings.get("ad_prompt", "")
+    if use_expression_loras:
+        base_prompt = expression_sets.join_prompt(
+            base_prompt,
+            get_expression_lora_prompt(
+                sd, settings.get("ad_checkpoint"), family, lora_dir, civitai_api_key
+            ),
+        )
     settings["ad_negative_prompt"] = expression_sets.build_negative(
         settings.get("ad_negative_prompt", ""), family
     )
@@ -70,6 +80,36 @@ def generate_expressions(
         log.info("Done.")
 
     log.info(f"Generated all Expressions in {output_path.absolute()}")
+
+
+def get_expression_lora_prompt(
+    sd: a1111_client.A1111Client,
+    checkpoint: str,
+    family: str,
+    lora_dir: str = None,
+    civitai_api_key: str = None,
+) -> str:
+    """Download the expression LoRAs for this checkpoint if we can, and return their prompt tags."""
+    architecture = expression_loras.guess_architecture(checkpoint, family)
+    lora_dir = lora_dir or sd.lora_dir
+
+    if lora_dir:
+        ready, failures = expression_loras.ensure_loras(
+            architecture, lora_dir, civitai_api_key, log=log.info
+        )
+        if ready:
+            sd.refresh_loras()
+        for failure in failures:
+            log.warning(failure)
+    else:
+        log.info(
+            "WebUI LoRA folder isn't reachable from here, so only expression LoRAs "
+            "already installed on the server will be used."
+        )
+
+    lora_prompt = expression_loras.lora_prompt(architecture, installed_names=sd.loras or [])
+    log.info(f"Expression LoRAs for {architecture}: {lora_prompt or 'none installed'}")
+    return lora_prompt
 
 
 def opaque(
