@@ -11,14 +11,14 @@ echo "                                     |_|                         "
 
 echo ""
 echo "Starting AutoExpress..."
-echo "Please ensure your Automatic1111 WebUI is running with API enabled (--api flag)"
+echo "Make sure your WebUI is running (A1111/Forge need the --api flag)."
 echo ""
 
 # Activate the Python virtual environment
 source .venv/bin/activate
 
 # Run the Flask application
-flask --app autoexpress run --host=0.0.0.0 --port=5000
+python -m autoexpress
 
 # Deactivate the virtual environment after Flask stops
 deactivate
