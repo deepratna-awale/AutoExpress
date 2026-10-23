@@ -1,5 +1,5 @@
 # Build the Next.js frontend into static files
-FROM node:24-slim AS frontend
+FROM node:25-slim AS frontend
 WORKDIR /frontend
 RUN corepack enable
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
