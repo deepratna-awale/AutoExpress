@@ -25,7 +25,7 @@ from autoexpress_core.backends.base import (
     BackendUnavailable,
     connection_fix,
 )
-from autoexpress_core.backends.detect import detect_backend
+from autoexpress_core.backends.detect import detect_backend, not_a_webui
 from autoexpress_core.backends.registry import AUTO, REMOTE_BACKENDS, create_backend, describe_backends
 from autoexpress_core.civitai_key import find_civitai_key
 
@@ -82,11 +82,7 @@ class AppState:
         if kind == AUTO:
             detection = detect_backend(url, **options)
             if not detection.kind:
-                raise BackendNotReady(
-                    f"Something answers at {url or 'that address'}, but not a WebUI AutoExpress supports "
-                    f"(tried {', '.join(detection.tried)}). Check the address, including any sub-path, "
-                    "and that an A1111-style WebUI was started with --api."
-                )
+                raise not_a_webui(url, detection)
             kind = detected = detection.kind
         backend = create_backend(kind, url, **options)
         with self.lock:
@@ -156,7 +152,9 @@ def handle_validation_error(e: ValidationError):
 
 @autoexpress.errorhandler(BackendError)
 def handle_backend_error(e: BackendError):
-    fix = connection_fix(e) if isinstance(e, (BackendUnavailable, BackendTimeout, BackendAuthError)) else None
+    fix = getattr(e, "fix", None)
+    if fix is None and isinstance(e, (BackendUnavailable, BackendTimeout, BackendAuthError)):
+        fix = connection_fix(e)
     extra = {"fix": dataclasses.asdict(fix)} if fix else {}
     return error_response(e.code, str(e), e.http_status, **extra)
 

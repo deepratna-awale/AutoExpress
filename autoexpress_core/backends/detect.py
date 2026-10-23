@@ -11,13 +11,19 @@ Each probe is one cheap request that only one kind of WebUI answers:
     A1111 API   GET  /sdapi/v1/samplers        then Forge / SD.Next / A1111 from their flags and version
 """
 
+import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from ..log import log
-from .base import BackendAuthError, BackendRejected, BackendUnavailable, RemoteBackend
+from .base import BackendAuthError, BackendNotReady, BackendRejected, BackendUnavailable, Fix, RemoteBackend
 
 # Launch flags only Forge and reForge have, as /sdapi/v1/cmd-flags reports them.
 FORGE_FLAGS = ("forge_ref_a1111_home", "cuda_malloc", "pin_shared_memory", "always_offload_from_vram", "unet_in_fp8_e4m3fn")
+
+
+# RunPod's HTTP proxy: https://<pod id>-<port>.proxy.runpod.net. It answers on every port, exposed or not.
+RUNPOD_PROXY = re.compile(r"^(?P<pod>[a-z0-9]+)-(?P<port>\d+)\.proxy\.runpod\.net$")
 
 
 @dataclass
@@ -101,3 +107,38 @@ def detect_backend(url: str | None, **options) -> Detection:
     if refused is not None:
         raise refused
     return detection
+
+
+def not_a_webui(url: str | None, detection: Detection) -> BackendNotReady:
+    """The error for an address that answers but isn't a supported WebUI, with what to check for that host."""
+    host = (urlsplit(url if url and "://" in url else f"http://{url or ''}").hostname or "").lower()
+    runpod = RUNPOD_PROXY.match(host)
+    if runpod:
+        port = runpod["port"]
+        error = BackendNotReady(
+            f"RunPod's proxy answers at {host}, but nothing behind it is a WebUI. Port {port} is probably not "
+            "exposed on the pod, or the WebUI on it isn't running."
+        )
+        error.fix = Fix(
+            [
+                f"In RunPod, open the pod, choose Edit Pod, and add {port} to Expose HTTP Ports. Save; the pod restarts.",
+                f"Check that the WebUI on the pod listens on port {port} on all interfaces "
+                "(--listen for A1111/Forge/SD.Next, --listen 0.0.0.0 for ComfyUI).",
+                "Or use the port the pod's Connect menu lists for the WebUI, e.g. 7860 (A1111/Forge) or 8188 (ComfyUI).",
+            ],
+            links=[Fix.link("RunPod: expose ports", "https://docs.runpod.io/pods/configuration/expose-ports")],
+        )
+        return error
+    error = BackendNotReady(
+        f"Something answers at {url or 'that address'}, but not a WebUI AutoExpress supports "
+        f"(tried {', '.join(detection.tried)})."
+    )
+    error.fix = Fix(
+        [
+            "Check the address, including the port and any sub-path a reverse proxy puts the WebUI under.",
+            "A1111, Forge and reForge only serve their API when started with --api.",
+            "Supported: AUTOMATIC1111, Forge/reForge, SD.Next, ComfyUI, SwarmUI and InvokeAI 5+.",
+        ],
+        ["--api"],
+    )
+    return error

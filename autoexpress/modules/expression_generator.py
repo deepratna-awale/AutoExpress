@@ -109,6 +109,10 @@ def get_expression_lora_prompt(
     def installed_names():
         return getattr(sd, "lora_stems", None) or sd.loras or []
 
+    # Hashes and training names the WebUI reports per LoRA, so renamed files are found too
+    def identities():
+        return getattr(sd, "lora_identities", dict)()
+
     lora_prompt = expression_loras.expression_lora_prompt(
         checkpoint,
         family,
@@ -118,9 +122,10 @@ def get_expression_lora_prompt(
         refresh=sd.refresh_loras,
         log=log.info,
         install=install,
+        identities=identities,
     )
 
-    missing = expression_loras.missing_loras(checkpoint, family, installed_names=installed_names)
+    missing = expression_loras.missing_loras(checkpoint, family, installed_names=installed_names, identities=identities)
     if missing and notes is not None:
         label = getattr(sd, "label", "the WebUI")
         for entry in missing:

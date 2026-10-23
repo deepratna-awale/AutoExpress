@@ -23,6 +23,8 @@ from .base import BackendError, BackendNotReady, BackendRejected, Capability, Fi
 ADETAILER = "adetailer"
 ADETAILER_REPO = "https://github.com/Bing-su/adetailer"
 ADETAILER_MODELS = "https://huggingface.co/Bingsu/adetailer/tree/main"
+# safetensors metadata keys (kohya / modelspec) that identify a LoRA whatever its file is called
+LORA_IDENTITY_KEYS = ("sshs_model_hash", "sshs_legacy_hash", "ss_output_name", "modelspec.hash_sha256")
 
 
 def _image_size(b64_image) -> tuple[int, int] | None:
@@ -94,6 +96,20 @@ class A1111Client(RemoteBackend):
     @property
     def loras(self) -> list[str]:
         return self._safe_list("loras", lambda: (lora["name"] for lora in self._get_json(self._endpoints["loras"])))
+
+    def lora_identities(self) -> dict[str, set[str]]:
+        """Hashes and training names from each LoRA's safetensors metadata, which survive renaming the file."""
+        try:
+            listed_loras = self._get_json(self._endpoints["loras"])
+        except BackendError:
+            return {}
+        identities = {}
+        for lora in listed_loras if isinstance(listed_loras, list) else []:
+            metadata = lora.get("metadata") or {}
+            values = {str(metadata.get(key)).strip().lower() for key in LORA_IDENTITY_KEYS if metadata.get(key)}
+            if values and lora.get("name"):
+                identities[lora["name"]] = values
+        return identities
 
     @property
     def samplers(self) -> list[str]:

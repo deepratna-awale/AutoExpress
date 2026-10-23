@@ -262,3 +262,41 @@ def test_invokeai_installs_a_lora_through_the_model_manager():
     method, path, kwargs = session.calls[0]
     assert kwargs["params"] == {"source": "https://civitai.com/api/download/models/1", "inplace": "false", "access_token": key}
     assert kwargs["json"] == {"name": "x"}
+
+
+def test_a_renamed_lora_is_found_by_its_metadata(webui):
+    entry = expression_loras.loras_for("pony")[0]
+    sshs = secrets.token_hex(32)
+    FakeWebUI.routes = {
+        "GET /sdapi/v1/loras": (
+            200,
+            [
+                {"name": "expr_pony", "path": "/x/expr_pony.safetensors", "metadata": {"sshs_model_hash": sshs.upper()}},
+                {"name": "other", "path": "/x/other.safetensors", "metadata": {}},
+            ],
+        )
+    }
+    identities = A1111Client(url=webui).lora_identities()
+    assert identities == {"expr_pony": {sshs}}
+
+    renamed = dict(entry, sshs_model_hash=sshs)
+    assert expression_loras._installed_name(renamed, installed_names=["expr_pony", "other"], identities=identities) == "expr_pony"
+    # The plain name still wins when both are installed
+    assert expression_loras._installed_name(renamed, installed_names=[entry["name"], "expr_pony"], identities=identities) == entry["name"]
+
+
+def test_renamed_lora_is_used_instead_of_reported_missing():
+    entry = expression_loras.loras_for("pony")[0]
+    webui = RemoteWebUI()
+    webui.installed = ["expr_pony"]
+    webui.lora_identities = lambda: {"expr_pony": {entry["sha256"].lower()}}
+    notes = []
+    prompt = expression_generator.get_expression_lora_prompt(webui, "ponyDiffusionV6XL", "auto", notes=notes)
+    assert notes == [] and f"<lora:expr_pony:{entry['weight']}>" in prompt
+
+
+def test_per_expression_weights_follow_a_renamed_lora():
+    entry = next(e for e in expression_loras.loras_for("illustrious") if (e.get("expression_weights") or {}).get("anger") == 0)
+    name = expression_loras._installed_name(entry, installed_names=["expr_illu"], identities={"expr_illu": {entry["sha256"].lower()}})
+    prompt = f"1girl, <lora:{name}:{entry['weight']}>, {entry['trigger']}"
+    assert expression_loras.apply_expression_weights(prompt, "anger") == "1girl"

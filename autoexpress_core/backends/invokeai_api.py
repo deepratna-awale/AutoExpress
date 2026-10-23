@@ -141,6 +141,14 @@ class InvokeAIClient(RemoteBackend):
     def loras(self) -> list[str]:
         return self._safe_list("loras", lambda: (m["name"] for m in self._models("lora")))
 
+    def lora_identities(self) -> dict[str, set[str]]:
+        """InvokeAI's own hash of each LoRA file (sha256 when InvokeAI is set to hash with it)."""
+        try:
+            loras = self._models("lora")
+        except BackendError:
+            return {}
+        return {m["name"]: {m["hash"].split(":", 1)[-1].lower()} for m in loras if m.get("name") and m.get("hash")}
+
     @property
     def samplers(self) -> list[str]:
         return list(SCHEDULERS)

@@ -300,3 +300,10 @@ def test_auto_detect_failures_explain_what_to_do(client, monkeypatch):
     monkeypatch.setattr(views, "detect_backend", lambda url, **options: Detection(None, tried=["GET /x"]))
     response = client.post("/receive_data", json={"text": "http://10.0.0.5:7860", "backend": "auto"})
     assert response.status_code == 409 and "not a WebUI AutoExpress supports" in response.get_json()["message"]
+    assert "--api" in response.get_json()["error"]["fix"]["commands"]
+
+    # RunPod's proxy answers on ports the pod doesn't expose
+    response = client.post("/receive_data", json={"text": "https://abc123xyz-7999.proxy.runpod.net", "backend": "auto"})
+    fix = response.get_json()["error"]["fix"]
+    assert response.status_code == 409 and fix["steps"][0].startswith("In RunPod, open the pod")
+    assert "add 7999 to Expose HTTP Ports" in fix["steps"][0]

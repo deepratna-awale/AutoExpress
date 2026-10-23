@@ -71,10 +71,44 @@ def lora_path(entry, lora_dir):
     return pathlib.Path(lora_dir) / f"{entry['name']}{LORA_EXTENSION}"
 
 
-def _installed_name(entry, lora_dir=None, installed_names=None):
-    """The name the WebUI knows this LoRA by, or None if it isn't installed."""
+# Fields of an entry that identify the file whatever it is named: its sha256 and the
+# safetensors metadata a WebUI may report (A1111's /sdapi/v1/loras "metadata").
+IDENTITY_FIELDS = ("sha256", "sshs_model_hash", "sshs_legacy_hash", "ss_output_name", "modelspec_hash_sha256")
+
+
+# Entry name -> the name a WebUI has it under after the user renamed the file, so per-expression
+# weights still find its tag.
+_RENAMED = {}
+
+
+def entry_identities(entry):
+    """Lower-cased identifiers of a LoRA entry that survive renaming the file."""
+    values = [entry.get(key) for key in IDENTITY_FIELDS]
+    values += [pathlib.Path(entry.get("original_file") or "").stem]
+    found = set()
+    for value in values:
+        for item in value if isinstance(value, (list, tuple)) else [value]:
+            if item:
+                found.add(str(item).strip().lower())
+    return found
+
+
+def _installed_name(entry, lora_dir=None, installed_names=None, identities=None):
+    """
+    The name the WebUI knows this LoRA by, or None if it isn't installed.
+
+    identities maps installed LoRA names to identifiers the WebUI reports for them (hashes,
+    training output name), so a LoRA the user renamed is still found.
+    """
     candidates = [entry["name"], pathlib.Path(entry.get("original_file") or "").stem]
     candidates = [c for c in candidates if c]
+
+    if identities:
+        wanted = entry_identities(entry)
+        renamed = next((name for name, ids in identities.items() if wanted & {i.lower() for i in ids}), None)
+        if renamed and (installed_names is None or not any(c in set(installed_names) for c in candidates)):
+            _RENAMED[entry["name"]] = renamed
+            return renamed
 
     if installed_names is not None:
         known = set(installed_names)
@@ -154,11 +188,11 @@ def ensure_loras(architecture, lora_dir, api_key=None, log=None):
     return ready, failures
 
 
-def lora_prompt(architecture, lora_dir=None, installed_names=None):
+def lora_prompt(architecture, lora_dir=None, installed_names=None, identities=None):
     """<lora:name:weight> tags plus trigger words for the installed LoRAs."""
     parts = []
     for entry in loras_for(architecture):
-        name = _installed_name(entry, lora_dir=lora_dir, installed_names=installed_names)
+        name = _installed_name(entry, lora_dir=lora_dir, installed_names=installed_names, identities=identities)
         if not name:
             continue
         parts.append(f"<lora:{name}:{entry['weight']}>")
@@ -189,7 +223,7 @@ def manual_install(entry, host="the WebUI", folder="its LoRA folder"):
     }
 
 
-def install_remote(architecture, install, installed_names, api_key=None, log=None):
+def install_remote(architecture, install, installed_names, api_key=None, log=None, identities=None):
     """
     Have the WebUI download missing LoRAs itself (for WebUIs whose LoRA folder isn't on this machine).
 
@@ -202,7 +236,7 @@ def install_remote(architecture, install, installed_names, api_key=None, log=Non
         api_key, _ = find_civitai_key()
     installed, failures = [], []
     for entry in loras_for(architecture):
-        if _installed_name(entry, installed_names=installed_names):
+        if _installed_name(entry, installed_names=installed_names, identities=identities):
             continue
         if log:
             log(f"Asking the WebUI to download expression LoRA {entry['name']} ({entry.get('size_mb', '?')} MB)")
@@ -222,12 +256,18 @@ def install_remote(architecture, install, installed_names, api_key=None, log=Non
     return installed, failures
 
 
-def missing_loras(checkpoint_name, family_id=None, installed_names=None, lora_dir=None):
+def missing_loras(checkpoint_name, family_id=None, installed_names=None, lora_dir=None, identities=None):
     """The expression LoRAs for this checkpoint that the WebUI doesn't have."""
     architecture = guess_architecture(checkpoint_name, family_id)
     if callable(installed_names):
         installed_names = installed_names()
-    return [e for e in loras_for(architecture) if not _installed_name(e, lora_dir=lora_dir, installed_names=installed_names)]
+    if callable(identities):
+        identities = identities()
+    return [
+        e
+        for e in loras_for(architecture)
+        if not _installed_name(e, lora_dir=lora_dir, installed_names=installed_names, identities=identities)
+    ]
 
 
 def apply_expression_weights(prompt, expression):
@@ -242,7 +282,7 @@ def apply_expression_weights(prompt, expression):
             weight = (entry.get("expression_weights") or {}).get(expression)
             if weight is None:
                 continue
-            names = [entry["name"], pathlib.Path(entry.get("original_file") or "").stem]
+            names = [entry["name"], pathlib.Path(entry.get("original_file") or "").stem, _RENAMED.get(entry["name"])]
             for name in filter(None, names):
                 tag = re.compile(r"<lora:\s*" + re.escape(name) + r"\s*:[^>]*>")
                 if weight:
@@ -265,6 +305,7 @@ def expression_lora_prompt(
     log=None,
     failures=None,
     install=None,
+    identities=None,
 ):
     """
     Everything a host needs in one call: pick the LoRAs for a checkpoint, fetch the
@@ -273,7 +314,8 @@ def expression_lora_prompt(
     installed_names may be a list or a callable returning one (the host's LoRA list,
     read after the refresh). refresh is called after a download so the host rescans.
     Without a reachable lora_dir, install(url, name, access_token) lets the WebUI download
-    missing LoRAs itself, for WebUIs that can (see install_remote).
+    missing LoRAs itself, for WebUIs that can (see install_remote). identities (a dict, or a
+    callable returning one) maps installed LoRA names to hashes the WebUI reports, to find renamed files.
     Download errors are passed to log and, when given, appended to the failures list.
     """
     architecture = guess_architecture(checkpoint_name, family_id)
@@ -286,7 +328,8 @@ def expression_lora_prompt(
             failures.extend(errors)
     elif install and download and installed_names is not None:
         names = installed_names() if callable(installed_names) else installed_names
-        ready, errors = install_remote(architecture, install, names, api_key, log=log)
+        known = identities() if callable(identities) else identities
+        ready, errors = install_remote(architecture, install, names, api_key, log=log, identities=known)
         if ready and refresh:
             refresh()
         if failures is not None:
@@ -294,4 +337,6 @@ def expression_lora_prompt(
 
     if callable(installed_names):
         installed_names = installed_names()
-    return lora_prompt(architecture, lora_dir=lora_dir, installed_names=installed_names)
+    if callable(identities):
+        identities = identities()
+    return lora_prompt(architecture, lora_dir=lora_dir, installed_names=installed_names, identities=identities)

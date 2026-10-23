@@ -3,6 +3,8 @@
   - **Detect automatically** (the new default) reads the WebUI type from its API: A1111, Forge, SD.Next, ComfyUI, SwarmUI or InvokeAI.
   - After connecting, a setup check lists what the WebUI has and what's missing (ADetailer and its face model, Impact Pack and Subpack, face detection models, checkpoints, samplers, LoRAs). Each missing piece comes with steps for that WebUI, commands to copy, links, and a **Re-check** button. Also at `GET /backend/capabilities`.
   - Connection errors say what to try: `--listen`, the host's proxy URL, or the login.
+  - A RunPod proxy URL for a port the pod doesn't expose says to add the port under Expose HTTP Ports.
+  - Expression LoRAs you renamed on the WebUI are recognised by the hashes in their metadata (A1111 family, InvokeAI with sha256 hashing).
   - Expression LoRAs are written to the LoRA folder only when it's on this machine. InvokeAI installs missing ones itself through its Model Manager. For other WebUIs, the run lists each missing LoRA with its download link (`notes` on the job).
 - New web interface built with Next.js and shadcn/ui (in [frontend/](frontend/)). Flask serves it at http://127.0.0.1:5000 once it is built; the original interface stays at `/classic`.
   - Resizable panels, mobile layout, light/dark mode and a theme editor with presets (saved in the browser).

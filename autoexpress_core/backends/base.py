@@ -516,6 +516,10 @@ class RemoteBackend:
         """LoRA names as A1111 style <lora:name> tags use them, whatever this WebUI calls the files."""
         return [lora_stem(name) for name in self.loras]
 
+    def lora_identities(self) -> dict[str, set[str]]:
+        """Installed LoRA names (as <lora:name> uses them) to identifiers that survive renaming: hashes, training name."""
+        return {}
+
     @property
     def lora_dir(self) -> str | None:
         """The WebUI's LoRA folder when this machine can see it. Unknown for most WebUIs."""
