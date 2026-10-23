@@ -9,6 +9,7 @@ from PIL import Image, UnidentifiedImageError
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
+from autoexpress import frontend
 from autoexpress.config import Settings, configure_logging
 from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, JobManager, JobSpec, run_expression_job
 from autoexpress.modules import expression_sets, image_parser
@@ -23,6 +24,7 @@ settings = Settings.from_env()
 configure_logging(settings)
 
 autoexpress = Flask(__name__)
+autoexpress.register_blueprint(frontend.frontend)
 autoexpress.config["UPLOAD_FOLDER"] = str(settings.upload_dir)
 autoexpress.config["MAX_CONTENT_LENGTH"] = settings.max_upload_mb * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
@@ -132,6 +134,13 @@ def handle_unexpected_error(e: Exception):
 # AutoExpress UI
 @autoexpress.route("/", methods=["GET"])
 def index():
+    if frontend.is_built():
+        return frontend.index()
+    return classic()
+
+
+@autoexpress.route("/classic", methods=["GET"])
+def classic():
     return render_template("index.html", backends=describe_backends(), selected=current_backend().kind)
 
 
@@ -199,8 +208,8 @@ def upload_file():
     if not allowed_file(file.filename):
         return jsonify({"error": "Only png, jpg, jpeg, gif and webp images are accepted."}), 400
 
-    stem = secure_filename(file.filename.rsplit(".", 1)[0]) or "image"
-    filename = f"{stem}_{uuid.uuid4().hex[:8]}.{file.filename.rsplit('.', 1)[1].lower()}"
+    stem, ext = file.filename.rsplit(".", 1)
+    filename = secure_filename(f"{secure_filename(stem) or 'image'}_{uuid.uuid4().hex[:8]}.{ext.lower()}")
     filepath = os.path.join(autoexpress.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
 
@@ -209,7 +218,8 @@ def upload_file():
             image.verify()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as e:
         os.remove(filepath)
-        return jsonify({"error": f"Not a readable image: {e}"}), 400
+        log.info(f"Rejected upload {filename}: {e}")
+        return jsonify({"error": "Not a readable image."}), 400
 
     full_image_data = {"cleaned_data": None, "uncleaned_data": None, "width": None, "height": None}
     full_image_data["cleaned_data"] = image_parser.generate_cleaned_parameters(filepath)
@@ -243,7 +253,10 @@ def receive_data():
     try:
         backend = state.connect(kind, url, credentials)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        log.info(f"Could not connect to {kind} at {url}: {e}")
+        if kind not in REMOTE_BACKENDS:
+            return jsonify({"error": f"Unknown WebUI backend. Choose one of: {', '.join(REMOTE_BACKENDS)}."}), 400
+        return jsonify({"error": "Not a valid http(s) URL."}), 400
 
     if not url:
         log.info(f"No url found, defaulting to {backend.get_url()}")
