@@ -441,6 +441,10 @@ class RemoteBackend:
         """The WebUI's LoRA folder when this machine can see it. Unknown for most WebUIs."""
         return None
 
+    def civitai_key_sources(self) -> list[tuple[str, str | None]]:
+        """(source, key) pairs for a Civitai key the WebUI already has, for civitai_key.find_civitai_key."""
+        return []
+
     def refresh_loras(self) -> bool:
         """Ask the WebUI to rescan its LoRA folder. Returns True if it did."""
         self.on_url_changed()

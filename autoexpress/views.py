@@ -17,6 +17,7 @@ from autoexpress.validation import ValidationError, resolve_inside, validate_gen
 from autoexpress_core import get_expressions, resolve_flavor
 from autoexpress_core.backends.base import BackendError, BackendNotReady
 from autoexpress_core.backends.registry import REMOTE_BACKENDS, create_backend, describe_backends
+from autoexpress_core.civitai_key import find_civitai_key
 
 settings = Settings.from_env()
 configure_logging(settings)
@@ -61,6 +62,12 @@ lora_settings = {
     "lora_dir": os.environ.get("AUTOEXPRESS_LORA_DIR", ""),
     "civitai_api_key": os.environ.get(CIVITAI_KEY_ENV, ""),
 }
+
+
+def civitai_key_for(backend) -> tuple[str | None, str | None]:
+    """The key typed into AutoExpress, else one the WebUI's Civitai extension or node has, else the environment."""
+    explicit = lora_settings["civitai_api_key"] or None
+    return find_civitai_key(explicit, () if explicit else backend.civitai_key_sources())
 
 
 def current_backend():
@@ -279,6 +286,11 @@ def generate():
     ready, message = job_backend.check_ready()
     if not ready:
         raise job_backend.last_error or BackendNotReady(message)
+    civitai_api_key = None
+    if lora_settings["enabled"]:
+        civitai_api_key, source = civitai_key_for(job_backend)
+        if source:
+            log.info(f"Civitai API key from {source}")
     job = jobs.submit(
         JobSpec(
             backend=job_backend,
@@ -291,7 +303,7 @@ def generate():
             is_realistic=is_realistic,
             use_expression_loras=lora_settings["enabled"],
             lora_dir=lora_settings["lora_dir"] or None,
-            civitai_api_key=lora_settings["civitai_api_key"] or None,
+            civitai_api_key=civitai_api_key,
         )
     )
 
@@ -389,6 +401,7 @@ def get_expression_lora_settings():
             "enabled": lora_settings["enabled"],
             "lora_dir": lora_settings["lora_dir"],
             "has_civitai_api_key": bool(lora_settings["civitai_api_key"]),
+            "civitai_key_source": civitai_key_for(current_backend())[1],
         }
     )
 

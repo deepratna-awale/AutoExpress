@@ -46,7 +46,7 @@ AutoExpress also adds a LoRA that helps faces show emotion, matched to the check
 | SD1.5 | [Facial Expressions (SD1.5)](https://civitai.com/models/541620?modelVersionId=715217) |
 | Flux | [Expression Helper 2.0](https://civitai.com/models/914282) |
 
-If the WebUI runs on the same machine (or you set **WebUI LoRA folder** in settings, or `AUTOEXPRESS_LORA_DIR`), missing LoRAs are downloaded there automatically and checked against their SHA-256. Civitai requires an API key for downloads: enter it in settings or set `CIVITAI_API_KEY`. If the folder isn't reachable, AutoExpress uses the LoRAs only when they're already installed on the server. Turn them off with the **Expression LoRAs** switch. The list lives in `autoexpress_core/resources/expression_loras.json`. Inside a WebUI or ComfyUI the LoRA folder is always known, so missing LoRAs are always fetched there (see below).
+If the WebUI runs on the same machine (or you set **WebUI LoRA folder** in settings, or `AUTOEXPRESS_LORA_DIR`), missing LoRAs are downloaded there automatically and checked against their SHA-256. Civitai requires an API key for downloads. AutoExpress uses the one entered in settings, else the key your WebUI already has (Civitai Browser+ or Civitai Helper on A1111/Forge/SD.Next, ComfyUI LoRA Manager on a ComfyUI running on this machine), else `CIVITAI_API_KEY` / `CIVITAI_API_TOKEN`. If the folder isn't reachable, AutoExpress uses the LoRAs only when they're already installed on the server. Turn them off with the **Expression LoRAs** switch. The list lives in `autoexpress_core/resources/expression_loras.json`. Inside a WebUI or ComfyUI the LoRA folder is always known, so missing LoRAs are always fetched there (see below).
 
 
 # Examples

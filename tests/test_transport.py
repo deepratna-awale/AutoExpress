@@ -31,6 +31,7 @@ class FakeA1111(BaseHTTPRequestHandler):
     require_auth = None  # "user:pass"
     seen_auth = []
     hits = {}
+    options = {}
 
     def log_message(self, *args):
         pass
@@ -67,6 +68,8 @@ class FakeA1111(BaseHTTPRequestHandler):
             if "pass=adetailer" in self.path:  # ADetailer pass: A1111 reports 0, the sampler state has the steps
                 return self._send(200, {"progress": 0, "eta_relative": 0, "state": {"sampling_step": 5, "sampling_steps": 20}})
             return self._send(200, {"progress": 0.25, "eta_relative": 3.5, "state": {"sampling_step": 1, "sampling_steps": 4}})
+        if path == "/sdapi/v1/options":
+            return self._send(200, cls.options)
         if path == "/sdapi/v1/cmd-flags":
             return self._send(200, {"api_auth": None})
         if path == "/sdapi/v1/img2img":
@@ -87,6 +90,7 @@ def server():
     FakeA1111.require_auth = None
     FakeA1111.seen_auth = []
     FakeA1111.hits = {}
+    FakeA1111.options = {}
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), FakeA1111)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -185,3 +189,10 @@ def test_url_helpers():
     assert normalize_url("host:7860/", "http://d") == "http://host:7860"
     with pytest.raises(ValueError):
         normalize_url("ftp://host", "http://d")
+
+
+def test_civitai_key_from_the_webui_extension(server):
+    key = secrets.token_hex(8)
+    FakeA1111.options = {"ch_civiai_api_key": key, "sd_model_checkpoint": "anything-v5"}
+    sources = dict(A1111Client(url=server).civitai_key_sources())
+    assert sources == {"Civitai Browser+": None, "Civitai Helper": key}

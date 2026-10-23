@@ -15,6 +15,7 @@ import pathlib
 import requests
 from PIL import Image
 
+from ..civitai_key import webui_config_sources, webui_option_sources
 from ..images import b64_to_pil
 from ..log import log
 from .base import BackendError, BackendNotReady, BackendRejected, RemoteBackend
@@ -66,6 +67,7 @@ class A1111Client(RemoteBackend):
             "refresh_loras": "/sdapi/v1/refresh-loras",
             "cmd_flags": "/sdapi/v1/cmd-flags",
             "progress": "/sdapi/v1/progress",
+            "options": "/sdapi/v1/options",
         }
 
     def on_url_changed(self) -> None:
@@ -131,6 +133,18 @@ class A1111Client(RemoteBackend):
         if lora_dir and pathlib.Path(lora_dir).is_dir():
             return lora_dir
         return None
+
+    def civitai_key_sources(self) -> list[tuple[str, str | None]]:
+        """Keys saved by Civitai Browser+ or Civitai Helper, from the WebUI's settings or its config.json on this machine."""
+        try:
+            return webui_option_sources(self._get_json(self._endpoints["options"], timeout=10))
+        except (BackendError, requests.RequestException, ValueError, AttributeError):
+            pass
+        try:
+            config = self._get_json(self._endpoints["cmd_flags"], timeout=10).get("ui_settings_file")
+        except (BackendError, requests.RequestException, ValueError, AttributeError):
+            return []
+        return webui_config_sources(config) if config and pathlib.Path(config).is_file() else []
 
     def refresh_loras(self) -> bool:
         """

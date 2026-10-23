@@ -17,6 +17,7 @@ import dataclasses
 import hashlib
 import io
 import json
+import pathlib
 import random
 import threading
 import time
@@ -24,6 +25,7 @@ import uuid
 
 from PIL import Image
 
+from ..civitai_key import comfyui_sources
 from ..images import b64_to_pil
 from ..log import log
 from .base import (
@@ -195,6 +197,18 @@ class ComfyUIClient(RemoteBackend):
 
     def progress(self) -> dict | None:
         return self._progress
+
+    def civitai_key_sources(self) -> list[tuple[str, str | None]]:
+        """A key saved by ComfyUI LoRA Manager, when ComfyUI runs on this machine."""
+        custom_nodes = []
+        try:
+            argv = self._get_json("/system_stats", timeout=10).get("system", {}).get("argv") or []
+            main = pathlib.Path(argv[0]) if argv else None
+            if main and (main.parent / "custom_nodes").is_dir():
+                custom_nodes.append(main.parent / "custom_nodes")
+        except (BackendError, ValueError, AttributeError, TypeError):
+            pass
+        return comfyui_sources(custom_nodes)
 
     # Workflow -------------------------------------------------------------
     def detector_model(self, wanted: str | None) -> str:

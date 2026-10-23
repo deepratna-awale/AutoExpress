@@ -1,6 +1,7 @@
 """The standalone Flask app: routes, validation, job queue."""
 
 import io
+import secrets
 import threading
 import time
 
@@ -26,6 +27,7 @@ class FakeWebUI(RemoteBackend):
     ready = True
     started = threading.Event()
     calls = 0
+    civitai_key = None
 
     def ensure_ready(self):
         if not FakeWebUI.ready:
@@ -53,6 +55,9 @@ class FakeWebUI(RemoteBackend):
     def progress(self):
         return {"fraction": 0.5, "eta": None}
 
+    def civitai_key_sources(self):
+        return [("Fake Civitai extension", FakeWebUI.civitai_key)]
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -65,6 +70,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setitem(views.lora_settings, "enabled", False)
     FakeWebUI.delay, FakeWebUI.fail_at, FakeWebUI.ready, FakeWebUI.calls = 0.0, None, True, 0
     FakeWebUI.started = threading.Event()
+    FakeWebUI.civitai_key = None
     views.state.connect("fake", None)
     yield views.autoexpress.test_client()
     views.jobs.cancel_all()
@@ -231,3 +237,18 @@ def test_interrupt_cancels_running_job(client):
     assert FakeWebUI.started.wait(5)
     assert client.post("/interrupt").get_json() is True
     assert wait_for(client, job_id)["status"] == "cancelled"
+
+
+def test_civitai_key_comes_from_the_webui_unless_typed_in(client, monkeypatch):
+    for name in ("CIVITAI_API_KEY", "CIVITAI_API_TOKEN", "CIVITAI_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setitem(views.lora_settings, "civitai_api_key", "")
+    assert client.get("/expression-loras").get_json()["civitai_key_source"] is None
+
+    FakeWebUI.civitai_key = secrets.token_hex(8)
+    assert views.civitai_key_for(views.current_backend()) == (FakeWebUI.civitai_key, "Fake Civitai extension")
+    assert client.get("/expression-loras").get_json()["civitai_key_source"] == "Fake Civitai extension"
+
+    typed = secrets.token_hex(8)
+    monkeypatch.setitem(views.lora_settings, "civitai_api_key", typed)
+    assert views.civitai_key_for(views.current_backend()) == (typed, "AutoExpress")
