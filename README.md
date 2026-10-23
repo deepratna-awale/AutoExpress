@@ -30,7 +30,7 @@ Different checkpoints understand prompts differently, so the expression prompts 
 | Pony Diffusion | Pony V6 XL and merges | `score_9, score_8_up, score_7_up` |
 | Illustrious / NoobAI | Illustrious-XL, NoobAI-XL, WAI | `masterpiece, best quality, amazing quality` |
 | SDXL / SD1.5 (CLIP) | General and realistic SDXL/SD1.5 models | none |
-| Natural language | Flux, SD3/3.5, HiDream, Chroma, Qwen-Image, Lumina | none |
+| Natural language | Flux, SD3/3.5, HiDream, Chroma, Qwen-Image, Lumina (for face detailing on Flux, use dev rather than schnell) | none |
 
 Quality and negative tags are only added when your prompt doesn't already contain them. The sets live in `autoexpress/resources/expressions/`, one JSON file per family, so adding a new family is just adding a file.
 
