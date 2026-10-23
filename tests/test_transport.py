@@ -65,9 +65,12 @@ class FakeA1111(BaseHTTPRequestHandler):
         if path == "/sdapi/v1/script-info":
             return self._send(200, [{"name": "adetailer", "is_alwayson": True, "is_img2img": True}])
         if path == "/sdapi/v1/progress":
-            if "pass=adetailer" in self.path:  # ADetailer pass: A1111 reports 0, the sampler state has the steps
-                return self._send(200, {"progress": 0, "eta_relative": 0, "state": {"sampling_step": 5, "sampling_steps": 20}})
-            return self._send(200, {"progress": 0.25, "eta_relative": 3.5, "state": {"sampling_step": 1, "sampling_steps": 4}})
+            if "pass=idle" in self.path:  # counters left over from the previous job
+                return self._send(200, {"progress": 0, "eta_relative": 0, "state": {"job": "", "sampling_step": 0, "sampling_steps": 16}})
+            if "pass=base" in self.path:
+                return self._send(200, {"progress": 1.0, "eta_relative": -0.01, "state": {"job": "scripts_img2img", "job_count": 1, "job_no": 1, "sampling_step": 0, "sampling_steps": 1}})
+            # Captured from A1111 1.10.1 + ADetailer 26.2.0 during the ADetailer pass
+            return self._send(200, {"progress": 0.771, "eta_relative": 3.01, "state": {"job": "scripts_img2img", "job_count": 2, "job_no": 1, "sampling_step": 12, "sampling_steps": 23}})
         if path == "/sdapi/v1/options":
             return self._send(200, cls.options)
         if path == "/sdapi/v1/cmd-flags":
@@ -177,9 +180,13 @@ def test_bearer_token_header(server):
 
 def test_progress_and_health(server):
     backend = A1111Client(url=server)
-    assert backend.progress() == {"fraction": 0.25, "eta": 3.5, "step": 1, "steps": 4}
-    backend._endpoints["progress"] += "?pass=adetailer"
-    assert backend.progress() == {"fraction": 0.25, "eta": None, "step": 5, "steps": 20}
+    assert backend.progress() == {"fraction": 0.5217, "eta": 3.0, "step": 12, "steps": 23}
+    path = backend._endpoints["progress"]
+    backend._endpoints["progress"] = path + "?pass=base"
+    assert backend.progress() == {"fraction": 0.0, "eta": None, "step": 0, "steps": 0}
+    backend._endpoints["progress"] = path + "?pass=idle"
+    assert backend.progress() is None
+    backend._endpoints["progress"] = path
     health = backend.health()
     assert health["ready"] and health["info"]["alwayson_scripts"] == ["adetailer"]
 

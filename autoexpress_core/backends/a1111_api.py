@@ -365,12 +365,19 @@ class A1111Client(RemoteBackend):
             log.debug(f"{self.label} progress unavailable: {e}")
             return None
         state = r.get("state") or {}
+        if not state.get("job"):
+            return None  # idle; the step counters still hold the previous job's values
         step, steps = state.get("sampling_step") or 0, state.get("sampling_steps") or 0
-        fraction = float(r.get("progress") or 0.0)
-        if not fraction and steps:
-            # ADetailer's inpaint pass runs outside the job count A1111 bases "progress" on.
-            fraction = min(step / steps, 1.0)
-        return {"fraction": fraction, "eta": r.get("eta_relative") or None, "step": step, "steps": steps}
+        # AutoExpress sends a 1-step base pass, then ADetailer inpaints with its own sampler steps.
+        # A1111's "progress" mixes the two, so report the inpaint's steps instead.
+        fraction = min(step / steps, 1.0) if steps > 1 else 0.0
+        eta = r.get("eta_relative")
+        return {
+            "fraction": round(fraction, 4),
+            "eta": round(eta, 1) if steps > 1 and eta and eta > 0 else None,
+            "step": step if steps > 1 else 0,
+            "steps": steps if steps > 1 else 0,
+        }
 
 
 class ForgeClient(A1111Client):
