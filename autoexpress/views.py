@@ -199,8 +199,8 @@ def upload_file():
     if not allowed_file(file.filename):
         return jsonify({"error": "Only png, jpg, jpeg, gif and webp images are accepted."}), 400
 
-    stem = secure_filename(file.filename.rsplit(".", 1)[0]) or "image"
-    filename = f"{stem}_{uuid.uuid4().hex[:8]}.{file.filename.rsplit('.', 1)[1].lower()}"
+    stem, ext = file.filename.rsplit(".", 1)
+    filename = secure_filename(f"{secure_filename(stem) or 'image'}_{uuid.uuid4().hex[:8]}.{ext.lower()}")
     filepath = os.path.join(autoexpress.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
 
@@ -209,7 +209,8 @@ def upload_file():
             image.verify()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as e:
         os.remove(filepath)
-        return jsonify({"error": f"Not a readable image: {e}"}), 400
+        log.info(f"Rejected upload {filename}: {e}")
+        return jsonify({"error": "Not a readable image."}), 400
 
     full_image_data = {"cleaned_data": None, "uncleaned_data": None, "width": None, "height": None}
     full_image_data["cleaned_data"] = image_parser.generate_cleaned_parameters(filepath)
@@ -243,7 +244,10 @@ def receive_data():
     try:
         backend = state.connect(kind, url, credentials)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        log.info(f"Could not connect to {kind} at {url}: {e}")
+        if kind not in REMOTE_BACKENDS:
+            return jsonify({"error": f"Unknown WebUI backend. Choose one of: {', '.join(REMOTE_BACKENDS)}."}), 400
+        return jsonify({"error": "Not a valid http(s) URL."}), 400
 
     if not url:
         log.info(f"No url found, defaulting to {backend.get_url()}")
