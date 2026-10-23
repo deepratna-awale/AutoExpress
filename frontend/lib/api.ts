@@ -9,7 +9,63 @@
 export interface BackendInfo {
   id: string;
   name: string;
-  default_url: string;
+  /** Missing on "auto", which has no URL of its own. */
+  default_url?: string;
+}
+
+/** The id that asks the server to work out which WebUI answers at the URL. */
+export const AUTO_BACKEND = "auto";
+
+export interface ConnectResponse {
+  status: string;
+  /** The WebUI that answered; with "auto", the one that was detected. */
+  backend?: string;
+  name?: string;
+  url?: string;
+  detected?: boolean;
+}
+
+export interface CapabilityFix {
+  steps: string[];
+  commands: string[];
+  links: { label: string; url: string }[];
+}
+
+export interface CapabilityItem {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string | null;
+  required: boolean;
+  fix: CapabilityFix | null;
+}
+
+/** A one-row report for a WebUI that could not be reached, so its fix shows in the setup checklist. */
+export function connectionReport(message: string, fix: CapabilityFix | null): Capabilities {
+  return {
+    backend: "",
+    name: "WebUI",
+    url: "",
+    ready: false,
+    error: null,
+    detected: false,
+    missing: ["Connection"],
+    items: [{ key: CONNECTION_ITEM, label: "Connection", ok: false, detail: message, required: true, fix }],
+  };
+}
+
+export const CONNECTION_ITEM = "connection";
+
+/** What the connected WebUI has and lacks for AutoExpress, from GET /backend/capabilities. */
+export interface Capabilities {
+  backend: string;
+  name: string;
+  url: string;
+  ready: boolean;
+  error: string | null;
+  detected: boolean;
+  missing: string[];
+  items: CapabilityItem[];
 }
 
 export interface BackendsResponse {
@@ -95,6 +151,18 @@ export interface Job {
   progress: JobProgress;
   images: { expression: string; url: string }[];
   error: { code: string; message: string } | null;
+  notes?: JobNote[];
+}
+
+/** An expression LoRA the WebUI lacks and AutoExpress couldn't install itself. */
+export interface JobNote {
+  kind: string;
+  name: string;
+  title: string;
+  file_name: string;
+  size_mb: number | null;
+  url: string;
+  message: string;
 }
 
 export interface GenerateResponse {
@@ -109,8 +177,14 @@ export function isActiveJob(job: Job | null | undefined): job is Job {
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number) {
+  constructor(message: string, public status: number, public body: unknown = null) {
     super(message);
+  }
+
+  /** Steps to fix an unreachable WebUI or a refused login, when the backend sends them. */
+  get fix(): CapabilityFix | null {
+    const error = (this.body as { error?: { fix?: CapabilityFix } } | null)?.error;
+    return error && typeof error === "object" && error.fix ? error.fix : null;
   }
 }
 
@@ -123,7 +197,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // Non-JSON body (e.g. an HTML error page)
   }
   if (!response.ok) {
-    throw new ApiError(errorMessage(body) || `${response.status} ${response.statusText}`, response.status);
+    throw new ApiError(errorMessage(body) || `${response.status} ${response.statusText}`, response.status, body);
   }
   return body as T;
 }
@@ -168,7 +242,9 @@ export const api = {
   backends: () => optional(request<BackendsResponse>("/backends")),
 
   connect: (url: string, backend?: string) =>
-    postJson<{ status: string }>("/receive_data", backend ? { text: url, backend } : { text: url }),
+    postJson<ConnectResponse>("/receive_data", backend ? { text: url, backend } : { text: url }),
+
+  capabilities: () => optional(request<Capabilities>("/backend/capabilities")),
 
   models: () => stringList("/get-models"),
   samplers: () => stringList("/get-samplers"),

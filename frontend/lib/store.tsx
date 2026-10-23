@@ -4,10 +4,14 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { toast } from "sonner";
 import {
   api,
+  ApiError,
+  AUTO_BACKEND,
+  connectionReport,
   isActiveJob,
   resolveOutputDir,
   type Job,
   type BackendInfo,
+  type Capabilities,
   type ExpressionFamily,
   type LoraSelection,
   type UploadResponse,
@@ -76,7 +80,13 @@ interface AutoExpressState {
   setApiUrl: (url: string) => void;
   connection: ConnectionStatus;
   connect: () => Promise<void>;
+  /** The WebUI that answered the last connect, e.g. the one "auto" detected. */
+  connectedBackend: { id: string; name: string } | null;
   options: Options;
+  /** Setup checklist for the connected WebUI, null on backends without it. */
+  capabilities: Capabilities | null;
+  checkingCapabilities: boolean;
+  checkCapabilities: () => Promise<void>;
 
   // Prompt style
   families: ExpressionFamily[] | null;
@@ -180,6 +190,9 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [backend, setBackendState] = useState("a1111");
   const [apiUrl, setApiUrl] = useState("");
   const [connection, setConnection] = useState<ConnectionStatus>("idle");
+  const [connectedBackend, setConnectedBackend] = useState<{ id: string; name: string } | null>(null);
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
+  const [checkingCapabilities, setCheckingCapabilities] = useState(false);
   const [options, setOptions] = useState<Options>({ models: [], samplers: [], schedulers: [], loras: [] });
 
   const [families, setFamilies] = useState<ExpressionFamily[] | null>(null);
@@ -248,12 +261,19 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     toast.success(`Applied ${family.label} defaults`);
   }, []);
 
-  // Restore the last used connection, then let the server's state win when it has one.
+  // Restore the last used connection. Unless the user picked a WebUI, prefer
+  // detecting it, then whatever the server is set to.
+  const backendChosenRef = useRef(false);
   useEffect(() => {
+    let savedBackend: string | undefined;
     try {
       const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
       if (saved?.apiUrl) setApiUrl(saved.apiUrl);
-      if (saved?.backend) setBackendState(saved.backend);
+      if (saved?.backend && saved.backendChosen) {
+        setBackendState(saved.backend);
+        savedBackend = saved.backend;
+        backendChosenRef.current = true;
+      }
     } catch {
       // Storage unavailable
     }
@@ -263,7 +283,10 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       .then((data) => {
         if (!data) return;
         setBackends(data.backends);
-        if (data.selected) setBackendState(data.selected);
+        const listed = (id?: string) => !!id && data.backends.some((b) => b.id === id);
+        if (listed(savedBackend)) return;
+        if (listed(AUTO_BACKEND)) setBackendState(AUTO_BACKEND);
+        else if (data.selected) setBackendState(data.selected);
         if (data.url) setApiUrl(data.url);
       })
       .catch(() => setBackends(null));
@@ -280,7 +303,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ apiUrl, backend }));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ apiUrl, backend, backendChosen: backendChosenRef.current }));
     } catch {
       // Storage unavailable
     }
@@ -291,19 +314,37 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       const previous = backends?.find((b) => b.id === backend);
       const next = backends?.find((b) => b.id === id);
       // Swap the URL along with the backend unless the user typed a custom one.
-      if (next && (!apiUrl || apiUrl === previous?.default_url)) {
+      if (next?.default_url && (!apiUrl || apiUrl === previous?.default_url)) {
         setApiUrl(next.default_url);
       }
+      backendChosenRef.current = true;
       setBackendState(id);
       setConnection("idle");
+      setConnectedBackend(null);
+      setCapabilities(null);
     },
     [apiUrl, backend, backends]
   );
 
+  const checkCapabilities = useCallback(async () => {
+    setCheckingCapabilities(true);
+    try {
+      setCapabilities(await api.capabilities());
+    } catch (error) {
+      toast.error(`Could not check the WebUI: ${error instanceof Error ? error.message : error}`);
+    } finally {
+      setCheckingCapabilities(false);
+    }
+  }, []);
+
   const connect = useCallback(async () => {
     setConnection("connecting");
+    setCapabilities(null);
     try {
-      await api.connect(apiUrl.trim(), backends ? backend : undefined);
+      const result = await api.connect(apiUrl.trim(), backends ? backend : undefined);
+      const found = result?.backend ? { id: result.backend, name: result.name || result.backend } : null;
+      setConnectedBackend(found);
+      if (result?.url) setApiUrl(result.url);
       const [models, samplers, schedulers, loras] = await Promise.all([
         api.models(),
         api.samplers(),
@@ -317,13 +358,18 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         toast.error("Connected, but the WebUI returned no models. Is it running with its API enabled?");
       } else {
         setConnection("connected");
-        toast.success(`Connected: ${models.length} models, ${loras.length} LoRAs`);
+        const to = result?.detected && found ? ` to ${found.name}` : "";
+        toast.success(`Connected${to}: ${models.length} models, ${loras.length} LoRAs`);
       }
+      checkCapabilities();
     } catch (error) {
       setConnection("error");
-      toast.error(`Could not connect: ${error instanceof Error ? error.message : error}`);
+      setConnectedBackend(null);
+      const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof ApiError && error.status !== 400) setCapabilities(connectionReport(message, error.fix));
+      toast.error(`Could not connect: ${message}`);
     }
-  }, [apiUrl, backend, backends, reconcile]);
+  }, [apiUrl, backend, backends, reconcile, checkCapabilities]);
 
   const setFamily = useCallback((id: string) => {
     const previous = family;
@@ -432,6 +478,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       loadImages(finished.output_dir, false);
       if (finished.status === "completed") {
         toast.success(`Finished generating expressions in Output/${finished.output_dir}`);
+        if (finished.notes?.length) toast.warning("Some expression LoRAs were missing, see the note above the prompt.");
       } else if (finished.status === "cancelled") {
         toast.info(`Stopped after ${finished.progress.done} of ${finished.progress.total} expressions.`);
       } else {
@@ -526,7 +573,11 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         toast.error(result.message || "Generation failed");
       }
     } catch (error) {
-      toast.error(`Generation failed: ${error instanceof Error ? error.message : error}`);
+      const message = error instanceof Error ? error.message : String(error);
+      // Point at the setup checklist: the fix for an unreachable WebUI, or what it is missing.
+      if (error instanceof ApiError && error.fix) setCapabilities(connectionReport(message, error.fix));
+      else if (error instanceof ApiError && error.status === 409) checkCapabilities();
+      toast.error(`Generation failed: ${message}`);
     } finally {
       if (!tracking) {
         stopPolling();
@@ -534,7 +585,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, loadImages, stopPolling, trackJob, finishJob]);
+  }, [imageDataUrl, outputDirectory, params, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -558,7 +609,11 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setApiUrl,
       connection,
       connect,
+      connectedBackend,
       options,
+      capabilities,
+      checkingCapabilities,
+      checkCapabilities,
       families,
       family,
       setFamily,
@@ -585,7 +640,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       loadImages,
     }),
     [
-      backends, backend, setBackend, apiUrl, connection, connect, options, families, family, setFamily,
+      backends, backend, setBackend, apiUrl, connection, connect, connectedBackend, options,
+      capabilities, checkingCapabilities, checkCapabilities, families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]
