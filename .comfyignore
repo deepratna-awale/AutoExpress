@@ -1,0 +1,31 @@
+# Left out of the Comfy Registry archive. ComfyUI only needs __init__.py,
+# autoexpress_comfy/ and autoexpress_core/ (plus README, LICENSE, pyproject.toml).
+
+# Standalone Flask app and its installers
+autoexpress/
+frontend/
+Output/
+uploads/
+Dockerfile
+.dockerignore
+install.bat
+install.sh
+run.bat
+run.sh
+run_debug.bat
+run_debug.sh
+RELEASE_README.md
+# The standalone app's dependencies; the nodes need only the ones in pyproject.toml
+requirements.txt
+
+# Other WebUIs
+scripts/
+style.css
+metadata.ini
+invokeai_nodes/
+
+# Development
+tests/
+.github/
+.hintrc
+.DS_Store

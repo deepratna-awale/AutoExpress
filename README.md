@@ -107,7 +107,7 @@ Fooocus has no extension system, so it is not supported.
 ## AUTOMATIC1111 / Forge / reForge / SD.Next
 
 1. Install [ADetailer](https://github.com/Bing-su/adetailer) if you have not already.
-2. Go to **Extensions → Install from URL**, paste `https://github.com/deepratna-awale/AutoExpress` and press **Install**. You can also clone the repository into `extensions/`.
+2. Go to **Extensions → Available**, press **Load from**, search for **AutoExpress** and press **Install**. Or use **Extensions → Install from URL** with `https://github.com/deepratna-awale/AutoExpress`, or clone the repository into `extensions/`.
 3. Restart the WebUI and open the **AutoExpress** tab.
 4. Drop in a character image. The prompt, sampler, steps, CFG and seed are filled in from the image's metadata when it has any.
 5. Pick a [prompt style](#prompt-styles) (**auto** picks it from the checkpoint) and the expressions you want, then press **Generate**.
@@ -119,7 +119,7 @@ With **Expression LoRAs** ticked, the matching [expression LoRA](#expression-lor
 ## ComfyUI
 
 1. Install [ComfyUI Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and [Impact Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack), which provides the face detector.
-2. Clone this repository into `ComfyUI/custom_nodes/` (or install it from ComfyUI Manager), then restart ComfyUI.
+2. Install **AutoExpress** from ComfyUI Manager, or run `comfy node install autoexpress`, or clone this repository into `ComfyUI/custom_nodes/`. Then restart ComfyUI.
 3. Build the graph:
 
 ```
@@ -149,7 +149,7 @@ AutoExpress Expression Prompts ─ negative ─► CLIP Text Encode ────
 
 ## InvokeAI
 
-Symlink (or copy) `invokeai_nodes/autoexpress` into `<INVOKEAI_ROOT>/nodes/` and restart InvokeAI. If you copied the folder, also run `pip install git+https://github.com/deepratna-awale/AutoExpress` inside InvokeAI's environment. The **AutoExpress Expression Prompts** node outputs one prompt per expression in the chosen prompt style, plus the matching negative prompt, ready to iterate over in a face inpainting graph.
+Open the **Nodes** tab, choose **Git Repository URL**, paste `https://github.com/deepratna-awale/AutoExpress.git` and press **Install**. On InvokeAI versions without the Custom Node Manager, clone the repository into `<INVOKEAI_ROOT>/nodes/` and restart InvokeAI. Either way the whole repository sits in `nodes/`, and its root `__init__.py` loads the node. The **AutoExpress Expression Prompts** node outputs one prompt per expression in the chosen prompt style, plus the matching negative prompt, ready to iterate over in a face inpainting graph.
 
 ---
 
