@@ -2,6 +2,8 @@ import pytest
 
 from autoexpress_core import (
     FLAVORS,
+    expression_loras,
+    resolve_flavor,
     ExpressionGenerator,
     build_expression_payload,
     expression_names,
@@ -14,10 +16,24 @@ from autoexpress_core.payload import find_nested_key
 from conftest import FakeBackend
 
 
-@pytest.mark.parametrize("flavor", list(FLAVORS))
+@pytest.mark.parametrize("flavor", list(FLAVORS) + ["anime", "realistic"])
 def test_every_flavor_has_the_same_28_expressions(flavor):
-    assert list(get_expressions(flavor)) == expression_names("anime")
+    assert list(get_expressions(flavor)) == expression_names("auto")
     assert len(expression_names(flavor)) == 28
+
+
+def test_legacy_flavors_map_to_families():
+    assert resolve_flavor("anime") == "danbooru"
+    assert resolve_flavor("realistic") == "sdxl_base"
+    assert resolve_flavor("auto", "illustriousXL_v01") == "illustrious"
+
+
+def test_expression_lora_prompt_uses_host_lora_list():
+    prompt = expression_loras.expression_lora_prompt(
+        "ponyDiffusionV6XL", installed_names=lambda: ["AutoExpress-expressions-pony"]
+    )
+    assert prompt == "<lora:AutoExpress-expressions-pony:0.6>, cinematic expression style"
+    assert expression_loras.expression_lora_prompt("ponyDiffusionV6XL", installed_names=[]) == ""
 
 
 def test_get_expressions_subset_keeps_file_order():
@@ -82,7 +98,25 @@ def test_generator_runs_every_selected_expression(tmp_path, face_image, fake_bac
     assert list(results) == ["anger", "joy"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["anger.png", "joy.png"]
     prompts = [find_nested_key(p, "ad_prompt") for p in fake_backend.payloads]
-    assert prompts[0].startswith("1girl, ") and "angry_expression" in prompts[0]
+    assert prompts[0] == "masterpiece, best quality, 1girl, " + get_expressions("danbooru")["anger"]
+    assert generator.family == "danbooru"
+
+
+def test_generator_picks_family_from_checkpoint_and_adds_loras(face_image, fake_backend):
+    generator = ExpressionGenerator(fake_backend)
+    generator.generate(
+        face_image,
+        {"ad_prompt": "1girl", "ad_checkpoint": "ponyDiffusionV6XL", "ad_negative_prompt": "lowres"},
+        only=["joy"],
+        lora_prompt="<lora:AutoExpress-expressions-pony:0.6>, cinematic expression style",
+    )
+
+    payload = fake_backend.payloads[0]
+    assert generator.family == "pony"
+    assert find_nested_key(payload, "ad_prompt").startswith(
+        "score_9, score_8_up, score_7_up, 1girl, <lora:AutoExpress-expressions-pony:0.6>, cinematic expression style, "
+    )
+    assert find_nested_key(payload, "ad_negative_prompt") == "lowres, score_4, score_5, score_6"
 
 
 def test_generator_stop_interrupts_backend(face_image, fake_backend):

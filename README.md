@@ -19,6 +19,35 @@ Automatically creates 28 different expressions from a given image using [Automat
 
 </p>
 
+## Prompt Styles
+
+Different checkpoints understand prompts differently, so the expression prompts come in one set per model family. Pick one from the **Prompt Style** dropdown, or leave it on **Auto** to choose from the checkpoint name.
+
+| Prompt Style | Use for | Quality tags added |
+| --- | --- | --- |
+| Danbooru tags | SD1.5 anime models, Animagine, Anything, Counterfeit | `masterpiece, best quality` |
+| e621 tags | Furry/anthro models (FluffyRock, Fluffusion, YiffyMix) | `best quality, detailed` |
+| Pony Diffusion | Pony V6 XL and merges | `score_9, score_8_up, score_7_up` |
+| Illustrious / NoobAI | Illustrious-XL, NoobAI-XL, WAI | `masterpiece, best quality, amazing quality` |
+| SDXL / SD1.5 (CLIP) | General and realistic SDXL/SD1.5 models | none |
+| Natural language | Flux, SD3/3.5, HiDream, Chroma, Qwen-Image, Lumina | none |
+
+Quality and negative tags are only added when your prompt doesn't already contain them. The sets live in `autoexpress_core/resources/expressions/`, one JSON file per family, so adding a new family is just adding a file.
+
+### Expression LoRAs
+
+AutoExpress also adds a LoRA that helps faces show emotion, matched to the checkpoint's architecture:
+
+| Architecture | LoRA |
+| --- | --- |
+| Pony | [Facial Expressions (Pony v1.0)](https://civitai.com/models/541620?modelVersionId=1815859) |
+| Illustrious / NoobAI | [Facial Expressions (Illu v1.0)](https://civitai.com/models/541620?modelVersionId=1815930) + [Face Enhancer Illustrious](https://civitai.com/models/1625070) |
+| SDXL | [Facial Expressions (XL v3)](https://civitai.com/models/541620?modelVersionId=761462) |
+| SD1.5 | [Facial Expressions (SD1.5)](https://civitai.com/models/541620?modelVersionId=715217) |
+| Flux | [Expression Helper 2.0](https://civitai.com/models/914282) |
+
+If the WebUI runs on the same machine (or you set **WebUI LoRA folder** in settings, or `AUTOEXPRESS_LORA_DIR`), missing LoRAs are downloaded there automatically and checked against their SHA-256. Civitai requires an API key for downloads: enter it in settings or set `CIVITAI_API_KEY`. If the folder isn't reachable, AutoExpress uses the LoRAs only when they're already installed on the server. Turn them off with the **Expression LoRAs** switch. The list lives in `autoexpress_core/resources/expression_loras.json`. Inside a WebUI or ComfyUI the LoRA folder is always known, so missing LoRAs are always fetched there (see below).
+
 
 # Examples
 
@@ -81,9 +110,11 @@ Fooocus has no extension system, so it is not supported.
 2. Go to **Extensions → Install from URL**, paste `https://github.com/deepratna-awale/AutoExpress` and press **Install**. You can also clone the repository into `extensions/`.
 3. Restart the WebUI and open the **AutoExpress** tab.
 4. Drop in a character image. The prompt, sampler, steps, CFG and seed are filled in from the image's metadata when it has any.
-5. Pick a prompt flavor and the expressions you want, then press **Generate**.
+5. Pick a [prompt style](#prompt-styles) (**auto** picks it from the checkpoint) and the expressions you want, then press **Generate**.
 
 Images are saved to `outputs/autoexpress/<character name>/`. You can change that folder under **Settings → AutoExpress**. A labelled sprite sheet is saved next to them when that option is ticked.
+
+With **Expression LoRAs** ticked, the matching [expression LoRA](#expression-loras) is downloaded into the WebUI's LoRA folder (`--lora-dir`, or `models/Lora`) the first time, then added to the prompt. Civitai needs an API key for downloads: paste it into the tab, set it once under **Settings → AutoExpress**, or set `CIVITAI_API_KEY`.
 
 ## ComfyUI
 
@@ -92,28 +123,33 @@ Images are saved to `outputs/autoexpress/<character name>/`. You can change that
 3. Build the graph:
 
 ```
-Load Image ───────────────────────────────┐
-Load Checkpoint ── model / clip / vae ────┤
-CLIP Text Encode (positive / negative) ───┤
-UltralyticsDetectorProvider (bbox/face) ──┤
-                                          ▼
-AutoExpress Expression Prompts ─ prompts ─► FaceDetailer (wildcard input) ─ image ─┬─► AutoExpress Save Expressions
-                               └ names ────────────────────────────────────────────┼─► AutoExpress Save Expressions
-                                                                                   └─► AutoExpress Sprite Sheet ─► Preview Image
+Load Checkpoint ─ model / clip ─► AutoExpress Expression LoRAs ─ model / clip ──────────────┐
+                └ vae ──────────────────────────────────────────────────────────────────────┤
+                                  AutoExpress Expression LoRAs ─ lora_trigger ─┐            │
+Load Image ────────────────────────────────────────────────────────────────────┼────────────┤
+UltralyticsDetectorProvider (bbox/face) ───────────────────────────────────────┼────────────┤
+CLIP Text Encode (positive: your character prompt) ────────────────────────────┼────────────┤
+                                                                               ▼            ▼
+AutoExpress Expression Prompts ─ negative ─► CLIP Text Encode ─────────────────────► FaceDetailer
+                               ─ prompts ──────────────────────────────────────────► (wildcard input)
+                               ─ names ─┐                                                   │ image
+                                        ├─► AutoExpress Save Expressions ◄──────────────────┤
+                                        └─► AutoExpress Sprite Sheet ◄──────────────────────┘ ─► Preview Image
 ```
 
-`prompts` is a list, so ComfyUI runs FaceDetailer once per expression on its own. Connect `names` to the save and sprite sheet nodes so every file is named after its expression.
+`prompts` is a list, so ComfyUI runs FaceDetailer once per expression on its own. Connect `names` to the save and sprite sheet nodes so every file is named after its expression. Set the same checkpoint in the `ckpt_name` input of the AutoExpress nodes so **auto** can pick the prompt style and LoRAs. The LoRA node is optional.
 
 | Node | What it does |
 | ---- | ------------ |
-| AutoExpress Expression Prompts | Every expression (or a comma separated subset) as a prompt list, prefixed with your character prompt |
+| AutoExpress Expression Prompts | Every expression (or a comma separated subset) as a prompt list in the right [prompt style](#prompt-styles), plus the matching negative prompt |
 | AutoExpress Expression Prompt | One expression prompt |
+| AutoExpress Expression LoRAs | Applies the matching [expression LoRAs](#expression-loras), downloading them into `models/loras` when missing, and outputs their trigger words |
 | AutoExpress Save Expressions | Saves to `output/autoexpress/<character>/<expression>.png` |
 | AutoExpress Sprite Sheet | Tiles the results into one labelled image |
 
 ## InvokeAI
 
-Symlink (or copy) `invokeai_nodes/autoexpress` into `<INVOKEAI_ROOT>/nodes/` and restart InvokeAI. If you copied the folder, also run `pip install git+https://github.com/deepratna-awale/AutoExpress` inside InvokeAI's environment. The **AutoExpress Expression Prompts** node outputs one prompt per expression, ready to iterate over in a face inpainting graph.
+Symlink (or copy) `invokeai_nodes/autoexpress` into `<INVOKEAI_ROOT>/nodes/` and restart InvokeAI. If you copied the folder, also run `pip install git+https://github.com/deepratna-awale/AutoExpress` inside InvokeAI's environment. The **AutoExpress Expression Prompts** node outputs one prompt per expression in the chosen prompt style, plus the matching negative prompt, ready to iterate over in a face inpainting graph.
 
 ---
 

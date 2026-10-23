@@ -8,7 +8,10 @@ from autoexpress.modules import (
     a1111_client,
     image_parser,
     expression_generator,
+    expression_sets,
 )
+from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
+
 
 from autoexpress_core import ExpressionGenerator
 from loguru import logger as log
@@ -24,6 +27,12 @@ generator = ExpressionGenerator(sd)
 uploaded = False
 filepath = None
 is_realistic = False
+model_family = expression_sets.AUTO
+lora_settings = {
+    "enabled": True,
+    "lora_dir": os.environ.get("AUTOEXPRESS_LORA_DIR", ""),
+    "civitai_api_key": os.environ.get(CIVITAI_KEY_ENV, ""),
+}
 
 
 # Assuming you want to save uploaded files in a folder called 'uploads'
@@ -186,6 +195,10 @@ def generate():
             settings=data,
             is_realistic=is_realistic,
             generator=generator,
+            model_family=model_family,
+            use_expression_loras=lora_settings["enabled"],
+            lora_dir=lora_settings["lora_dir"] or None,
+            civitai_api_key=lora_settings["civitai_api_key"] or None,
         )
     except KeyboardInterrupt:
         sd.interrupt()
@@ -235,3 +248,55 @@ def handle_toggle():
     is_realistic = data.get("isRealistic")
 
     return jsonify({"message": f"Is realistic status set to {is_realistic}"})
+
+
+@autoexpress.route("/expression-families", methods=["GET"])
+def get_expression_families():
+    return jsonify(
+        {"selected": model_family, "families": expression_sets.list_families()}
+    )
+
+
+@autoexpress.route("/expression-family", methods=["POST"])
+def set_expression_family():
+    global model_family
+    family = (request.get_json() or {}).get("family") or expression_sets.AUTO
+
+    if family != expression_sets.AUTO:
+        try:
+            expression_sets.load_family(family)
+        except KeyError:
+            return jsonify({"error": f"Unknown expression family: {family}"}), 400
+
+    model_family = family
+    log.info(f"Expression family set to {model_family}")
+    return jsonify({"message": f"Expression family set to {model_family}"})
+
+
+@autoexpress.route("/expression-loras", methods=["GET"])
+def get_expression_lora_settings():
+    return jsonify(
+        {
+            "enabled": lora_settings["enabled"],
+            "lora_dir": lora_settings["lora_dir"],
+            "has_civitai_api_key": bool(lora_settings["civitai_api_key"]),
+        }
+    )
+
+
+@autoexpress.route("/expression-loras", methods=["POST"])
+def set_expression_lora_settings():
+    data = request.get_json() or {}
+
+    if "enabled" in data:
+        lora_settings["enabled"] = bool(data["enabled"])
+    if "lora_dir" in data:
+        lora_settings["lora_dir"] = (data["lora_dir"] or "").strip()
+    if data.get("civitai_api_key"):
+        lora_settings["civitai_api_key"] = data["civitai_api_key"].strip()
+
+    log.info(
+        f"Expression LoRAs {'on' if lora_settings['enabled'] else 'off'}, "
+        f"LoRA folder: {lora_settings['lora_dir'] or 'auto'}"
+    )
+    return get_expression_lora_settings()

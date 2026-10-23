@@ -19,7 +19,7 @@ Repository = "https://github.com/deepratna-awale/AutoExpress"
 packages = ["autoexpress_core", "autoexpress_core.backends"]
 
 [tool.setuptools.package-data]
-autoexpress_core = ["resources/*.json"]
+autoexpress_core = ["resources/*.json", "resources/expressions/*.json"]
 
 # ComfyUI registry (comfy node publish). Fill in PublisherId before publishing.
 [tool.comfy]

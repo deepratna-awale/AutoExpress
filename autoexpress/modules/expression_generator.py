@@ -1,4 +1,4 @@
-from autoexpress_core import ExpressionGenerator, build_expression_payload
+from autoexpress_core import ExpressionGenerator, build_expression_payload, expression_loras
 from autoexpress_core.images import b64_to_pil
 from . import utils
 from . import a1111_client
@@ -14,22 +14,67 @@ def generate_expressions(
     image_str: str = None,
     input_image_path: str = None,
     is_realistic: bool = False,
+    model_family: str = None,
+    use_expression_loras: bool = True,
+    lora_dir: str = None,
+    civitai_api_key: str = None,
     generator: ExpressionGenerator = None,
 ):
     image_str = utils.is_image_valid(input_image_path, image_str)
     if not image_str:
         return
 
-    if is_realistic:
-        log.info("Using clip prompts since realistic is set to true.")
-
+    settings = dict(settings or {})
     generator = generator or ExpressionGenerator(sd)
+    family = model_family or "auto"
+
+    lora_prompt = ""
+    if use_expression_loras:
+        lora_prompt = get_expression_lora_prompt(
+            sd, settings.get("ad_checkpoint"), family, is_realistic, lora_dir, civitai_api_key
+        )
+
     generator.generate(
         image_str,
         settings=settings,
-        flavor="realistic" if is_realistic else "anime",
+        flavor=family,
         output_dir=output_path,
+        lora_prompt=lora_prompt,
+        is_realistic=is_realistic,
     )
+
+
+def get_expression_lora_prompt(
+    sd: a1111_client.A1111Client,
+    checkpoint: str,
+    family: str,
+    is_realistic: bool = False,
+    lora_dir: str = None,
+    civitai_api_key: str = None,
+) -> str:
+    """Download the expression LoRAs for this checkpoint if we can, and return their prompt tags."""
+    from autoexpress_core import resolve_flavor
+
+    family = resolve_flavor(family, checkpoint, is_realistic)
+    lora_dir = lora_dir or sd.lora_dir
+
+    if not lora_dir:
+        log.info(
+            "WebUI LoRA folder isn't reachable from here, so only expression LoRAs "
+            "already installed on the server will be used."
+        )
+
+    lora_prompt = expression_loras.expression_lora_prompt(
+        checkpoint,
+        family,
+        lora_dir=lora_dir,
+        api_key=civitai_api_key,
+        installed_names=lambda: sd.loras or [],
+        refresh=sd.refresh_loras,
+        log=log.info,
+    )
+    log.info(f"Expression LoRAs: {lora_prompt or 'none installed'}")
+    return lora_prompt
 
 
 def opaque(
@@ -44,9 +89,7 @@ def opaque(
     output_path = pathlib.Path(output_path).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
-    json_payload = build_expression_payload(
-        image_str, settings, template="empty_bg.json"
-    )
+    json_payload = build_expression_payload(image_str, settings, template="empty_bg.json")
     output_image_path = pathlib.Path(output_path, "temp.png")
 
     response = sd.img2img_api(json_payload)

@@ -24,6 +24,7 @@ except ImportError:  # running from a symlink into the repository
 class AutoExpressExpressionPromptsOutput(BaseInvocationOutput):
     prompts: list[str] = OutputField(description="One prompt per expression")
     names: list[str] = OutputField(description="Expression names, in the same order as the prompts")
+    negative: str = OutputField(description="Negative prompt with the family's negative tags added")
 
 
 @invocation(
@@ -31,26 +32,31 @@ class AutoExpressExpressionPromptsOutput(BaseInvocationOutput):
     title="AutoExpress Expression Prompts",
     tags=["prompt", "expression", "autoexpress", "character"],
     category="prompt",
-    version="1.0.0",
+    version="1.1.0",
 )
 class AutoExpressExpressionPromptsInvocation(BaseInvocation):
     """Builds AutoExpress expression prompts. Iterate over the prompts to inpaint the face once per expression."""
 
-    flavor: Literal["anime", "realistic", "illustrious"] = InputField(
-        default=autoexpress_core.DEFAULT_FLAVOR, description="Prompt style: anime tags or natural language"
+    prompt_style: Literal["auto", "danbooru", "e621", "pony", "illustrious", "sdxl_base", "natural_language"] = InputField(
+        default="auto", description="Model family the prompts are written for. 'auto' picks it from the checkpoint name"
     )
+    checkpoint_name: str = InputField(default="", description="Main model name, used when the prompt style is 'auto'")
     base_prompt: str = InputField(
         default="", description="Character prompt placed before every expression", ui_component=UIComponent.Textarea
     )
+    base_negative: str = InputField(default="", description="Negative prompt", ui_component=UIComponent.Textarea)
     expressions: str = InputField(
         default="all", description="'all', or a comma separated list such as: joy, anger, surprise"
     )
 
     def invoke(self, context: InvocationContext) -> AutoExpressExpressionPromptsOutput:
-        names = [name.strip().lower() for name in self.expressions.split(",") if name.strip()]
-        only = None if not names or names == ["all"] else names
-        selected = autoexpress_core.get_expressions(self.flavor, only)
+        sets = autoexpress_core.expression_sets
+        family = autoexpress_core.resolve_flavor(self.prompt_style, self.checkpoint_name)
+        wanted = [name.strip().lower() for name in self.expressions.split(",") if name.strip()]
+        only = None if not wanted or wanted == ["all"] else wanted
+        names = list(autoexpress_core.get_expressions(family, only))
         return AutoExpressExpressionPromptsOutput(
-            prompts=[autoexpress_core.join_prompt(self.base_prompt, tags) for tags in selected.values()],
-            names=list(selected),
+            prompts=[sets.build_prompt(self.base_prompt, name, family) for name in names],
+            names=names,
+            negative=sets.build_negative(self.base_negative, family),
         )

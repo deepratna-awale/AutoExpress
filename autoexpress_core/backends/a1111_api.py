@@ -1,4 +1,5 @@
 import json
+import pathlib
 
 import requests
 from PIL import Image
@@ -28,7 +29,9 @@ class A1111Client:
             "extensions": "/sdapi/v1/extensions",
             "interrupt": "/sdapi/v1/interrupt",
             "image_info": "/sdapi/v1/png-info",
-            "schedulers": "/sdapi/v1/schedulers"
+            "schedulers": "/sdapi/v1/schedulers",
+            "refresh_loras": "/sdapi/v1/refresh-loras",
+            "cmd_flags": "/sdapi/v1/cmd-flags",
         }
 
 
@@ -147,6 +150,37 @@ class A1111Client:
             )
             return None
 
+
+    @property
+    def lora_dir(self) -> str | None:
+        """
+        The server's LoRA folder, if this machine can see it (i.e. the WebUI runs locally).
+
+        Returns:
+            str | None: The LoRA folder path, or None if it isn't reachable from here.
+        """
+        try:
+            response = requests.get(url=f"{self._base_url}{self._endpoints['cmd_flags']}")
+        except requests.exceptions.RequestException:
+            return None
+
+        if response.status_code != 200:
+            return None
+
+        lora_dir = response.json().get("lora_dir")
+        if lora_dir and pathlib.Path(lora_dir).is_dir():
+            return lora_dir
+        return None
+
+    def refresh_loras(self) -> bool:
+        """
+        Asks the server to rescan its LoRA folder.
+
+        Returns:
+            bool: True if successful, otherwise False.
+        """
+        response = requests.post(url=f"{self._base_url}{self._endpoints['refresh_loras']}")
+        return response.status_code == 200
 
     def img2img_api(self, json_payload: str | dict) -> requests.Response | bool:
         """

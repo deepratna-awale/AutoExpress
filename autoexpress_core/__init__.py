@@ -2,8 +2,9 @@
 Host-agnostic core of AutoExpress.
 
 Everything a front end needs to turn one character image into a set of
-expression images lives here: the expression prompt lists, the ADetailer
-img2img payload, the generation loop and sprite sheet helpers. Each WebUI
+expression images lives here: the expression prompt sets per model family,
+the expression LoRAs, the ADetailer img2img payload, the generation loop and
+sprite sheet helpers. Each WebUI
 integration (standalone Flask app, A1111/Forge/SD.Next extension, ComfyUI
 nodes, InvokeAI nodes) only adds its own UI and, where needed, a backend.
 
@@ -12,9 +13,12 @@ as a top level package and as a sub package of the repository (ComfyUI loads
 the repository root as a package).
 """
 
+from . import expression_loras, expression_sets
 from .expressions import (
+    AUTO,
     FLAVORS,
     DEFAULT_FLAVOR,
+    resolve_flavor,
     get_expressions,
     expression_names,
     join_prompt,
@@ -27,6 +31,10 @@ from . import images
 __version__ = "2.0.0"
 
 __all__ = [
+    "expression_loras",
+    "expression_sets",
+    "AUTO",
+    "resolve_flavor",
     "FLAVORS",
     "DEFAULT_FLAVOR",
     "get_expressions",

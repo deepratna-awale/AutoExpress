@@ -23,8 +23,10 @@ from autoexpress_core import (  # noqa: E402
     DEFAULT_FLAVOR,
     FLAVORS,
     ExpressionGenerator,
+    expression_loras,
     expression_names,
     make_sprite_sheet,
+    resolve_flavor,
 )
 from autoexpress_core.backends.a1111_inprocess import A1111InProcessBackend  # noqa: E402
 from autoexpress_core.log import log  # noqa: E402
@@ -66,6 +68,40 @@ def scheduler_choices() -> list[str]:
     except ImportError:  # WebUI versions before schedulers were split from samplers
         return [SAME_SCHEDULER]
     return [SAME_SCHEDULER] + [scheduler.label for scheduler in sd_schedulers.schedulers]
+
+
+def current_checkpoint(checkpoint: str | None) -> str:
+    """The checkpoint ADetailer will use, for picking the prompt family and LoRAs."""
+    if checkpoint and checkpoint != SAME_CHECKPOINT:
+        return checkpoint
+    info = getattr(shared.sd_model, "sd_checkpoint_info", None)
+    return getattr(info, "name", None) or shared.opts.data.get("sd_model_checkpoint", "") or ""
+
+
+def lora_dir() -> str:
+    from modules import paths
+
+    return getattr(shared.cmd_opts, "lora_dir", None) or os.path.join(paths.models_path, "Lora")
+
+
+def refresh_loras():
+    """Make the built-in Lora extension rescan its folder after a download."""
+    networks = sys.modules.get("networks")
+    if networks is not None and hasattr(networks, "list_available_networks"):
+        networks.list_available_networks()
+
+
+def expression_lora_prompt(checkpoint: str, family: str, api_key: str | None) -> str:
+    prompt = expression_loras.expression_lora_prompt(
+        checkpoint,
+        family,
+        lora_dir=lora_dir(),
+        api_key=api_key or shared.opts.data.get("autoexpress_civitai_api_key") or None,
+        refresh=refresh_loras,
+        log=log.info,
+    )
+    log.info(f"AutoExpress: expression LoRAs: {prompt or 'none installed'}")
+    return prompt
 
 
 def output_root() -> str:
@@ -135,6 +171,8 @@ def generate(
     seed,
     detector,
     sprite_sheet,
+    use_expression_loras,
+    civitai_api_key,
 ):
     if image is None:
         yield [], "Upload a character image first.", None
@@ -168,11 +206,24 @@ def generate(
     total = len(selected)
     gallery = []
 
-    log.info(f"AutoExpress: generating {total} expressions into {output_dir}")
-    yield gallery, f"Generating 0/{total}…", None
+    checkpoint_name = current_checkpoint(checkpoint)
+    family = resolve_flavor(flavor, checkpoint_name)
+
+    lora_prompt = ""
+    if use_expression_loras:
+        yield gallery, "Checking expression LoRAs…", None
+        lora_prompt = expression_lora_prompt(checkpoint_name, family, civitai_api_key)
+
+    log.info(f"AutoExpress: generating {total} {family} expressions into {output_dir}")
+    yield gallery, f"Generating 0/{total} ({family} prompts)…", None
 
     for name, result in generator.iter_generate(
-        image, settings=settings, flavor=flavor, only=selected, output_dir=output_dir
+        image,
+        settings=settings,
+        flavor=family,
+        only=selected,
+        output_dir=output_dir,
+        lora_prompt=lora_prompt,
     ):
         gallery.append((result, name.title()))
         yield gallery, f"Generating {len(gallery)}/{total}… last: **{name}**", None
@@ -209,12 +260,24 @@ def on_ui_tabs():
                     placeholder="New_Character",
                     elem_id="autoexpress_character_name",
                 )
-                flavor = gr.Radio(
-                    label="Prompt flavor",
+                flavor = gr.Dropdown(
+                    label="Prompt style (auto picks it from the checkpoint)",
                     choices=list(FLAVORS),
                     value=DEFAULT_FLAVOR,
                     elem_id="autoexpress_flavor",
                 )
+                with gr.Row():
+                    use_expression_loras = gr.Checkbox(
+                        label="Expression LoRAs (downloaded from Civitai when missing)",
+                        value=True,
+                        elem_id="autoexpress_use_loras",
+                    )
+                    civitai_api_key = gr.Textbox(
+                        label="Civitai API key",
+                        type="password",
+                        placeholder="Optional, also settable in Settings → AutoExpress",
+                        elem_id="autoexpress_civitai_key",
+                    )
                 all_names = expression_names()
                 expressions = gr.CheckboxGroup(
                     label="Expressions",
@@ -275,7 +338,7 @@ def on_ui_tabs():
             inputs=[
                 image, character_name, flavor, expressions, prompt, negative_prompt,
                 checkpoint, sampler, scheduler, steps, cfg_scale, denoising_strength,
-                clip_skip, seed, detector, sprite_sheet,
+                clip_skip, seed, detector, sprite_sheet, use_expression_loras, civitai_api_key,
             ],
             outputs=[gallery, status, sheet],
         )
@@ -291,6 +354,14 @@ def on_ui_settings():
         shared.OptionInfo(
             os.path.join("outputs", "autoexpress"),
             "Output directory for AutoExpress (one sub folder per character)",
+            section=section,
+        ),
+    )
+    shared.opts.add_option(
+        "autoexpress_civitai_api_key",
+        shared.OptionInfo(
+            "",
+            "Civitai API key for downloading expression LoRAs (or set CIVITAI_API_KEY)",
             section=section,
         ),
     )

@@ -4,7 +4,10 @@ ComfyUI nodes for AutoExpress.
 ComfyUI has no ADetailer, so the face inpainting is done by Impact Pack's
 FaceDetailer. These nodes provide the AutoExpress specific parts around it:
 
+    AutoExpress Expression LoRAs   -> model / clip   -> FaceDetailer
+                                   -> trigger        -> AutoExpress Expression Prompts
     AutoExpress Expression Prompts -> prompts (list) -> FaceDetailer "wildcard" input
+                                   -> negative       -> CLIP Text Encode -> FaceDetailer negative
                                    -> names (list)   -> AutoExpress Save Expressions / Sprite Sheet
 
 Because the prompts output is a list, ComfyUI runs FaceDetailer once per
@@ -19,14 +22,20 @@ from PIL import Image
 
 import folder_paths
 
+import comfy.sd
+import comfy.utils
+
 from ..autoexpress_core import (
+    AUTO,
     DEFAULT_FLAVOR,
     FLAVORS,
+    expression_loras,
     expression_names,
-    get_expressions,
-    join_prompt,
+    expression_sets,
     make_sprite_sheet,
+    resolve_flavor,
 )
+from ..autoexpress_core.log import log
 
 CATEGORY = "AutoExpress"
 
@@ -50,9 +59,16 @@ def parse_selection(selection: str) -> list[str] | None:
     return None if not names or names == ["all"] else names
 
 
+def checkpoint_choices() -> list[str]:
+    return [""] + folder_paths.get_filename_list("checkpoints")
+
+
 def safe_folder_name(name: str) -> str:
     keep = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (name or "").strip())
     return keep.strip() or "New_Character"
+
+
+PROMPT_STYLE_TOOLTIP = "Model family the prompts are written for. 'auto' picks it from ckpt_name."
 
 
 class AutoExpressExpressionPrompts:
@@ -62,38 +78,50 @@ class AutoExpressExpressionPrompts:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "flavor": (list(FLAVORS), {"default": DEFAULT_FLAVOR}),
+                "prompt_style": (FLAVORS, {"default": DEFAULT_FLAVOR, "tooltip": PROMPT_STYLE_TOOLTIP}),
                 "base_prompt": ("STRING", {
                     "multiline": True,
                     "default": "",
                     "tooltip": "Character prompt placed before every expression prompt.",
                 }),
+                "base_negative": ("STRING", {"multiline": True, "default": ""}),
                 "expressions": ("STRING", {
                     "default": "all",
                     "tooltip": "'all', or a comma separated list such as: joy, anger, surprise",
                 }),
-            }
+            },
+            "optional": {
+                "ckpt_name": (checkpoint_choices(), {"tooltip": "Only used to pick the prompt style when it is 'auto'."}),
+                "lora_trigger": ("STRING", {"forceInput": True, "tooltip": "Trigger words from AutoExpress Expression LoRAs."}),
+            },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "INT")
-    RETURN_NAMES = ("prompts", "names", "count")
-    OUTPUT_IS_LIST = (True, True, False)
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "INT")
+    RETURN_NAMES = ("prompts", "names", "negative", "count")
+    OUTPUT_IS_LIST = (True, True, False, False)
     OUTPUT_TOOLTIPS = (
         "One prompt per expression. Connect to FaceDetailer's wildcard input.",
         "Expression names, in the same order as the prompts.",
+        "Negative prompt with the family's negative tags added.",
         "Number of expressions.",
     )
     FUNCTION = "build"
     CATEGORY = CATEGORY
     DESCRIPTION = "Builds the AutoExpress expression prompts. Downstream nodes run once per expression."
 
-    def build(self, flavor, base_prompt, expressions):
-        selected = get_expressions(flavor, parse_selection(expressions))
-        if not selected:
-            raise ValueError(f"No expressions matched '{expressions}'. Valid names: {', '.join(expression_names(flavor))}")
-        names = list(selected)
-        prompts = [join_prompt(base_prompt, tags) for tags in selected.values()]
-        return (prompts, names, len(names))
+    def build(self, prompt_style, base_prompt, base_negative, expressions, ckpt_name="", lora_trigger=""):
+        family = resolve_flavor(prompt_style, ckpt_name)
+        all_names = expression_sets.load_family(family)["expressions"]
+        wanted = parse_selection(expressions)
+        names = [name for name in all_names if wanted is None or name in wanted]
+        if not names:
+            raise ValueError(f"No expressions matched '{expressions}'. Valid names: {', '.join(all_names)}")
+
+        base = expression_sets.join_prompt(base_prompt, lora_trigger)
+        prompts = [expression_sets.build_prompt(base, name, family) for name in names]
+        negative = expression_sets.build_negative(base_negative, family)
+        log.info(f"AutoExpress: {len(names)} {family} expression prompts.")
+        return (prompts, names, negative, len(names))
 
 
 class AutoExpressExpressionPrompt:
@@ -103,10 +131,13 @@ class AutoExpressExpressionPrompt:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "flavor": (list(FLAVORS), {"default": DEFAULT_FLAVOR}),
+                "prompt_style": (FLAVORS, {"default": DEFAULT_FLAVOR, "tooltip": PROMPT_STYLE_TOOLTIP}),
                 "expression": (expression_names(), {"default": "joy"}),
                 "base_prompt": ("STRING", {"multiline": True, "default": ""}),
-            }
+            },
+            "optional": {
+                "ckpt_name": (checkpoint_choices(),),
+            },
         }
 
     RETURN_TYPES = ("STRING", "STRING")
@@ -114,9 +145,78 @@ class AutoExpressExpressionPrompt:
     FUNCTION = "build"
     CATEGORY = CATEGORY
 
-    def build(self, flavor, expression, base_prompt):
-        tags = get_expressions(flavor)[expression]
-        return (join_prompt(base_prompt, tags), expression)
+    def build(self, prompt_style, expression, base_prompt, ckpt_name=""):
+        family = resolve_flavor(prompt_style, ckpt_name)
+        return (expression_sets.build_prompt(base_prompt, expression, family), expression)
+
+
+class AutoExpressExpressionLoras:
+    """Applies the expression LoRAs that match the checkpoint, downloading them from Civitai when missing."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "ckpt_name": (checkpoint_choices(), {"tooltip": "The checkpoint you loaded, used to pick the LoRA architecture."}),
+                "prompt_style": (FLAVORS, {"default": DEFAULT_FLAVOR, "tooltip": PROMPT_STYLE_TOOLTIP}),
+                "architecture": ([AUTO] + expression_loras.architectures(), {"default": AUTO}),
+                "download_missing": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "civitai_api_key": ("STRING", {
+                    "default": "",
+                    "tooltip": f"Needed by Civitai for downloads. Leave empty to use the {expression_loras.CIVITAI_KEY_ENV} environment variable.",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("MODEL", "CLIP", "STRING")
+    RETURN_NAMES = ("model", "clip", "lora_trigger")
+    OUTPUT_TOOLTIPS = (
+        "Model with the expression LoRAs applied.",
+        "CLIP with the expression LoRAs applied.",
+        "Trigger words. Connect to AutoExpress Expression Prompts.",
+    )
+    FUNCTION = "apply"
+    CATEGORY = CATEGORY
+
+    def apply(self, model, clip, ckpt_name, prompt_style, architecture, download_missing, civitai_api_key=""):
+        family = resolve_flavor(prompt_style, ckpt_name)
+        if architecture == AUTO:
+            architecture = expression_loras.guess_architecture(ckpt_name, family)
+
+        lora_dir = folder_paths.get_folder_paths("loras")[0]
+        if download_missing:
+            _, failures = expression_loras.ensure_loras(
+                architecture, lora_dir, civitai_api_key or None, log=log.info
+            )
+            for failure in failures:
+                log.warning(failure)
+
+        triggers = []
+        for entry in expression_loras.loras_for(architecture):
+            path = self._find(entry)
+            if path is None:
+                log.warning(f"AutoExpress: expression LoRA {entry['name']} is not installed, skipping.")
+                continue
+            lora = comfy.utils.load_torch_file(path, safe_load=True)
+            model, clip = comfy.sd.load_lora_for_models(model, clip, lora, entry["weight"], entry["weight"])
+            if entry.get("trigger"):
+                triggers.append(entry["trigger"])
+            log.info(f"AutoExpress: applied {entry['name']} at {entry['weight']} ({architecture}).")
+
+        return (model, clip, ", ".join(triggers))
+
+    @staticmethod
+    def _find(entry) -> str | None:
+        names = [entry["name"], os.path.splitext(entry.get("original_file") or "")[0]]
+        for name in filter(None, names):
+            path = folder_paths.get_full_path("loras", name + expression_loras.LORA_EXTENSION)
+            if path:
+                return path
+        return None
 
 
 class AutoExpressSaveExpressions:
@@ -187,6 +287,7 @@ class AutoExpressSpriteSheet:
 NODE_CLASS_MAPPINGS = {
     "AutoExpressExpressionPrompts": AutoExpressExpressionPrompts,
     "AutoExpressExpressionPrompt": AutoExpressExpressionPrompt,
+    "AutoExpressExpressionLoras": AutoExpressExpressionLoras,
     "AutoExpressSaveExpressions": AutoExpressSaveExpressions,
     "AutoExpressSpriteSheet": AutoExpressSpriteSheet,
 }
@@ -194,6 +295,7 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "AutoExpressExpressionPrompts": "AutoExpress Expression Prompts",
     "AutoExpressExpressionPrompt": "AutoExpress Expression Prompt",
+    "AutoExpressExpressionLoras": "AutoExpress Expression LoRAs",
     "AutoExpressSaveExpressions": "AutoExpress Save Expressions",
     "AutoExpressSpriteSheet": "AutoExpress Sprite Sheet",
 }

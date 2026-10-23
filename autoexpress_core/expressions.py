@@ -1,53 +1,63 @@
-import json
-import pathlib
-from functools import lru_cache
+"""
+Expression prompts, one set per model family (see expression_sets).
 
-RESOURCES = pathlib.Path(__file__).parent / "resources"
+FLAVORS lists the choices a UI can offer: "auto" plus every family id.
+The old flavor names still work: "anime" maps to danbooru, "realistic" to sdxl_base.
+"""
 
-# Prompt flavours. Anime uses booru style tags, the others use natural language
-# descriptions that work better with CLIP/T5 style text encoders.
-FLAVORS = {
-    "anime": "expressions.json",
-    "realistic": "clip_expressions.json",
-    "illustrious": "illu_expressions.json",
+from . import expression_sets
+from .expression_sets import AUTO, join_prompt
+
+LEGACY_FLAVORS = {
+    "anime": "danbooru",
+    "realistic": expression_sets.DEFAULT_REALISTIC_FAMILY,
 }
-DEFAULT_FLAVOR = "anime"
+
+FLAVORS = [AUTO] + [family["id"] for family in expression_sets.list_families()]
+DEFAULT_FLAVOR = AUTO
 
 
-@lru_cache(maxsize=None)
-def _load(flavor: str) -> tuple[tuple[str, str], ...]:
-    if flavor not in FLAVORS:
-        raise ValueError(f"Unknown expression flavor '{flavor}'. Choose from: {', '.join(FLAVORS)}")
-    with open(RESOURCES / FLAVORS[flavor], "r", encoding="utf-8") as exp_file:
-        return tuple(json.load(exp_file).items())
+def resolve_flavor(flavor: str | None = AUTO, checkpoint_name: str | None = None, is_realistic: bool = False) -> str:
+    """Turn a UI choice ("auto", a family id or a legacy flavor) into a family id."""
+    flavor = LEGACY_FLAVORS.get(flavor, flavor)
+    return expression_sets.resolve_family(flavor, checkpoint_name, is_realistic)
 
 
-def get_expressions(flavor: str = DEFAULT_FLAVOR, only: list[str] | None = None) -> dict[str, str]:
+def get_expressions(flavor: str = AUTO, only: list[str] | None = None, checkpoint_name: str | None = None) -> dict[str, str]:
     """
     Get the expression name to prompt mapping for a flavor.
 
     Args:
-        flavor (str): One of FLAVORS.
+        flavor (str): "auto", a family id or a legacy flavor name.
         only (list[str] | None): Optional subset of expression names to keep, in file order.
+        checkpoint_name (str | None): Used to pick the family when flavor is "auto".
 
     Returns:
         dict[str, str]: Expression name mapped to its prompt.
     """
-    expressions = dict(_load(flavor))
+    try:
+        family = resolve_flavor(flavor, checkpoint_name)
+    except KeyError as error:
+        raise ValueError(f"Unknown expression flavor '{flavor}'. Choose from: {', '.join(FLAVORS)}") from error
+
+    expressions = expression_sets.load_family(family)["expressions"]
     if only:
         wanted = {name.strip().lower() for name in only if name and name.strip()}
         expressions = {name: tags for name, tags in expressions.items() if name in wanted}
     return expressions
 
 
-def expression_names(flavor: str = DEFAULT_FLAVOR) -> list[str]:
-    return [name for name, _ in _load(flavor)]
+def expression_names(flavor: str = AUTO) -> list[str]:
+    return list(get_expressions(flavor))
 
 
-def join_prompt(base_prompt: str | None, expression_prompt: str | None) -> str:
-    """Append an expression prompt to a base prompt, separated by a comma."""
-    parts = [
-        part.strip().rstrip(",").strip()
-        for part in (base_prompt or "", expression_prompt or "")
-    ]
-    return ", ".join(part for part in parts if part)
+__all__ = [
+    "AUTO",
+    "FLAVORS",
+    "DEFAULT_FLAVOR",
+    "LEGACY_FLAVORS",
+    "resolve_flavor",
+    "get_expressions",
+    "expression_names",
+    "join_prompt",
+]
