@@ -1,0 +1,42 @@
+{
+  "name": "Pony Diffusion",
+  "description": "Pony Diffusion V6 XL and its merges. Uses score_ quality tags and mixed danbooru/e621 vocabulary.",
+  "models": [
+    "Pony Diffusion V6 XL",
+    "AutismMix",
+    "Pony Realism",
+    "CyberRealistic Pony"
+  ],
+  "quality_tags": "score_9, score_8_up, score_7_up",
+  "negative": "score_4, score_5, score_6",
+  "expressions": {
+    "admiration": "admiration, light smile, sparkling eyes, raised eyebrows, looking up, blush",
+    "amusement": "amused, smirk, half-closed eyes, head tilt, one eye closed",
+    "anger": "angry, glaring, v-shaped eyebrows, clenched teeth, open mouth, furrowed brow",
+    "annoyance": "annoyed, frown, pout, half-closed eyes, looking to the side",
+    "approval": "smile, closed mouth, half-closed eyes, looking at viewer, light blush",
+    "caring": "gentle smile, upturned eyebrows, half-closed eyes, head tilt, light blush",
+    "confusion": "confused, ?, head tilt, raised eyebrow, parted lips",
+    "curiosity": "curious, head tilt, wide-eyed, raised eyebrows, :o",
+    "desire": "seductive smile, bedroom eyes, half-closed eyes, blush, lip biting",
+    "disappointment": "disappointed, frown, looking down, upturned eyebrows, half-closed eyes",
+    "disapproval": "disapproving, frown, jitome, furrowed brow, closed mouth",
+    "disgust": "disgust, grimace, jitome, wavy mouth, furrowed brow, shaded face",
+    "embarrassment": "embarrassed, full-face blush, looking away, wavy mouth, sweatdrop",
+    "excitement": "excited, sparkling eyes, open mouth, :d, blush",
+    "fear": "scared, wide-eyed, constricted pupils, open mouth, sweat, trembling",
+    "gratitude": "grateful, smile, closed eyes, ^_^, happy tears, light blush",
+    "grief": "crying, streaming tears, sobbing, open mouth, upturned eyebrows",
+    "joy": "happy, laughing, open mouth, :d, closed eyes, blush",
+    "love": "heart-shaped pupils, blush, smile, half-closed eyes, looking at viewer",
+    "nervousness": "nervous, nervous smile, sweatdrop, wavy mouth, upturned eyebrows, blush",
+    "neutral": "expressionless, closed mouth, looking at viewer",
+    "optimism": "determined, smile, sparkling eyes, looking up, closed mouth",
+    "pride": "smug, smirk, half-closed eyes, raised eyebrow, closed mouth",
+    "realization": "surprised, wide-eyed, open mouth, :o, raised eyebrows, !",
+    "relief": "relieved, light smile, closed eyes, sigh, sweat",
+    "remorse": "guilty, tearing up, looking down, upturned eyebrows, frown",
+    "sadness": "sad, tears, frown, upturned eyebrows, looking down",
+    "surprise": "surprised, wide-eyed, constricted pupils, open mouth, raised eyebrows, !"
+  }
+}

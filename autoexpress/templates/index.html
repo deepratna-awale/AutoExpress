@@ -149,16 +149,27 @@
 
         <div class="sidebar-add-space"></div>
 
-        <!-- Style Selector -->
-        <div class="switch-container">
-          <label class="switch-label">Anime</label>
-          <label class="switch">
-            <input type="checkbox" id="styleSelector" /> <!--checked-->
-            <span class="slider round anime"></span>
-          </label>
-          <label class="switch-label">Realistic</label>
+        <!-- Expression Prompt Style -->
+        <div class="input-container select-container">
+          <label for="expression-family-input">Prompt Style</label>
+          <select id="expression-family-input" name="expression-family">
+            <option value="auto">Auto (from model name)</option>
+          </select>
         </div>
-      
+
+        <!-- Expression LoRAs -->
+        <div class="input-container">
+          <label for="expression-loras-toggle"
+            title="Adds expression LoRAs that match the model, downloading them from Civitai if the WebUI's LoRA folder is reachable.">Expression LoRAs</label>
+          <div class="switch-container">
+            <label class="switch-label">Off</label>
+            <label class="switch">
+              <input type="checkbox" id="expression-loras-toggle" checked />
+              <span class="slider round"></span>
+            </label>
+            <label class="switch-label">On</label>
+          </div>
+        </div>
 
         <div class="sidebar-add-space"></div>
         <!-- Settings cog icon -->
@@ -182,6 +193,15 @@
                   </label>
                   <label class="switch-label">On</label>
                 </div>
+              </div>
+              <h2>Expression LoRAs</h2>
+              <div class="input-container">
+                <label for="lora-dir-input">WebUI LoRA folder</label>
+                <input type="text" id="lora-dir-input" placeholder="Auto-detected when the WebUI runs on this machine" />
+              </div>
+              <div class="input-container">
+                <label for="civitai-key-input">Civitai API key</label>
+                <input type="password" id="civitai-key-input" autocomplete="off" placeholder="Needed to download LoRAs from Civitai" />
               </div>
             </div>
             <!-- End of FrontEnd Settings (Modal Content) -->
@@ -262,7 +282,7 @@
   <script src="{{ url_for('static', filename='js/image_drag_and_drop.js') }}"></script>
   <script src="{{ url_for('static', filename='js/generate.js') }}"></script>
   <script src="{{ url_for('static', filename='js/image_viewer.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/anime_toggle.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/expression_family.js') }}"></script>
   <script src="{{ url_for('static', filename='js/frontend_settings.js') }}"></script>
   <script src="{{ url_for('static', filename='js/multi_select.js') }}"></script>
 </body>

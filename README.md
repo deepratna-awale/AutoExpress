@@ -19,6 +19,35 @@ Automatically creates 28 different expressions from a given image using [Automat
 
 </p>
 
+## Prompt Styles
+
+Different checkpoints understand prompts differently, so the expression prompts come in one set per model family. Pick one from the **Prompt Style** dropdown, or leave it on **Auto** to choose from the checkpoint name.
+
+| Prompt Style | Use for | Quality tags added |
+| --- | --- | --- |
+| Danbooru tags | SD1.5 anime models, Animagine, Anything, Counterfeit | `masterpiece, best quality` |
+| e621 tags | Furry/anthro models (FluffyRock, Fluffusion, YiffyMix) | `best quality, detailed` |
+| Pony Diffusion | Pony V6 XL and merges | `score_9, score_8_up, score_7_up` |
+| Illustrious / NoobAI | Illustrious-XL, NoobAI-XL, WAI | `masterpiece, best quality, amazing quality` |
+| SDXL / SD1.5 (CLIP) | General and realistic SDXL/SD1.5 models | none |
+| Natural language | Flux, SD3/3.5, HiDream, Chroma, Qwen-Image, Lumina (for face detailing on Flux, use dev rather than schnell) | none |
+
+Quality and negative tags are only added when your prompt doesn't already contain them. The sets live in `autoexpress/resources/expressions/`, one JSON file per family, so adding a new family is just adding a file.
+
+### Expression LoRAs
+
+AutoExpress also adds a LoRA that helps faces show emotion, matched to the checkpoint's architecture:
+
+| Architecture | LoRA |
+| --- | --- |
+| Pony | [Facial Expressions (Pony v1.0)](https://civitai.com/models/541620?modelVersionId=1815859) |
+| Illustrious / NoobAI | [Facial Expressions (Illu v1.0)](https://civitai.com/models/541620?modelVersionId=1815930) + [Face Enhancer Illustrious](https://civitai.com/models/1625070) |
+| SDXL | [Facial Expressions (XL v3)](https://civitai.com/models/541620?modelVersionId=761462) |
+| SD1.5 | [Facial Expressions (SD1.5)](https://civitai.com/models/541620?modelVersionId=715217) |
+| Flux | [Expression Helper 2.0](https://civitai.com/models/914282) |
+
+If the WebUI runs on the same machine (or you set **WebUI LoRA folder** in settings, or `AUTOEXPRESS_LORA_DIR`), missing LoRAs are downloaded there automatically and checked against their SHA-256. Civitai requires an API key for downloads: enter it in settings or set `CIVITAI_API_KEY`. If the folder isn't reachable, AutoExpress uses the LoRAs only when they're already installed on the server. Turn them off with the **Expression LoRAs** switch. The list lives in `autoexpress/resources/expression_loras.json`.
+
 
 # Examples
 
