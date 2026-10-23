@@ -31,6 +31,10 @@ function followJob(jobId, button) {
                     // e.g. ADetailer or the ComfyUI Impact Pack is missing on the selected WebUI
                     alert(job.error.message);
                 }
+                if (job.notes && job.notes.length) {
+                    // e.g. expression LoRAs to install on the WebUI by hand, with their download links
+                    alert(job.notes.map(note => note.message).join('\n\n'));
+                }
             })
             .catch(error => {
                 console.error('Lost track of the job:', error);

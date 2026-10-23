@@ -22,8 +22,11 @@ from .base import (
     BackendError,
     BackendNotReady,
     BackendRejected,
+    Capability,
     FaceEditRequest,
+    Fix,
     RemoteBackend,
+    listed,
     match_choice,
 )
 from .comfyui_api import SAMPLERS, SCHEDULERS, pick
@@ -130,6 +133,55 @@ class SwarmUIClient(RemoteBackend):
         self._params = None
         if not self._list_models("Stable-Diffusion"):
             raise BackendNotReady("SwarmUI has no Stable Diffusion models.")
+
+    def capabilities(self) -> list[Capability]:
+        self._session_id = None
+        self._params = None
+        self._new_swarm_session()
+        items = [Capability("api", "SwarmUI API", True)]
+        items.append(
+            listed(
+                "Models",
+                self._list_models("Stable-Diffusion"),
+                Fix(["Put a Stable Diffusion checkpoint in SwarmUI's Models/Stable-Diffusion folder, or download one from the Models tab, then re-check."]),
+            )
+        )
+        try:
+            faces = [m for m in self.param_values("yolomodelinternal") if "face" in m.lower()]
+        except BackendError:
+            faces = []
+        items.append(
+            listed(
+                "YOLO face model",
+                faces,
+                Fix(
+                    [
+                        "Optional. Without one, AutoExpress finds the face with CLIPSeg (<segment:face>), which works but is less exact.",
+                        "For better masks, put face_yolov8m.pt in SwarmUI's Models/yolov8 folder and restart SwarmUI.",
+                    ],
+                    links=[Fix.link("face_yolov8m.pt", "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt")],
+                ),
+                required=False,
+                key="face_model",
+            )
+        )
+        items.append(listed("LoRAs", self.loras, required=False))
+        items.append(
+            Capability(
+                "lora_folder",
+                "Automatic expression LoRA downloads",
+                False,
+                "SwarmUI's LoRA folder isn't reachable from AutoExpress",
+                required=False,
+                fix=Fix(
+                    [
+                        "Optional. AutoExpress lists any missing expression LoRA with its download link when you generate.",
+                        "Download each one in SwarmUI's Models tab (Download from URL, type LoRA), or put it in Models/Lora.",
+                    ]
+                ),
+            )
+        )
+        return items
 
     def server_info(self) -> dict:
         if not self._server:

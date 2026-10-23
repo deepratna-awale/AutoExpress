@@ -18,9 +18,13 @@ from PIL import Image
 from ..civitai_key import webui_config_sources, webui_option_sources
 from ..images import b64_to_pil
 from ..log import log
-from .base import BackendError, BackendNotReady, BackendRejected, RemoteBackend
+from .base import BackendError, BackendNotReady, BackendRejected, Capability, Fix, RemoteBackend, listed
 
 ADETAILER = "adetailer"
+ADETAILER_REPO = "https://github.com/Bing-su/adetailer"
+ADETAILER_MODELS = "https://huggingface.co/Bingsu/adetailer/tree/main"
+# safetensors metadata keys (kohya / modelspec) that identify a LoRA whatever its file is called
+LORA_IDENTITY_KEYS = ("sshs_model_hash", "sshs_legacy_hash", "ss_output_name", "modelspec.hash_sha256")
 
 
 def _image_size(b64_image) -> tuple[int, int] | None:
@@ -68,6 +72,7 @@ class A1111Client(RemoteBackend):
             "cmd_flags": "/sdapi/v1/cmd-flags",
             "progress": "/sdapi/v1/progress",
             "options": "/sdapi/v1/options",
+            "ad_models": "/adetailer/v1/ad_model",
         }
 
     def on_url_changed(self) -> None:
@@ -91,6 +96,20 @@ class A1111Client(RemoteBackend):
     @property
     def loras(self) -> list[str]:
         return self._safe_list("loras", lambda: (lora["name"] for lora in self._get_json(self._endpoints["loras"])))
+
+    def lora_identities(self) -> dict[str, set[str]]:
+        """Hashes and training names from each LoRA's safetensors metadata, which survive renaming the file."""
+        try:
+            listed_loras = self._get_json(self._endpoints["loras"])
+        except BackendError:
+            return {}
+        identities = {}
+        for lora in listed_loras if isinstance(listed_loras, list) else []:
+            metadata = lora.get("metadata") or {}
+            values = {str(metadata.get(key)).strip().lower() for key in LORA_IDENTITY_KEYS if metadata.get(key)}
+            if values and lora.get("name"):
+                identities[lora["name"]] = values
+        return identities
 
     @property
     def samplers(self) -> list[str]:
@@ -349,6 +368,98 @@ class A1111Client(RemoteBackend):
         if not self.models:
             raise BackendNotReady(f"{self.label} has no checkpoints.")
 
+    # How to start the WebUI with its API on, shown when /sdapi/v1 isn't served.
+    api_fix = Fix(
+        [
+            "Add --api to the WebUI's launch arguments and restart it:",
+            "Windows: edit webui-user.bat, set COMMANDLINE_ARGS=--api",
+            "Linux/macOS: edit webui-user.sh, export COMMANDLINE_ARGS=\"--api\"",
+            "Hosted (RunPod, etc.): add --api to the template's launch arguments.",
+        ],
+        ["--api"],
+    )
+
+    def capabilities(self) -> list[Capability]:
+        try:
+            self._get_json(self._endpoints["samplers"], timeout=10)
+        except BackendRejected as e:
+            return [Capability("api", f"{self.label} API (--api)", False, str(e), fix=self.api_fix)]
+        items = [Capability("api", f"{self.label} API (--api)", True)]
+
+        adetailer = self.is_extension(ADETAILER)
+        items.append(
+            Capability(
+                "adetailer",
+                "ADetailer extension",
+                adetailer,
+                "Installed and enabled" if adetailer else "Not installed, or disabled",
+                fix=Fix(
+                    [
+                        f"In {self.label}, open Extensions > Install from URL.",
+                        f"Paste {ADETAILER_REPO} and press Install.",
+                        "Open Extensions > Installed, press Apply and restart UI, then restart the WebUI process.",
+                    ],
+                    [ADETAILER_REPO],
+                    [Fix.link("ADetailer on GitHub", ADETAILER_REPO)],
+                ),
+            )
+        )
+        if adetailer:
+            items.append(self._face_model_capability())
+
+        items.append(
+            listed(
+                "Checkpoints",
+                self.models,
+                Fix(
+                    [
+                        "Put a Stable Diffusion checkpoint (.safetensors) in the WebUI's models/Stable-diffusion folder.",
+                        "Press the refresh button next to the checkpoint dropdown, then re-check here.",
+                    ]
+                ),
+            )
+        )
+        items.append(listed("Samplers", self.samplers))
+        items.append(listed("LoRAs", self.loras, required=False))
+        items.append(self._lora_folder_capability())
+        return items
+
+    def _face_model_capability(self) -> Capability:
+        try:
+            models = self._get_json(self._endpoints["ad_models"], timeout=10).get("ad_model") or []
+        except (BackendError, AttributeError):
+            return Capability("face_model", "ADetailer face model", True, "This ADetailer version doesn't list its models.")
+        faces = [m for m in models if "face" in m.lower()]
+        return listed(
+            "ADetailer face model",
+            faces,
+            Fix(
+                [
+                    "ADetailer downloads face_yolov8n.pt on first start; if it couldn't, download it yourself:",
+                    "Put face_yolov8n.pt (or face_yolov8m.pt) in the WebUI's models/adetailer folder and restart.",
+                ],
+                links=[Fix.link("ADetailer models on Hugging Face", ADETAILER_MODELS)],
+            ),
+            key="face_model",
+        )
+
+    def _lora_folder_capability(self) -> Capability:
+        folder = self.lora_dir
+        return Capability(
+            "lora_folder",
+            "Automatic expression LoRA downloads",
+            bool(folder),
+            f"LoRA folder {folder} is on this machine" if folder else
+            "The WebUI's LoRA folder isn't on this machine, so missing expression LoRAs have to be installed on the WebUI",
+            required=False,
+            fix=Fix(
+                [
+                    "Optional. AutoExpress lists any missing expression LoRA with its download link when you generate.",
+                    "Put each one in the WebUI's models/Lora folder and press refresh in the LoRA tab.",
+                ]
+            ),
+        )
+
     def server_info(self) -> dict:
         info = {"alwayson_scripts": sorted(self.alwayson_scripts() or [])}
         try:
@@ -392,3 +503,9 @@ class SDNextClient(A1111Client):
 
     kind = "sdnext"
     label = "SD.Next"
+    api_fix = Fix(
+        [
+            "SD.Next serves its API by default. Check that the address points at SD.Next itself,",
+            "and that a proxy in front of it passes /sdapi/ through.",
+        ]
+    )

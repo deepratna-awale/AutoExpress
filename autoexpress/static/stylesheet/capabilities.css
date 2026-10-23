@@ -1,0 +1,80 @@
+.capabilities {
+    margin: 10px 0px;
+    padding: 10px;
+    border-radius: 10px;
+    background-color: var(--input-background-color);
+    color: var(--font-color);
+    font-size: small;
+}
+
+.capabilities-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+    margin-bottom: 6px;
+}
+
+.capabilities-header button,
+.capability-command button {
+    border: none;
+    border-radius: 6px;
+    padding: 3px 8px;
+    cursor: pointer;
+}
+
+#capabilities-list {
+    list-style: none;
+    margin: 0px;
+    padding: 0px;
+}
+
+.capability {
+    padding: 4px 0px;
+}
+
+.capability-summary {
+    display: flex;
+    gap: 6px;
+}
+
+.capability-ok .capability-mark { color: #3fb950; }
+.capability-missing .capability-mark { color: #f85149; }
+.capability-optional .capability-mark { color: #d29922; }
+
+.capability-detail {
+    opacity: 0.75;
+    margin-left: 18px;
+    overflow-wrap: anywhere;
+}
+
+.capability-fix {
+    margin: 4px 0px 4px 18px;
+}
+
+.capability-fix ol {
+    margin: 0px;
+    padding-left: 18px;
+}
+
+.capability-command {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.capability-command code {
+    flex: auto;
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 3px 6px;
+    border-radius: 6px;
+    background-color: rgba(0, 0, 0, 0.25);
+}
+
+.capability-link {
+    display: block;
+    margin-top: 4px;
+    color: inherit;
+}
