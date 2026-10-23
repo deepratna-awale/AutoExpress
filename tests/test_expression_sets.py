@@ -49,6 +49,8 @@ def test_resolve_family():
     assert expression_sets.resolve_family("auto", "flux1-dev") == "natural_language"
     with pytest.raises(KeyError):
         expression_sets.resolve_family("not-a-family")
+    with pytest.raises(KeyError):
+        expression_sets.load_family("../payload")
 
 
 def test_build_prompt_adds_missing_quality_tags_once():

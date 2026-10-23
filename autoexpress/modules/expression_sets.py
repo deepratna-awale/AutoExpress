@@ -32,11 +32,11 @@ _FAMILY_PATTERNS = [
 def list_families():
     """Return [{"id", "name", "description", "models"}] for every family file."""
     families = []
-    for path in sorted(EXPRESSIONS_DIR.glob("*.json")):
-        data = load_family(path.stem)
+    for family_id in sorted(_family_files()):
+        data = load_family(family_id)
         families.append(
             {
-                "id": path.stem,
+                "id": family_id,
                 "name": data["name"],
                 "description": data["description"],
                 "models": data["models"],
@@ -45,10 +45,16 @@ def list_families():
     return families
 
 
+def _family_files():
+    return {path.stem: path for path in EXPRESSIONS_DIR.glob("*.json")}
+
+
 @lru_cache(maxsize=None)
 def _load(family_id):
-    path = EXPRESSIONS_DIR / f"{family_id}.json"
-    if not path.is_file():
+    # Look the id up among the files on disk instead of building a path from
+    # it, so a request can't point the loader outside the expressions folder.
+    path = _family_files().get(family_id)
+    if path is None:
         raise KeyError(f"Unknown expression family: {family_id}")
     with open(path, "r", encoding="utf-8") as family_file:
         return json.load(family_file)
