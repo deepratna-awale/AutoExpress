@@ -9,6 +9,7 @@ from PIL import Image, UnidentifiedImageError
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
+from autoexpress import frontend
 from autoexpress.config import Settings, configure_logging
 from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, JobManager, JobSpec, run_expression_job
 from autoexpress.modules import expression_sets, image_parser
@@ -23,6 +24,7 @@ settings = Settings.from_env()
 configure_logging(settings)
 
 autoexpress = Flask(__name__)
+autoexpress.register_blueprint(frontend.frontend)
 autoexpress.config["UPLOAD_FOLDER"] = str(settings.upload_dir)
 autoexpress.config["MAX_CONTENT_LENGTH"] = settings.max_upload_mb * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
@@ -132,6 +134,13 @@ def handle_unexpected_error(e: Exception):
 # AutoExpress UI
 @autoexpress.route("/", methods=["GET"])
 def index():
+    if frontend.is_built():
+        return frontend.index()
+    return classic()
+
+
+@autoexpress.route("/classic", methods=["GET"])
+def classic():
     return render_template("index.html", backends=describe_backends(), selected=current_backend().kind)
 
 

@@ -1,3 +1,12 @@
+# Build the Next.js frontend into static files
+FROM node:22-slim AS frontend
+WORKDIR /frontend
+RUN corepack enable
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY frontend/ .
+RUN pnpm build
+
 # Use the official Python image and specify a version (e.g., 3.9-slim for a lighter image)
 FROM python:3.10-slim
 
@@ -13,6 +22,7 @@ RUN pip install --upgrade pip \
 
 # Copy the rest of the application code, excluding files and folders defined in .dockerignore
 COPY . .
+COPY --from=frontend /frontend/out ./frontend/out
 
 # Expose the port Flask will run on
 EXPOSE 5000

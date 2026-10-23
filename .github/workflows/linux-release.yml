@@ -44,6 +44,22 @@ jobs:
           cd ..
           echo "Changed directory to $PWD"
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Export the web frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
       - name: Create Linux release package
         run: |
           version="${{ inputs.tag_name }}"
@@ -55,7 +71,7 @@ jobs:
           mkdir -p "$folder"
 
           # Copy all files except excluded ones
-          rsync -av --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='.github' --exclude="$folder" . "$folder/"
+          rsync -av --exclude='frontend/node_modules' --exclude='frontend/.next' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='.github' --exclude="$folder" . "$folder/"
 
           # Check if RELEASE_README.md exists and copy/rename it
           if [ -f "$folder/RELEASE_README.md" ]; then

@@ -1,0 +1,448 @@
+"use client";
+
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+  api,
+  resolveOutputDir,
+  type BackendInfo,
+  type ExpressionFamily,
+  type LoraSelection,
+  type UploadResponse,
+} from "@/lib/api";
+
+export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
+
+export interface SelectedLora {
+  name: string;
+  strength: number;
+}
+
+export interface Parameters {
+  model: string;
+  sampler: string;
+  scheduler: string;
+  loras: SelectedLora[];
+  clipSkip: number;
+  seed: number;
+  steps: number;
+  width: number;
+  height: number;
+  cfgScale: number;
+  denoisingStrength: number;
+  prompt: string;
+  negativePrompt: string;
+}
+
+export const DEFAULT_PARAMETERS: Parameters = {
+  model: "",
+  sampler: "",
+  scheduler: "",
+  loras: [],
+  clipSkip: 2,
+  seed: -1,
+  steps: 32,
+  width: 512,
+  height: 768,
+  cfgScale: 7,
+  denoisingStrength: 0.5,
+  prompt: "",
+  negativePrompt: "",
+};
+
+export const AUTO_FAMILY = "auto";
+const POLL_INTERVAL_MS = 2500;
+const SETTINGS_KEY = "autoexpress-connection";
+
+interface Options {
+  models: string[];
+  samplers: string[];
+  schedulers: string[];
+  loras: string[];
+}
+
+interface AutoExpressState {
+  // Connection
+  backends: BackendInfo[] | null;
+  backend: string;
+  setBackend: (id: string) => void;
+  apiUrl: string;
+  setApiUrl: (url: string) => void;
+  connection: ConnectionStatus;
+  connect: () => Promise<void>;
+  options: Options;
+
+  // Prompt style
+  families: ExpressionFamily[] | null;
+  family: string;
+  setFamily: (id: string) => void;
+  isRealistic: boolean;
+  setRealistic: (value: boolean) => void;
+
+  // Parameters
+  params: Parameters;
+  setParam: <K extends keyof Parameters>(key: K, value: Parameters[K]) => void;
+
+  // Input image
+  file: File | null;
+  imageDataUrl: string | null;
+  rawMetadata: string | null;
+  uploading: boolean;
+  setFile: (file: File | null) => Promise<void>;
+
+  // Generation and output
+  outputDirectory: string;
+  setOutputDirectory: (dir: string) => void;
+  generating: boolean;
+  generate: () => Promise<void>;
+  interrupt: () => Promise<void>;
+  images: string[];
+  galleryDir: string;
+  galleryVersion: number;
+  loadImages: (dir?: string, refresh?: boolean) => Promise<void>;
+}
+
+const AutoExpressContext = createContext<AutoExpressState | undefined>(undefined);
+
+function toNumber(value: unknown, fallback: number) {
+  const n = typeof value === "number" ? value : parseFloat(String(value));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeLoras(loras: LoraSelection[] | string | null | undefined): SelectedLora[] {
+  if (!Array.isArray(loras)) return [];
+  return loras
+    .filter((lora) => lora && typeof lora.lora_name === "string")
+    .map((lora) => ({ name: lora.lora_name.trim(), strength: toNumber(lora.lora_strength, 1) }));
+}
+
+function loraTag(name: string) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`<lora:\\s*${escaped}\\s*:[^>]*>`, "gi");
+}
+
+/**
+ * The backend appends every selected LoRA to the prompt. LoRAs already written in
+ * the prompt (e.g. read from the input image) get the strength from the LoRA list
+ * instead of being added a second time.
+ */
+function applyLoras(prompt: string, loras: SelectedLora[]) {
+  let adPrompt = prompt;
+  const extra: LoraSelection[] = [];
+  for (const lora of loras) {
+    const tag = loraTag(lora.name);
+    if (tag.test(adPrompt)) {
+      adPrompt = adPrompt.replace(loraTag(lora.name), `<lora:${lora.name}:${lora.strength}>`);
+    } else {
+      extra.push({ lora_name: lora.name, lora_strength: lora.strength });
+    }
+  }
+  return { adPrompt, extra };
+}
+
+function readDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+export function AutoExpressProvider({ children }: { children: React.ReactNode }) {
+  const [backends, setBackends] = useState<BackendInfo[] | null>(null);
+  const [backend, setBackendState] = useState("a1111");
+  const [apiUrl, setApiUrl] = useState("");
+  const [connection, setConnection] = useState<ConnectionStatus>("idle");
+  const [options, setOptions] = useState<Options>({ models: [], samplers: [], schedulers: [], loras: [] });
+
+  const [families, setFamilies] = useState<ExpressionFamily[] | null>(null);
+  const [family, setFamilyState] = useState(AUTO_FAMILY);
+  const [isRealistic, setRealisticState] = useState(false);
+
+  const [params, setParams] = useState<Parameters>(DEFAULT_PARAMETERS);
+
+  const [file, setFileState] = useState<File | null>(null);
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [rawMetadata, setRawMetadata] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const [outputDirectory, setOutputDirectory] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [images, setImages] = useState<string[]>([]);
+  const [galleryDir, setGalleryDir] = useState("");
+  const [galleryVersion, setGalleryVersion] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const setParam = useCallback(<K extends keyof Parameters>(key: K, value: Parameters[K]) => {
+    setParams((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  // Restore the last used connection, then let the server's state win when it has one.
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+      if (saved?.apiUrl) setApiUrl(saved.apiUrl);
+      if (saved?.backend) setBackendState(saved.backend);
+    } catch {
+      // Storage unavailable
+    }
+
+    api
+      .backends()
+      .then((data) => {
+        if (!data) return;
+        setBackends(data.backends);
+        if (data.selected) setBackendState(data.selected);
+        if (data.url) setApiUrl(data.url);
+      })
+      .catch(() => setBackends(null));
+
+    api
+      .expressionFamilies()
+      .then((data) => {
+        if (!data) return;
+        setFamilies(data.families);
+        setFamilyState(data.selected || AUTO_FAMILY);
+      })
+      .catch(() => setFamilies(null));
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ apiUrl, backend }));
+    } catch {
+      // Storage unavailable
+    }
+  }, [apiUrl, backend]);
+
+  const setBackend = useCallback(
+    (id: string) => {
+      const previous = backends?.find((b) => b.id === backend);
+      const next = backends?.find((b) => b.id === id);
+      // Swap the URL along with the backend unless the user typed a custom one.
+      if (next && (!apiUrl || apiUrl === previous?.default_url)) {
+        setApiUrl(next.default_url);
+      }
+      setBackendState(id);
+      setConnection("idle");
+    },
+    [apiUrl, backend, backends]
+  );
+
+  const connect = useCallback(async () => {
+    setConnection("connecting");
+    try {
+      await api.connect(apiUrl.trim(), backends ? backend : undefined);
+      const [models, samplers, schedulers, loras] = await Promise.all([
+        api.models(),
+        api.samplers(),
+        api.schedulers(),
+        api.loras(),
+      ]);
+      setOptions({ models, samplers, schedulers, loras });
+      if (models.length === 0) {
+        setConnection("error");
+        toast.error("Connected, but the WebUI returned no models. Is it running with its API enabled?");
+      } else {
+        setConnection("connected");
+        toast.success(`Connected: ${models.length} models, ${loras.length} LoRAs`);
+      }
+    } catch (error) {
+      setConnection("error");
+      toast.error(`Could not connect: ${error instanceof Error ? error.message : error}`);
+    }
+  }, [apiUrl, backend, backends]);
+
+  const setFamily = useCallback((id: string) => {
+    const previous = family;
+    setFamilyState(id);
+    api.setExpressionFamily(id).catch((error) => {
+      setFamilyState(previous);
+      toast.error(`Could not set prompt style: ${error instanceof Error ? error.message : error}`);
+    });
+  }, [family]);
+
+  const setRealistic = useCallback((value: boolean) => {
+    setRealisticState(value);
+    api.setRealistic(value).catch((error) => {
+      setRealisticState(!value);
+      toast.error(`Could not set style: ${error instanceof Error ? error.message : error}`);
+    });
+  }, []);
+
+  const applyImageData = useCallback((data: UploadResponse) => {
+    const cleaned = data.cleaned_data;
+    if (!cleaned) {
+      setParams((prev) => ({
+        ...prev,
+        width: toNumber(data.width, prev.width),
+        height: toNumber(data.height, prev.height),
+      }));
+      toast.info("No generation parameters found in this image, only its size was used.");
+      return;
+    }
+    setParams((prev) => ({
+      ...prev,
+      model: cleaned.ad_checkpoint ?? prev.model,
+      sampler: cleaned.ad_sampler ?? prev.sampler,
+      scheduler: cleaned.ad_scheduler ?? prev.scheduler,
+      loras: normalizeLoras(cleaned.loras),
+      clipSkip: toNumber(cleaned.ad_clip_skip, prev.clipSkip),
+      seed: toNumber(cleaned.seed, prev.seed),
+      steps: toNumber(cleaned.ad_steps, prev.steps),
+      width: toNumber(cleaned.width ?? data.width, prev.width),
+      height: toNumber(cleaned.height ?? data.height, prev.height),
+      cfgScale: toNumber(cleaned.ad_cfg_scale, prev.cfgScale),
+      denoisingStrength: toNumber(cleaned.ad_denoising_strength, prev.denoisingStrength),
+      prompt: cleaned.ad_prompt ?? "",
+      negativePrompt: cleaned.ad_negative_prompt ?? "",
+    }));
+  }, []);
+
+  const setFile = useCallback(
+    async (next: File | null) => {
+      setFileState(next);
+      setRawMetadata(null);
+      if (!next) {
+        setImageDataUrl(null);
+        return;
+      }
+      setOutputDirectory(next.name.trim().split(".").slice(0, -1).join(".") || next.name);
+      setImageDataUrl(await readDataUrl(next));
+
+      setUploading(true);
+      try {
+        const data = await api.upload(next);
+        setRawMetadata(data.uncleaned_data);
+        applyImageData(data);
+      } catch (error) {
+        toast.error(`Could not read image metadata: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        setUploading(false);
+      }
+    },
+    [applyImageData]
+  );
+
+  const loadImages = useCallback(
+    async (dir?: string, refresh = true) => {
+      const target = resolveOutputDir(dir ?? outputDirectory);
+      try {
+        const files = await api.listImages(target);
+        setGalleryDir(target);
+        setImages(files ?? []);
+        // Expressions overwrite files with the same names, so bust the browser cache.
+        if (refresh) setGalleryVersion(Date.now());
+      } catch (error) {
+        toast.error(`Failed to load images: ${error instanceof Error ? error.message : error}`);
+      }
+    },
+    [outputDirectory]
+  );
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+  }, []);
+
+  useEffect(() => stopPolling, [stopPolling]);
+
+  const generate = useCallback(async () => {
+    if (!imageDataUrl) {
+      toast.error("Drop an input image first.");
+      return;
+    }
+    const dir = resolveOutputDir(outputDirectory);
+    const { adPrompt, extra } = applyLoras(params.prompt, params.loras);
+    setGenerating(true);
+    loadImages(dir);
+    stopPolling();
+    pollRef.current = setInterval(() => loadImages(dir, false), POLL_INTERVAL_MS);
+
+    try {
+      const result = await api.generate({
+        init_images: imageDataUrl,
+        output_dir: outputDirectory,
+        ad_scheduler: params.scheduler,
+        loras: extra,
+        seed: params.seed,
+        ad_prompt: adPrompt,
+        ad_negative_prompt: params.negativePrompt,
+        ad_steps: params.steps,
+        ad_checkpoint: params.model,
+        ad_sampler: params.sampler,
+        ad_clip_skip: params.clipSkip,
+        ad_cfg_scale: params.cfgScale,
+        ad_denoising_strength: params.denoisingStrength,
+      });
+      if (result.status === "success") {
+        toast.success(`Finished generating expressions in Output/${dir}`);
+      } else {
+        toast.error(result.message || "Generation failed");
+      }
+    } catch (error) {
+      toast.error(`Generation failed: ${error instanceof Error ? error.message : error}`);
+    } finally {
+      stopPolling();
+      setGenerating(false);
+      loadImages(dir, false);
+    }
+  }, [imageDataUrl, outputDirectory, params, loadImages, stopPolling]);
+
+  const interrupt = useCallback(async () => {
+    try {
+      await api.interrupt();
+      toast.info("Stopping after the current expression.");
+    } catch (error) {
+      toast.error(`Could not interrupt: ${error instanceof Error ? error.message : error}`);
+    }
+  }, []);
+
+  const value = useMemo<AutoExpressState>(
+    () => ({
+      backends,
+      backend,
+      setBackend,
+      apiUrl,
+      setApiUrl,
+      connection,
+      connect,
+      options,
+      families,
+      family,
+      setFamily,
+      isRealistic,
+      setRealistic,
+      params,
+      setParam,
+      file,
+      imageDataUrl,
+      rawMetadata,
+      uploading,
+      setFile,
+      outputDirectory,
+      setOutputDirectory,
+      generating,
+      generate,
+      interrupt,
+      images,
+      galleryDir,
+      galleryVersion,
+      loadImages,
+    }),
+    [
+      backends, backend, setBackend, apiUrl, connection, connect, options, families, family, setFamily,
+      isRealistic, setRealistic, params, setParam, file, imageDataUrl, rawMetadata, uploading, setFile,
+      outputDirectory, generating, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
+    ]
+  );
+
+  return <AutoExpressContext.Provider value={value}>{children}</AutoExpressContext.Provider>;
+}
+
+export function useAutoExpress() {
+  const context = useContext(AutoExpressContext);
+  if (!context) throw new Error("useAutoExpress must be used within an AutoExpressProvider");
+  return context;
+}
