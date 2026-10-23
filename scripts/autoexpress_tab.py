@@ -212,21 +212,29 @@ def generate(
     lora_prompt = ""
     if use_expression_loras:
         yield gallery, "Checking expression LoRAs…", None
-        lora_prompt = expression_lora_prompt(checkpoint_name, family, civitai_api_key)
+        try:
+            lora_prompt = expression_lora_prompt(checkpoint_name, family, civitai_api_key)
+        except Exception as error:  # LoRAs are a bonus, never block generation on them
+            log.warning(f"AutoExpress: skipping expression LoRAs: {error}")
 
     log.info(f"AutoExpress: generating {total} {family} expressions into {output_dir}")
     yield gallery, f"Generating 0/{total} ({family} prompts)…", None
 
-    for name, result in generator.iter_generate(
-        image,
-        settings=settings,
-        flavor=family,
-        only=selected,
-        output_dir=output_dir,
-        lora_prompt=lora_prompt,
-    ):
-        gallery.append((result, name.title()))
-        yield gallery, f"Generating {len(gallery)}/{total}… last: **{name}**", None
+    try:
+        for name, result in generator.iter_generate(
+            image,
+            settings=settings,
+            flavor=family,
+            only=selected,
+            output_dir=output_dir,
+            lora_prompt=lora_prompt,
+        ):
+            gallery.append((result, name.title()))
+            yield gallery, f"Generating {len(gallery)}/{total}… last: **{name}**", None
+    except Exception as error:
+        log.exception("AutoExpress: generation failed")
+        yield gallery, f"**Error:** {type(error).__name__}: {error}. Full traceback in the console.", None
+        return
 
     if generator.stopped:
         status = f"Interrupted after {len(gallery)}/{total} expressions."

@@ -43,17 +43,22 @@ class FakeProcessing:
         self.closed = True
 
 
-@pytest.fixture
-def webui(monkeypatch):
+@pytest.fixture(params=["built_inputs", "rebuild_ui"])
+def webui(monkeypatch, request):
     adetailer = FakeScript("ADetailer", 1, [False, False, {"ad_model": "None"}, {"ad_model": "None"}])
     seed = FakeScript("Seed", 5, [-1, False, -1, 0, 0, 0])
     runner = types.SimpleNamespace(scripts=[adetailer, seed], alwayson_scripts=[adetailer, seed])
+    if request.param == "built_inputs":
+        # What the WebUI keeps after building its img2img tab; ui() must not be called again.
+        runner.inputs = [Component("selectable script")] + adetailer.ui(True) + seed.ui(True)
+        for script in (adetailer, seed):
+            script.ui = lambda is_img2img: pytest.fail("ui() was rebuilt")
 
     calls = {}
 
     def process_images(p):
         calls["p"] = p
-        return types.SimpleNamespace(images=[Image.new("RGB", (8, 8), "blue")])
+        return types.SimpleNamespace(images=[Image.new("RGB", (8, 8), "blue")], infotexts=["1girl, smile\nSteps: 1"])
 
     state = types.SimpleNamespace(
         begin=lambda job: calls.setdefault("begun", job),
@@ -87,6 +92,7 @@ def test_payload_becomes_processing_with_adetailer_args(webui, face_image):
 
     p = webui["p"]
     assert result.size == (8, 8)
+    assert result.info["parameters"] == "1girl, smile\nSteps: 1"
     assert p.kwargs["width"] == face_image.width and p.kwargs["height"] == face_image.height
     assert p.kwargs["do_not_save_samples"] is True
     assert p.closed and webui["ended"]

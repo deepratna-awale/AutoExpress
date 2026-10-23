@@ -40,19 +40,33 @@ class A1111InProcessBackend:
         return scripts.scripts_img2img
 
     def _default_script_args(self, runner) -> list:
-        """Default value of every script UI component, mirroring the WebUI API."""
+        """Default value of every script UI component."""
         if self._default_args is not None:
             return list(self._default_args)
-
-        import gradio as gr
 
         last_arg_index = 1
         for script in runner.scripts:
             if last_arg_index < script.args_to:
                 last_arg_index = script.args_to
 
+        # The components the WebUI built for its img2img tab hold the defaults.
+        # Re-running every script's ui() (what the WebUI API does) breaks inside
+        # a Gradio 4 event on Forge, so that is only the fallback.
+        inputs = list(getattr(runner, "inputs", None) or [])
+        if len(inputs) >= last_arg_index:
+            script_args = [getattr(component, "value", None) for component in inputs[:last_arg_index]]
+        else:
+            script_args = self._default_args_from_ui(runner, last_arg_index)
+
+        script_args[0] = 0  # no selectable script
+        self._default_args = script_args
+        return list(script_args)
+
+    @staticmethod
+    def _default_args_from_ui(runner, last_arg_index: int) -> list:
+        import gradio as gr
+
         script_args = [None] * last_arg_index
-        script_args[0] = 0
         with gr.Blocks():
             for script in runner.scripts:
                 components = script.ui(script.is_img2img)
@@ -60,9 +74,7 @@ class A1111InProcessBackend:
                     script_args[script.args_from:script.args_to] = [
                         getattr(component, "value", None) for component in components
                     ]
-
-        self._default_args = script_args
-        return list(script_args)
+        return script_args
 
     def _script_args(self, runner, alwayson_scripts: dict) -> list:
         script_args = self._default_script_args(runner)
@@ -135,7 +147,12 @@ class A1111InProcessBackend:
 
         if not processed or not processed.images:
             return None
-        return processed.images[0]
+
+        image = processed.images[0]
+        infotexts = getattr(processed, "infotexts", None) or [getattr(processed, "info", "")]
+        if infotexts and infotexts[0] and "parameters" not in image.info:
+            image.info["parameters"] = infotexts[0]
+        return image
 
     def interrupt(self) -> None:
         from modules import shared

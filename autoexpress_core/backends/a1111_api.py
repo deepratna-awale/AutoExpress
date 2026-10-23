@@ -221,7 +221,16 @@ class A1111Client:
         response = self.img2img_api(payload)
         if not response:
             return None
-        return b64_to_pil(response.json()["images"][0])
+
+        r = response.json()
+        image = b64_to_pil(r["images"][0])
+        try:
+            infotexts = json.loads(r.get("info") or "{}").get("infotexts") or []
+        except (TypeError, ValueError):
+            infotexts = []
+        if infotexts:
+            image.info["parameters"] = infotexts[0]
+        return image
 
     def get_image_info(self, b64_image: str) -> requests.Response | bool:
         """

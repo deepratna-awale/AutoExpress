@@ -2,13 +2,22 @@ import pathlib
 import threading
 from typing import Iterator, Protocol
 
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
 from . import expression_sets
 from .expressions import DEFAULT_FLAVOR, resolve_flavor
 from .images import pil_to_b64
 from .log import log
 from .payload import build_expression_payload
+
+
+def save_png(image: Image.Image, path: pathlib.Path) -> None:
+    """Save as PNG, keeping the generation parameters (infotext) when the backend set them."""
+    pnginfo = None
+    if image.info.get("parameters"):
+        pnginfo = PngImagePlugin.PngInfo()
+        pnginfo.add_text("parameters", str(image.info["parameters"]))
+    image.save(path, pnginfo=pnginfo)
 
 
 class Backend(Protocol):
@@ -102,7 +111,7 @@ class ExpressionGenerator:
                 return
 
             if output_dir is not None:
-                result.save(output_dir / f"{expression_name}.png")
+                save_png(result, output_dir / f"{expression_name}.png")
 
             yield expression_name, result
 

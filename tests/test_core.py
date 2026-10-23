@@ -143,3 +143,30 @@ def test_sprite_sheet_layout(face_image):
 
     no_labels = make_sprite_sheet([face_image] * 3, columns=7)
     assert no_labels.size == (3 * 64, 96)
+
+
+def test_sprite_sheet_labels_without_scalable_font(monkeypatch, face_image):
+    from autoexpress_core import grid
+
+    monkeypatch.setattr(grid, "_label_font", lambda size: None)
+    tile = face_image.resize((512, 768))
+    sheet = make_sprite_sheet([tile] * 2, ["joy", "anger"], columns=2)
+
+    label_strip = sheet.crop((0, 768, sheet.width, sheet.height)).convert("L")
+    bright = label_strip.point(lambda v: 255 if v > 200 else 0).getbbox()
+    assert bright is not None
+    assert bright[3] - bright[1] >= 20  # scaled up, not the 11px bitmap font
+
+
+def test_generator_keeps_infotext_in_saved_png(tmp_path, face_image):
+    from PIL import Image
+
+    class InfoBackend(FakeBackend):
+        def img2img(self, payload):
+            image = super().img2img(payload)
+            image.info["parameters"] = "1girl, smile"
+            return image
+
+    ExpressionGenerator(InfoBackend()).generate(face_image, only=["joy"], output_dir=tmp_path)
+    with Image.open(tmp_path / "joy.png") as saved:
+        assert saved.info["parameters"] == "1girl, smile"
