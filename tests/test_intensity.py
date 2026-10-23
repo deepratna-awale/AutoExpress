@@ -59,7 +59,7 @@ def test_generator_tones_down_realistic_families(face_image, fake_backend):
     # 0.1 -> weight 0.68, with the family's own (tag:1.4) weights removed so they don't cancel it
     assert f"({expression_intensity.strip_weights(joy)}:0.68)" in prompt and ":1.4" not in prompt
     assert "<lora:expr:0.12>" in prompt  # 0.6 * 0.2
-    assert find_nested_key(fake_backend.payloads[0], "ad_denoising_strength") == pytest.approx(0.41)
+    assert find_nested_key(fake_backend.payloads[0], "ad_denoising_strength") == pytest.approx(0.38)  # 0.5 * 0.76
 
 
 def test_generator_explicit_intensity_wins(face_image, fake_backend):
@@ -93,5 +93,6 @@ def test_low_photo_values_stay_distinct():
     assert expression_intensity.edit_denoise(0.03, photo=True) == pytest.approx(0.23)
     assert expression_intensity.edit_denoise(0.1, photo=True) == pytest.approx(0.3)
     assert expression_intensity.edit_denoise(0.1) == pytest.approx(0.61)
-    assert expression_intensity.edit_tier(0.03, photo=True) == "minimal" == expression_intensity.edit_tier(0.1, photo=True)
+    assert expression_intensity.edit_tier(0.03, photo=True) == "trace"
+    assert expression_intensity.edit_tier(0.1, photo=True) == "minimal"
     assert expression_intensity.edit_tier(0.1) == "subtle"

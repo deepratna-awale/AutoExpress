@@ -110,8 +110,10 @@ def edit_tier(intensity: float, photo: bool = False) -> str:
     """
     Which wording the instruction edit uses: subtle below 0.4, strong from 0.8, normal between.
 
-    Photos get "minimal" below 0.2: even the subtle sentences moved a real face too much.
+    Photos get "minimal" below 0.2 and "trace" below 0.05: even the subtle sentences moved a real face too much.
     """
+    if photo and intensity < 0.05:
+        return "trace"
     if photo and intensity < 0.2:
         return "minimal"
     if intensity < 0.4:

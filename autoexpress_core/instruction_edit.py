@@ -18,9 +18,12 @@ the text encoder between steps. 16 GB cards work with --lowvram at a few
 times the run time. Without the Lightning LoRA it takes 40 steps at CFG 4
 instead of 8 steps at CFG 1.
 
-Download the files into a ComfyUI install with:
+Download the files into a ComfyUI install with either of:
 
     python -m autoexpress_core.instruction_edit download /path/to/ComfyUI
+    python custom_nodes/AutoExpress/autoexpress_core/instruction_edit.py download /path/to/ComfyUI
+
+(check instead of download lists what is missing).
 
 Only the standard library (and requests for downloads) is used, so ComfyUI,
 the standalone app and the backends can all import it.
@@ -34,7 +37,10 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 
-from . import intensity as expression_intensity
+if __package__:
+    from . import intensity as expression_intensity
+else:  # run as a script: python .../autoexpress_core/instruction_edit.py check <ComfyUI folder>
+    import intensity as expression_intensity
 
 INPAINT = "inpaint"
 INSTRUCT = "instruct"
@@ -101,7 +107,7 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
     if style not in data["styles"]:
         raise KeyError(f"Unknown instruction style '{style}'. Choose from: {', '.join(data['styles'])}")
     tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO), photo=style == PHOTO)
-    sentence = data["subtle" if tier in ("subtle", "minimal") else "expressions"][expression]
+    sentence = data["subtle" if tier in ("subtle", "minimal", "trace") else "expressions"][expression]
     if style == PHOTO:
         sentence = sentence.replace("The character", "The person")
     parts = [

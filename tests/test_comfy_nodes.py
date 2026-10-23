@@ -110,13 +110,14 @@ def test_expression_loras_skips_missing_files(comfy):
 
 def test_edit_instructions_node(comfy):
     node = comfy.nodes["AutoExpressEditInstructions"]()
-    instructions, names, count = node.build("joy, anger", "illustration", -1.0, "Keep the glasses on.")
-    assert names == ["anger", "joy"] and count == 2
+    instructions, names, count, denoise = node.build("joy, anger", "illustration", -1.0, "Keep the glasses on.")
+    assert names == ["anger", "joy"] and count == 2 and denoise == [0.85, 0.85]
     assert all(text.startswith("Change only the facial expression.") and "Keep the glasses on." in text for text in instructions)
     with pytest.raises(ValueError):
         node.build("smug", "illustration", -1.0, "")
-    photo, _, _ = node.build("joy", "photo", -1.0, "")
+    photo, _, _, photo_denoise = node.build("joy, anger", "photo", 0.03, "")
     assert photo[0].startswith("Edit this photograph") and "Do not stylize" in photo[0]
+    assert photo_denoise == [pytest.approx(0.215), pytest.approx(0.23)]  # anger runs at half
 
 
 def test_nodes_apply_intensity(comfy):

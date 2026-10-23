@@ -210,13 +210,14 @@ class AutoExpressEditInstructions:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "INT")
-    RETURN_NAMES = ("instructions", "names", "count")
-    OUTPUT_IS_LIST = (True, True, False)
+    RETURN_TYPES = ("STRING", "STRING", "INT", "FLOAT")
+    RETURN_NAMES = ("instructions", "names", "count", "denoise")
+    OUTPUT_IS_LIST = (True, True, False, True)
     OUTPUT_TOOLTIPS = (
         "One edit instruction per expression. Connect to TextEncodeQwenImageEditPlus's prompt.",
         "Expression names, in the same order as the instructions.",
         "Number of expressions.",
+        "KSampler denoise per expression for the intensity: lower keeps more of the original face.",
     )
     FUNCTION = "build"
     CATEGORY = CATEGORY
@@ -232,9 +233,12 @@ class AutoExpressEditInstructions:
         names = [name for name in all_names if wanted is None or name in wanted]
         if not names:
             raise ValueError(f"No expressions matched '{expressions}'. Valid names: {', '.join(all_names)}")
-        instructions = [instruction_edit.build_instruction(name, extra_instruction, style, intensity) for name in names]
-        log.info(f"AutoExpress: {len(names)} edit instructions.")
-        return (instructions, names, len(names))
+        photo = style == instruction_edit.PHOTO
+        values = [instruction_edit.expression_intensity_for(name, intensity, style) for name in names]
+        instructions = [instruction_edit.build_instruction(name, extra_instruction, style, value) for name, value in zip(names, values)]
+        denoise = [expression_intensity.edit_denoise(value, photo) for value in values]
+        log.info(f"AutoExpress: {len(names)} {style} edit instructions at intensity {intensity:g}.")
+        return (instructions, names, len(names), denoise)
 
 
 class AutoExpressExpressionLoras:

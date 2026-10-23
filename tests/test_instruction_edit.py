@@ -287,3 +287,22 @@ def test_capabilities_list_edit_items_as_optional():
     assert items["qwen_edit_diffusion_model"].ok and not items["qwen_edit_diffusion_model"].required
     selected = {item.key: item for item in backend.edit_capabilities(selected=True)}
     assert selected["qwen_edit_vae"].required and selected["qwen_edit_vae"].fix is None
+
+
+def test_runs_as_a_script(tmp_path):
+    import subprocess
+    import sys
+
+    (tmp_path / "models").mkdir()
+    script = ROOT / "autoexpress_core" / "instruction_edit.py"
+    result = subprocess.run([sys.executable, str(script), "check", str(tmp_path)], capture_output=True, text=True, cwd=tmp_path)
+    assert result.returncode == 1 and result.stdout.count("missing:") == 4, result.stderr
+
+
+def test_example_workflow_wires_denoise_and_scale_widgets():
+    workflow = json.loads((ROOT / "example_workflows" / "AutoExpress Qwen-Image-Edit expressions.json").read_text())
+    nodes = {node["type"]: node for node in workflow["nodes"]}
+    assert nodes["ImageScaleToTotalPixels"]["widgets_values"] == ["lanczos", 1, 1]
+    denoise = next(slot for slot in nodes["KSampler"]["inputs"] if slot["name"] == "denoise")
+    link = next(link for link in workflow["links"] if link[0] == denoise["link"])
+    assert link[1] == nodes["AutoExpressEditInstructions"]["id"] and link[2] == 3

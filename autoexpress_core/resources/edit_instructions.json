@@ -44,7 +44,8 @@
     "subtle": "Keep the change subtle and natural, the way a real person would show it.",
     "normal": "",
     "strong": "Make the expression strong and clearly readable.",
-    "minimal": "Make only a barely noticeable change: the faintest hint of this expression, with the face almost exactly as it is."
+    "minimal": "Make only a barely noticeable change: the faintest hint of this expression, with the face almost exactly as it is.",
+    "trace": "Change the face only very slightly, so it is hard to tell it was edited: just a trace of this expression."
   },
   "subtle": {
     "admiration": "The character looks on with quiet admiration: eyes a little brighter and a soft, slight smile.",
