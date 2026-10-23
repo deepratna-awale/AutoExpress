@@ -28,7 +28,7 @@ Different checkpoints understand prompts differently, so the expression prompts 
 | Danbooru tags | SD1.5 anime models, Animagine, Anything, Counterfeit | `masterpiece, best quality` |
 | e621 tags | Furry/anthro models (FluffyRock, Fluffusion, YiffyMix) | `best quality, detailed` |
 | Pony Diffusion | Pony V6 XL and merges | `score_9, score_8_up, score_7_up` |
-| Illustrious / NoobAI | Illustrious-XL, NoobAI-XL, WAI | `masterpiece, best quality, amazing quality` |
+| Illustrious / NoobAI | NoobAI-XL, WAI and other Illustrious finetunes. Base Illustrious-XL 0.1 barely changes expressions. | `masterpiece, best quality, amazing quality` |
 | SDXL / SD1.5 (CLIP) | General and realistic SDXL/SD1.5 models | none |
 | Natural language | Flux, SD3/3.5, HiDream, Chroma, Qwen-Image, Lumina (for face detailing on Flux, use dev rather than schnell) | none |
 
@@ -41,7 +41,7 @@ AutoExpress also adds a LoRA that helps faces show emotion, matched to the check
 | Architecture | LoRA |
 | --- | --- |
 | Pony | [Facial Expressions (Pony v1.0)](https://civitai.com/models/541620?modelVersionId=1815859) |
-| Illustrious / NoobAI | [Facial Expressions (Illu v1.0)](https://civitai.com/models/541620?modelVersionId=1815930) + [Face Enhancer Illustrious](https://civitai.com/models/1625070) |
+| Illustrious / NoobAI | [Facial Expressions (Illu v1.0)](https://civitai.com/models/541620?modelVersionId=1815930) + [Face Enhancer Illustrious](https://civitai.com/models/1625070). The expressions LoRA is skipped for anger, where it smudges the mouth. |
 | SDXL | [Facial Expressions (XL v3)](https://civitai.com/models/541620?modelVersionId=761462) |
 | SD1.5 | [Facial Expressions (SD1.5)](https://civitai.com/models/541620?modelVersionId=715217) |
 | Flux | [Expression Helper 2.0](https://civitai.com/models/914282) |
