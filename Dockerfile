@@ -1,5 +1,5 @@
 # Build the Next.js frontend into static files
-FROM node:22-slim AS frontend
+FROM node:24-slim AS frontend
 WORKDIR /frontend
 RUN corepack enable
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
@@ -8,7 +8,7 @@ COPY frontend/ .
 RUN pnpm build
 
 # Use the official Python image and specify a version (e.g., 3.9-slim for a lighter image)
-FROM python:3.10-slim
+FROM python:3.13-slim
 
 # Set working directory
 WORKDIR /AutoExpress

@@ -105,25 +105,25 @@ export function AutoExpressApp() {
           <div className="flex-1 overflow-hidden min-h-0">
             {/* Large Desktop Layout (lg and up) - Resizable panels */}
             {isLargeScreen ? (
-              <ResizablePanelGroup direction="horizontal" className="h-full">
+              <ResizablePanelGroup orientation="horizontal" className="h-full">
                 {/* Parameters Panel - Column 1 - Only show on lg+ */}
-                <ResizablePanel id="parameters" order={1} defaultSize={22} minSize={15} maxSize={35}>
+                <ResizablePanel id="parameters" defaultSize="22%" minSize="15%" maxSize="35%">
                   <ParametersPanel />
                 </ResizablePanel>
                 <ResizableHandle withHandle />
                 
                 {/* Dropzone Area - Split into dropzone and inputs */}
-                <ResizablePanel id="workspace" order={2} defaultSize={showCarousel ? 43 : 78} minSize={25}>
-                  <ResizablePanelGroup direction="vertical" className="h-full">
+                <ResizablePanel id="workspace" defaultSize={showCarousel ? "43%" : "78%"} minSize="25%">
+                  <ResizablePanelGroup orientation="vertical" className="h-full">
                     {/* Dropzone */}
-                    <ResizablePanel defaultSize={68} minSize={30}>
+                    <ResizablePanel defaultSize="68%" minSize="30%">
                       <DropZonePanel />
                     </ResizablePanel>
                     
                     <ResizableHandle withHandle />
                     
                     {/* Dropzone Inputs */}
-                    <ResizablePanel defaultSize={32} minSize={20} maxSize={60}>
+                    <ResizablePanel defaultSize="32%" minSize="20%" maxSize="60%">
                       <DropZoneInputsPanel onViewImages={() => setShowCarousel(true)} />
                     </ResizablePanel>
                   </ResizablePanelGroup>
@@ -133,7 +133,7 @@ export function AutoExpressApp() {
                 {showCarousel && (
                   <>
                     <ResizableHandle withHandle />
-                    <ResizablePanel id="gallery" order={3} defaultSize={35} minSize={20} maxSize={55}>
+                    <ResizablePanel id="gallery" defaultSize="35%" minSize="20%" maxSize="55%">
                       <div className="h-full overflow-hidden">
                         <ImageCarousel isInDrawer={false} />
                       </div>
