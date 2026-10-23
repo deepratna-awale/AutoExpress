@@ -1,13 +1,14 @@
 """
 Settings for the standalone app, read from environment variables.
 
-Every variable is optional; the defaults run the app against a local
-AUTOMATIC1111 on port 7860.
+Every variable is optional. The WebUI can be on this machine or anywhere else
+(https, behind a proxy or sub-path, with a login); with AUTOEXPRESS_BACKEND=auto
+its type is read from its API.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| AUTOEXPRESS_BACKEND | a1111 | WebUI to start with: a1111, forge, sdnext, comfyui, swarmui, invokeai |
-| AUTOEXPRESS_BACKEND_URL | the WebUI's default | Its address, e.g. http://127.0.0.1:8188 |
+| AUTOEXPRESS_BACKEND | auto | WebUI to start with: auto (detect), a1111, forge, sdnext, comfyui, swarmui, invokeai |
+| AUTOEXPRESS_BACKEND_URL | the WebUI's default | Its address, e.g. https://<pod-id>-8188.proxy.runpod.net |
 | AUTOEXPRESS_BACKEND_USERNAME / _PASSWORD | | Basic auth (A1111 --api-auth), SwarmUI login, InvokeAI email login |
 | AUTOEXPRESS_BACKEND_TOKEN | | Bearer token (or SwarmUI swarm_token) |
 | AUTOEXPRESS_CONNECT_TIMEOUT | 5 | Seconds to wait for a connection |
@@ -56,7 +57,7 @@ def _path(name: str, default: pathlib.Path) -> pathlib.Path:
 
 @dataclass
 class Settings:
-    backend: str = "a1111"
+    backend: str = "auto"
     backend_url: str | None = None
     username: str | None = None
     password: str | None = None
@@ -78,7 +79,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
-            backend=os.environ.get("AUTOEXPRESS_BACKEND", "a1111").strip().lower(),
+            backend=os.environ.get("AUTOEXPRESS_BACKEND", "auto").strip().lower(),
             backend_url=os.environ.get("AUTOEXPRESS_BACKEND_URL") or None,
             username=os.environ.get("AUTOEXPRESS_BACKEND_USERNAME") or None,
             password=os.environ.get("AUTOEXPRESS_BACKEND_PASSWORD") or None,

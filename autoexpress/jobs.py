@@ -49,6 +49,7 @@ class Job:
     finished_at: float | None = None
     completed: list[str] = field(default_factory=list)
     error: dict | None = None
+    notes: list[dict] = field(default_factory=list)
     cancel_requested: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
     generator: object = None
@@ -92,6 +93,7 @@ class Job:
                 {"expression": name, "url": f"/image/{self.spec.output_name}/{name}.png"} for name in self.completed
             ],
             "error": self.error,
+            "notes": self.notes,
         }
 
 
@@ -232,6 +234,7 @@ def run_expression_job(job: Job) -> None:
         civitai_api_key=spec.civitai_api_key,
         generator=job.generator,
         only=spec.expressions,
+        notes=job.notes,
     ):
         job.completed.append(name)
         if job.cancel_requested.is_set():

@@ -2,13 +2,16 @@
 var multiSelectElement = null;
 let image_data = null;
 
-// Show the selected WebUI's default address as the URL placeholder.
+// Show the selected WebUI's usual address as the URL placeholder. The WebUI can be anywhere:
+// this machine, the LAN, or a hosted proxy URL with https and a sub-path.
+var anyUrlPlaceholder = document.querySelector('#ip-input').placeholder;
 function updateUrlPlaceholder() {
     var backendSelect = document.querySelector('#backend-input');
     var option = backendSelect.options[backendSelect.selectedIndex];
-    if (option && option.dataset.defaultUrl) {
-        document.querySelector('#ip-input').placeholder = option.dataset.defaultUrl.replace(/^https?:\/\//, '');
-    }
+    var defaultUrl = option && option.dataset.defaultUrl;
+    document.querySelector('#ip-input').placeholder = defaultUrl
+        ? defaultUrl.replace(/127\.0\.0\.1/, 'host') + ' or an https proxy URL'
+        : anyUrlPlaceholder;
 }
 
 document.querySelector('#backend-input').addEventListener('change', function () {
@@ -28,13 +31,21 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
+            var result = {};
+            try {
+                result = JSON.parse(xhr.responseText || '{}');
+            } catch (e) {
+                result = {};
+            }
             if (xhr.status === 200) {
-                console.log('Data sent successfully');
+                console.log('Connected to ' + (result.name || 'the WebUI'));
                 button.style.backgroundColor = 'grey';  // Set button background to grey
                 loadListings();
+                checkCapabilities(result.detected ? result.name : null);
             } else {
-                console.log('Failed to send data');
+                console.log('Failed to connect', result);
                 button.style.backgroundColor = 'red';  // Set button background to red
+                showConnectionError(result);
             }
         }
     };

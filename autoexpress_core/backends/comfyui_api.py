@@ -33,13 +33,31 @@ from .base import (
     BackendNotReady,
     BackendRejected,
     BackendTimeout,
+    Capability,
     FaceEditRequest,
+    Fix,
     GenerationCancelled,
     RemoteBackend,
+    listed,
     match_choice,
 )
 
 REQUIRED_NODES = ("CheckpointLoaderSimple", "FaceDetailer", "UltralyticsDetectorProvider")
+IMPACT_PACK = "https://github.com/ltdrdata/ComfyUI-Impact-Pack"
+IMPACT_SUBPACK = "https://github.com/ltdrdata/ComfyUI-Impact-Subpack"
+FACE_MODEL_URL = "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt"
+
+
+def custom_node_fix(name: str, repo: str) -> Fix:
+    folder = repo.rsplit("/", 1)[-1]
+    return Fix(
+        [
+            f"With ComfyUI-Manager: open Manager > Custom Nodes Manager, search for \"{name}\", press Install, then restart ComfyUI.",
+            "Without it, run these in ComfyUI's custom_nodes folder (on the machine or pod ComfyUI runs on), then restart ComfyUI:",
+        ],
+        [f"git clone {repo}", f"pip install -r {folder}/requirements.txt"],
+        [Fix.link(name, repo)],
+    )
 
 # A1111 sampler / scheduler names that the image metadata and the default payload use.
 SAMPLERS = {
@@ -186,6 +204,99 @@ class ComfyUIClient(RemoteBackend):
         if not self.options("UltralyticsDetectorProvider", "model_name"):
             raise BackendNotReady("ComfyUI has no face detection model. Put face_yolov8m.pt in models/ultralytics/bbox.")
 
+    def capabilities(self) -> list[Capability]:
+        self._object_info.clear()
+        self._get_json("/system_stats", timeout=10)
+        items = [Capability("api", "ComfyUI API", True)]
+
+        impact = bool(self.object_info("FaceDetailer"))
+        items.append(
+            Capability(
+                "impact_pack", "ComfyUI Impact Pack (FaceDetailer)", impact,
+                "Installed" if impact else "FaceDetailer node not found",
+                fix=custom_node_fix("ComfyUI Impact Pack", IMPACT_PACK),
+            )
+        )
+        subpack = bool(self.object_info("UltralyticsDetectorProvider"))
+        items.append(
+            Capability(
+                "impact_subpack", "ComfyUI Impact Subpack (UltralyticsDetectorProvider)", subpack,
+                "Installed" if subpack else "UltralyticsDetectorProvider node not found",
+                fix=custom_node_fix("ComfyUI Impact Subpack", IMPACT_SUBPACK),
+            )
+        )
+        if subpack:
+            faces = [m for m in self.options("UltralyticsDetectorProvider", "model_name") if "face" in m.lower()]
+            items.append(
+                listed(
+                    "Face detection model",
+                    faces,
+                    Fix(
+                        [
+                            "Download face_yolov8m.pt into ComfyUI's models/ultralytics/bbox folder, then re-check.",
+                            "In ComfyUI's folder (on the machine or pod ComfyUI runs on):",
+                        ],
+                        [f"wget -P models/ultralytics/bbox {FACE_MODEL_URL}"],
+                        [Fix.link("face_yolov8m.pt", FACE_MODEL_URL)],
+                    ),
+                    key="face_model",
+                )
+            )
+        items.append(
+            listed(
+                "Checkpoints",
+                self.models,
+                Fix(["Put a Stable Diffusion checkpoint (.safetensors) in ComfyUI's models/checkpoints folder, then re-check."]),
+            )
+        )
+        items.append(listed("LoRAs", self.loras, required=False))
+        items.append(
+            Capability(
+                "lora_folder",
+                "Automatic expression LoRA downloads",
+                bool(self.lora_dir),
+                f"LoRA folder {self.lora_dir} is on this machine" if self.lora_dir else
+                "ComfyUI's LoRA folder isn't on this machine, so missing expression LoRAs have to be installed on ComfyUI",
+                required=False,
+                fix=Fix(
+                    [
+                        "Optional. AutoExpress lists any missing expression LoRA with its download link when you generate.",
+                        "Put each one in ComfyUI's models/loras folder.",
+                    ]
+                ),
+            )
+        )
+        try:
+            import websocket  # noqa: F401
+
+            live = True
+        except ImportError:
+            live = False
+        items.append(
+            Capability(
+                "live_progress", "Live step progress", live,
+                "Uses ComfyUI's websocket" if live else "websocket-client isn't installed where AutoExpress runs",
+                required=False,
+                fix=Fix(["Optional. Install it where AutoExpress runs, then restart AutoExpress:"], ["pip install websocket-client"]),
+            )
+        )
+        return items
+
+    def _install_dir(self) -> pathlib.Path | None:
+        """ComfyUI's folder when it runs on this machine (from the command line it reports), else None."""
+        try:
+            argv = self._get_json("/system_stats", timeout=10).get("system", {}).get("argv") or []
+        except (BackendError, ValueError, AttributeError, TypeError):
+            return None
+        root = pathlib.Path(argv[0]).parent if argv else None
+        return root if root and (root / "custom_nodes").is_dir() else None
+
+    @property
+    def lora_dir(self) -> str | None:
+        root = self._install_dir()
+        folder = root / "models" / "loras" if root else None
+        return str(folder) if folder and folder.is_dir() else None
+
     def server_info(self) -> dict:
         stats = self._get_json("/system_stats", timeout=10)
         system = stats.get("system", {})
@@ -200,17 +311,9 @@ class ComfyUIClient(RemoteBackend):
 
     def civitai_key_sources(self) -> list[tuple[str, str | None]]:
         """A key saved by ComfyUI LoRA Manager, when ComfyUI runs on this machine."""
-        custom_nodes = []
-        try:
-            argv = self._get_json("/system_stats", timeout=10).get("system", {}).get("argv") or []
-            main = pathlib.Path(argv[0]) if argv else None
-            if main and (main.parent / "custom_nodes").is_dir():
-                custom_nodes.append(main.parent / "custom_nodes")
-        except (BackendError, ValueError, AttributeError, TypeError):
-            pass
-        return comfyui_sources(custom_nodes)
+        root = self._install_dir()
+        return comfyui_sources([root / "custom_nodes"] if root else [])
 
-    # Workflow -------------------------------------------------------------
     def detector_model(self, wanted: str | None) -> str:
         choices = self.options("UltralyticsDetectorProvider", "model_name")
         if not choices:

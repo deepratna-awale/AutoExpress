@@ -1,3 +1,4 @@
+import dataclasses
 import os
 import threading
 import time
@@ -16,8 +17,16 @@ from autoexpress.modules import expression_sets, image_parser
 from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
 from autoexpress.validation import ValidationError, resolve_inside, validate_generate
 from autoexpress_core import get_expressions, resolve_flavor
-from autoexpress_core.backends.base import BackendError, BackendNotReady
-from autoexpress_core.backends.registry import REMOTE_BACKENDS, create_backend, describe_backends
+from autoexpress_core.backends.base import (
+    BackendAuthError,
+    BackendError,
+    BackendNotReady,
+    BackendTimeout,
+    BackendUnavailable,
+    connection_fix,
+)
+from autoexpress_core.backends.detect import detect_backend, not_a_webui
+from autoexpress_core.backends.registry import AUTO, REMOTE_BACKENDS, create_backend, describe_backends
 from autoexpress_core.civitai_key import find_civitai_key
 
 settings = Settings.from_env()
@@ -38,19 +47,47 @@ class AppState:
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
-        kind = settings.backend if settings.backend in REMOTE_BACKENDS else "a1111"
-        if kind != settings.backend:
+        self.detected = None
+        kind = settings.backend
+        if kind == AUTO:
+            kind = self._detect_at_startup()
+        elif kind not in REMOTE_BACKENDS:
             log.warning(f"Unknown AUTOEXPRESS_BACKEND '{settings.backend}', using a1111.")
+            kind = "a1111"
         self.backend = create_backend(kind, settings.backend_url, **settings.connection_options())
 
+    def _detect_at_startup(self) -> str:
+        if not settings.backend_url:
+            return "a1111"
+        try:
+            detection = detect_backend(settings.backend_url, **settings.connection_options())
+        except (BackendError, ValueError) as e:
+            log.warning(f"Could not detect the WebUI at {settings.backend_url}: {e}")
+            return "a1111"
+        self.detected = detection.kind
+        return detection.kind or "a1111"
+
     def connect(self, kind: str, url: str | None, credentials: dict | None = None):
-        """Switch WebUI and/or URL. Raises ValueError for an unknown id or a bad URL."""
+        """
+        Switch WebUI and/or URL. kind "auto" asks the WebUI what it is.
+
+        Raises:
+            ValueError: Unknown id or a bad URL.
+            BackendError: "auto" could not reach the WebUI, was refused, or found no supported WebUI.
+        """
         options = settings.connection_options()
         if credentials is not None:
             options.update(credentials)
+        detected = None
+        if kind == AUTO:
+            detection = detect_backend(url, **options)
+            if not detection.kind:
+                raise not_a_webui(url, detection)
+            kind = detected = detection.kind
         backend = create_backend(kind, url, **options)
         with self.lock:
             self.backend = backend
+            self.detected = detected
         return backend
 
 
@@ -115,7 +152,11 @@ def handle_validation_error(e: ValidationError):
 
 @autoexpress.errorhandler(BackendError)
 def handle_backend_error(e: BackendError):
-    return error_response(e.code, str(e), e.http_status)
+    fix = getattr(e, "fix", None)
+    if fix is None and isinstance(e, (BackendUnavailable, BackendTimeout, BackendAuthError)):
+        fix = connection_fix(e)
+    extra = {"fix": dataclasses.asdict(fix)} if fix else {}
+    return error_response(e.code, str(e), e.http_status, **extra)
 
 
 @autoexpress.errorhandler(HTTPException)
@@ -141,7 +182,7 @@ def index():
 
 @autoexpress.route("/classic", methods=["GET"])
 def classic():
-    return render_template("index.html", backends=describe_backends(), selected=current_backend().kind)
+    return render_template("index.html", backends=describe_backends(include_auto=True), selected=AUTO)
 
 
 # Health and WebUI status ----------------------------------------------------
@@ -158,10 +199,29 @@ def backend_status():
     return jsonify(current_backend().health())
 
 
+@autoexpress.route("/backend/capabilities", methods=["GET"])
+def backend_capabilities():
+    """
+    Everything AutoExpress needs on the selected WebUI, checked over its API, item by item.
+
+    Each missing item carries a fix (steps, commands to copy, links), so the UI can walk the user through it.
+    """
+    report = current_backend().check_capabilities()
+    report["detected"] = state.detected is not None
+    return jsonify(report)
+
+
 @autoexpress.route("/backends", methods=["GET"])
 def list_backends():
     backend = current_backend()
-    return jsonify({"selected": backend.kind, "url": backend.get_url(), "backends": describe_backends()})
+    return jsonify(
+        {
+            "selected": backend.kind,
+            "detected": state.detected is not None,
+            "url": backend.get_url(),
+            "backends": describe_backends(include_auto=True),
+        }
+    )
 
 
 # Stable diffusion API Calls
@@ -254,15 +314,23 @@ def receive_data():
         backend = state.connect(kind, url, credentials)
     except ValueError as e:
         log.info(f"Could not connect to {kind} at {url}: {e}")
-        if kind not in REMOTE_BACKENDS:
-            return jsonify({"error": f"Unknown WebUI backend. Choose one of: {', '.join(REMOTE_BACKENDS)}."}), 400
+        if kind != AUTO and kind not in REMOTE_BACKENDS:
+            return jsonify({"error": f"Unknown WebUI backend. Choose one of: {', '.join([AUTO, *REMOTE_BACKENDS])}."}), 400
         return jsonify({"error": "Not a valid http(s) URL."}), 400
 
     if not url:
         log.info(f"No url found, defaulting to {backend.get_url()}")
     log.info(f"{backend.label} URL set to: {backend.get_url()}")
 
-    return jsonify({"status": "success"})
+    return jsonify(
+        {
+            "status": "success",
+            "backend": backend.kind,
+            "name": backend.label,
+            "url": backend.get_url(),
+            "detected": kind == AUTO,
+        }
+    )
 
 
 # Generate Images
