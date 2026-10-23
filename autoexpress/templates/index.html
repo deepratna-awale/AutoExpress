@@ -31,6 +31,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/slider_object.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/frontend_settings.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/multi_select.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/capabilities.css') }}" />
   <link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon-rounded.png') }}" />
 
   <meta name="theme-color" content="#14151f">
@@ -61,10 +62,19 @@
 
         <div class="input-container slider-container">
           <label for="ip-input">API URL</label>
-          <input id="ip-input" name="ip-input" type="text" placeholder="127.0.0.1:7860" />
+          <input id="ip-input" name="ip-input" type="text" placeholder="http://host:7860 or https://pod-7860.proxy.runpod.net" />
           <button class="sd-connect">
             <div class="icon-link-2"></div>
           </button>
+        </div>
+
+        <!-- What the WebUI has, and how to fix what's missing -->
+        <div id="capabilities" class="capabilities" hidden>
+          <div class="capabilities-header">
+            <span id="capabilities-title"></span>
+            <button type="button" id="capabilities-recheck">Re-check</button>
+          </div>
+          <ul id="capabilities-list"></ul>
         </div>
 
         <!-- Model Dropdown -->
@@ -287,6 +297,7 @@
   <!DOCTYPE html>
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/capabilities.js') }}"></script>
   <script src="{{ url_for('static', filename='js/connect.js') }}"></script>
   <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
   <script src="{{ url_for('static', filename='js/image_drag_and_drop.js') }}"></script>
