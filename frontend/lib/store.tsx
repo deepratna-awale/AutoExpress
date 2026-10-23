@@ -10,6 +10,7 @@ import {
   type Job,
   type BackendInfo,
   type EditMethod,
+  type FamilyDefaults,
   type ExpressionFamily,
   type LoraSelection,
   type UploadResponse,
@@ -88,9 +89,11 @@ interface AutoExpressState {
   /** Instruction edit wording for drawn images or for photos. */
   photoStyle: boolean;
   setPhotoStyle: (value: boolean) => void;
-  /** "auto", "subtle", "normal" or "strong". */
-  intensity: string;
-  setIntensity: (value: string) => void;
+  /** 0..1 expression strength the user picked, or null to use the model family's default. */
+  intensity: number | null;
+  setIntensity: (value: number | null) => void;
+  /** Defaults of the family the selected model and prompt style resolve to. */
+  familyDefaults: (FamilyDefaults & { family: string }) | null;
 
   // Prompt style
   families: ExpressionFamily[] | null;
@@ -198,9 +201,20 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
 
   const [editMethods, setEditMethods] = useState<EditMethod[] | null>(null);
   const [vramNote, setVramNote] = useState("");
-  const [method, setMethod] = useState(INPAINT_METHOD);
-  const [photoStyle, setPhotoStyle] = useState(false);
-  const [intensity, setIntensity] = useState("auto");
+  const [method, setMethodState] = useState(INPAINT_METHOD);
+  const [photoStyle, setPhotoStyleState] = useState(false);
+  const [intensity, setIntensity] = useState<number | null>(null);
+  const [familyDefaults, setFamilyDefaults] = useState<(FamilyDefaults & { family: string }) | null>(null);
+  // Family defaults only fill in what the user hasn't chosen themselves.
+  const touchedRef = useRef({ method: false, photoStyle: false });
+  const setMethod = useCallback((id: string) => {
+    touchedRef.current.method = true;
+    setMethodState(id);
+  }, []);
+  const setPhotoStyle = useCallback((value: boolean) => {
+    touchedRef.current.photoStyle = true;
+    setPhotoStyleState(value);
+  }, []);
 
   const [families, setFamilies] = useState<ExpressionFamily[] | null>(null);
   const [family, setFamilyState] = useState(AUTO_FAMILY);
@@ -275,7 +289,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       .then((data) => {
         setEditMethods(data?.methods ?? null);
         setVramNote(data?.vram_note ?? "");
-        setMethod((current) =>
+        setMethodState((current) =>
           data?.methods.some((m) => m.id === current && m.available) ? current : INPAINT_METHOD
         );
       })
@@ -312,7 +326,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         setFamilyState(data.selected || AUTO_FAMILY);
       })
       .catch(() => setFamilies(null));
-  }, []);
+  }, [loadEditMethods]);
 
   useEffect(() => {
     try {
@@ -361,6 +375,27 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       toast.error(`Could not connect: ${error instanceof Error ? error.message : error}`);
     }
   }, [apiUrl, backend, backends, reconcile, loadEditMethods]);
+
+  // Each model family has calibrated defaults: realistic models get much gentler expressions.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .expressionDefaults(params.model, family)
+      .then((data) => {
+        if (cancelled || !data) return;
+        setFamilyDefaults({ family: data.family, ...data.defaults });
+        if (!touchedRef.current.photoStyle) setPhotoStyleState(data.defaults.edit_style === "photo");
+        if (!touchedRef.current.method && editMethods?.some((m) => m.id === data.defaults.method && m.available)) {
+          setMethodState(data.defaults.method);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFamilyDefaults(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.model, family, editMethods]);
 
   const setFamily = useCallback((id: string) => {
     const previous = family;
@@ -551,9 +586,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ad_cfg_scale: params.cfgScale,
         ad_denoising_strength: params.denoisingStrength,
         ...(editMethods ? { method } : {}),
-        ...(method !== INPAINT_METHOD
-          ? { edit_style: photoStyle ? "photo" : "illustration", ...(intensity !== "auto" ? { edit_intensity: intensity } : {}) }
-          : {}),
+        ...(method !== INPAINT_METHOD ? { edit_style: photoStyle ? "photo" : "illustration" } : {}),
+        ...(intensity !== null ? { expression_intensity: intensity } : {}),
       });
       if (result.job_id && result.job && isActiveJob(result.job)) {
         tracking = true;
@@ -608,6 +642,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setPhotoStyle,
       intensity,
       setIntensity,
+      familyDefaults,
       families,
       family,
       setFamily,
@@ -634,7 +669,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       loadImages,
     }),
     [
-      backends, backend, setBackend, apiUrl, connection, connect, options, editMethods, vramNote, method, photoStyle, intensity, families, family, setFamily,
+      backends, backend, setBackend, apiUrl, connection, connect, options, editMethods, vramNote, method, setMethod, photoStyle, setPhotoStyle, intensity, familyDefaults, families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]

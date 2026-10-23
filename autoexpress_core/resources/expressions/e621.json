@@ -8,6 +8,11 @@
     "YiffyMix",
     "BB95 Furry Mix"
   ],
+  "defaults": {
+    "method": "inpaint",
+    "intensity": 0.5,
+    "edit_style": "illustration"
+  },
   "quality_tags": "best quality, detailed",
   "negative": "worst quality, low quality",
   "expressions": {

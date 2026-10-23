@@ -9,6 +9,11 @@
     "Qwen-Image",
     "Lumina"
   ],
+  "defaults": {
+    "method": "inpaint",
+    "intensity": 0.3,
+    "edit_style": "photo"
+  },
   "quality_tags": "",
   "negative": "",
   "expressions": {

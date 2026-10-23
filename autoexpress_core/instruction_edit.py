@@ -34,6 +34,8 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 
+from . import intensity as expression_intensity
+
 INPAINT = "inpaint"
 INSTRUCT = "instruct"
 
@@ -53,12 +55,6 @@ ILLUSTRATION = "illustration"
 PHOTO = "photo"
 STYLES = (ILLUSTRATION, PHOTO)
 
-# How far the expression is pushed. Photos default to subtle: the full expressions look like a cartoon on a real face.
-SUBTLE = "subtle"
-NORMAL = "normal"
-STRONG = "strong"
-INTENSITIES = (SUBTLE, NORMAL, STRONG)
-DEFAULT_INTENSITY = {ILLUSTRATION: NORMAL, PHOTO: SUBTLE}
 
 INSTRUCTIONS_FILE = pathlib.Path(__file__).resolve().parent / "resources" / "edit_instructions.json"
 
@@ -88,7 +84,7 @@ def get_instructions(only: list[str] | None = None) -> dict[str, str]:
     return expressions
 
 
-def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATION, intensity: str | None = None) -> str:
+def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATION, intensity: float | None = None) -> str:
     """
     The full edit instruction for one expression.
 
@@ -96,21 +92,22 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
         expression (str): An expression name, see instruction_names().
         extra (str): Optional text added before the "keep the same ..." sentence, e.g. "Keep the glasses on."
         style (str): ILLUSTRATION (anime, cartoon, furry art) or PHOTO (realistic photos).
-        intensity (str | None): SUBTLE, NORMAL or STRONG; None uses the style's default (subtle for photos).
+        intensity (float | None): 0..1, see intensity.edit_tier; None uses the default for the style
+            (low for photos, where full-strength expressions look like a cartoon).
     """
     data = _load()
     if expression not in data["expressions"]:
         raise KeyError(f"No edit instruction for '{expression}'. Valid names: {', '.join(data['expressions'])}")
     if style not in data["styles"]:
         raise KeyError(f"Unknown instruction style '{style}'. Choose from: {', '.join(data['styles'])}")
-    intensity = intensity if intensity in INTENSITIES else DEFAULT_INTENSITY[style]
-    sentence = data["subtle" if intensity == SUBTLE else "expressions"][expression]
+    tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO))
+    sentence = data["subtle" if tier == "subtle" else "expressions"][expression]
     if style == PHOTO:
         sentence = sentence.replace("The character", "The person")
     parts = [
         data["styles"][style]["prefix"],
         sentence,
-        data["intensity"][intensity],
+        data["intensity"][tier],
         (extra or "").strip(),
         data["styles"][style]["suffix"],
     ]
@@ -138,6 +135,14 @@ class EditSettings:
     model: str | None = None
     lightning: bool = True
     keep_size: bool = True
+    # 0..1 expression intensity; below 0.75 the sampler starts from the input's latent so less changes.
+    intensity: float | None = None
+    denoise: float | None = None
+
+    def resolved_denoise(self) -> float:
+        if self.denoise is not None:
+            return self.denoise
+        return 1.0 if self.intensity is None else expression_intensity.edit_denoise(self.intensity)
 
     def resolved_steps(self, lightning: bool) -> int:
         return self.steps or (8 if lightning else 40)
@@ -158,7 +163,9 @@ class EditSettings:
                 return None
 
         seed = number("seed", int)
+        intensity = number("expression_intensity", float)
         return cls(
+            intensity=None if intensity is None else expression_intensity.resolve(intensity),
             seed=-1 if seed is None else seed,
             steps=number("edit_steps", int),
             cfg=number("edit_cfg_scale", float),

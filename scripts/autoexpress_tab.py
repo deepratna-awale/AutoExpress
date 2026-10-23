@@ -192,6 +192,7 @@ def generate(
     sprite_sheet,
     use_expression_loras,
     civitai_api_key,
+    intensity=-1,
 ):
     if image is None:
         yield [], "Upload a character image first.", None
@@ -220,6 +221,8 @@ def generate(
         "ad_model": detector or DETECTOR_MODELS[0],
         "seed": int(seed),
     }
+    if intensity is not None and float(intensity) >= 0:
+        settings["expression_intensity"] = float(intensity)
 
     root = os.path.normpath(output_root())
     output_dir = os.path.normpath(os.path.join(root, safe_folder_name(character_name)))
@@ -340,6 +343,10 @@ def on_ui_tabs():
                 with gr.Row():
                     denoising_strength = gr.Slider(label="Denoising strength", minimum=0.0, maximum=1.0, step=0.01, value=0.55)
                     clip_skip = gr.Slider(label="Clip skip", minimum=1, maximum=12, step=1, value=2)
+                intensity = gr.Slider(
+                    label="Expression intensity (-1 = model default: 0.5 anime, lower for realistic)",
+                    minimum=-1.0, maximum=1.0, step=0.05, value=-1.0, elem_id="autoexpress_intensity",
+                )
                 with gr.Row():
                     seed = gr.Number(label="Seed", value=-1, precision=0)
                     detector = gr.Dropdown(label="Face detector", choices=DETECTOR_MODELS,
@@ -373,7 +380,7 @@ def on_ui_tabs():
             inputs=[
                 image, character_name, flavor, expressions, prompt, negative_prompt,
                 checkpoint, sampler, scheduler, steps, cfg_scale, denoising_strength,
-                clip_skip, seed, detector, sprite_sheet, use_expression_loras, civitai_api_key,
+                clip_skip, seed, detector, sprite_sheet, use_expression_loras, civitai_api_key, intensity,
             ],
             outputs=[gallery, status, sheet],
         )

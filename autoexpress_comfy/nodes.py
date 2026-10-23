@@ -46,6 +46,7 @@ from ..autoexpress_core import (
     make_sprite_sheet,
     resolve_flavor,
 )
+from ..autoexpress_core import intensity as expression_intensity
 from ..autoexpress_core.log import log
 
 CATEGORY = "AutoExpress"
@@ -82,6 +83,28 @@ def safe_folder_name(name: str) -> str:
 PROMPT_STYLE_TOOLTIP = "Model family the prompts are written for. 'auto' picks it from ckpt_name."
 
 
+def intensity_input():
+    """Optional expression intensity slider; -1 means the model family's calibrated default."""
+    return ("FLOAT", {
+        "default": -1.0,
+        "min": -1.0,
+        "max": 1.0,
+        "step": 0.05,
+        "display": "slider",
+        "tooltip": "How strong the expression is, 0 (barely) to 1 (exaggerated). -1 uses the model family's default: "
+        "0.5 for anime and furry models, much lower for realistic ones, where strong expressions look uncanny.",
+    })
+
+
+def node_intensity(value, family: str | None = None, photo: bool = False) -> float:
+    """The intensity a node runs at: its slider, else the family's default, else the drawn/photo default."""
+    if value is not None and value >= 0:
+        return expression_intensity.resolve(value)
+    if family:
+        return expression_sets.family_defaults(family)["intensity"]
+    return expression_intensity.resolve(None, realistic=photo)
+
+
 class AutoExpressExpressionPrompts:
     """Every AutoExpress expression as a prompt list, prefixed with the character prompt."""
 
@@ -104,6 +127,7 @@ class AutoExpressExpressionPrompts:
             "optional": {
                 "ckpt_name": (checkpoint_choices(), {"tooltip": "Only used to pick the prompt style when it is 'auto'."}),
                 "lora_trigger": ("STRING", {"forceInput": True, "tooltip": "Trigger words from AutoExpress Expression LoRAs."}),
+                "intensity": intensity_input(),
             },
         }
 
@@ -120,8 +144,9 @@ class AutoExpressExpressionPrompts:
     CATEGORY = CATEGORY
     DESCRIPTION = "Builds the AutoExpress expression prompts. Downstream nodes run once per expression."
 
-    def build(self, prompt_style, base_prompt, base_negative, expressions, ckpt_name="", lora_trigger=""):
+    def build(self, prompt_style, base_prompt, base_negative, expressions, ckpt_name="", lora_trigger="", intensity=-1.0):
         family = resolve_flavor(prompt_style, ckpt_name)
+        intensity = node_intensity(intensity, family)
         all_names = expression_sets.load_family(family)["expressions"]
         wanted = parse_selection(expressions)
         names = [name for name in all_names if wanted is None or name in wanted]
@@ -129,9 +154,9 @@ class AutoExpressExpressionPrompts:
             raise ValueError(f"No expressions matched '{expressions}'. Valid names: {', '.join(all_names)}")
 
         base = expression_sets.join_prompt(base_prompt, lora_trigger)
-        prompts = [expression_sets.build_prompt(base, name, family) for name in names]
+        prompts = [expression_sets.build_prompt(base, name, family, intensity=intensity) for name in names]
         negative = expression_sets.build_negative(base_negative, family)
-        log.info(f"AutoExpress: {len(names)} {family} expression prompts.")
+        log.info(f"AutoExpress: {len(names)} {family} expression prompts at intensity {intensity:g}.")
         return (prompts, names, negative, len(names))
 
 
@@ -176,10 +201,7 @@ class AutoExpressEditInstructions:
                     "default": instruction_edit.ILLUSTRATION,
                     "tooltip": "illustration keeps the art style; photo keeps a realistic photo from turning into a cartoon.",
                 }),
-                "intensity": (["auto"] + list(instruction_edit.INTENSITIES), {
-                    "default": "auto",
-                    "tooltip": "How far to push the expression. auto: normal for illustrations, subtle for photos (normal is usually too strong on real faces).",
-                }),
+                "intensity": intensity_input(),
                 "extra_instruction": ("STRING", {
                     "multiline": True,
                     "default": "",
@@ -203,7 +225,8 @@ class AutoExpressEditInstructions:
         "no face detector or LoRA. " + instruction_edit.VRAM_NOTE
     )
 
-    def build(self, expressions, style=instruction_edit.ILLUSTRATION, intensity="auto", extra_instruction=""):
+    def build(self, expressions, style=instruction_edit.ILLUSTRATION, intensity=-1.0, extra_instruction=""):
+        intensity = node_intensity(intensity, photo=style == instruction_edit.PHOTO)
         all_names = instruction_edit.instruction_names()
         wanted = parse_selection(expressions)
         names = [name for name in all_names if wanted is None or name in wanted]
@@ -229,6 +252,7 @@ class AutoExpressExpressionLoras:
                 "download_missing": ("BOOLEAN", {"default": True}),
             },
             "optional": {
+                "intensity": intensity_input(),
                 "civitai_api_key": ("STRING", {
                     "default": "",
                     "tooltip": "Needed by Civitai for downloads. Leave empty to reuse the key from ComfyUI LoRA Manager or the CIVITAI_API_KEY / CIVITAI_API_TOKEN environment variable.",
@@ -246,8 +270,9 @@ class AutoExpressExpressionLoras:
     FUNCTION = "apply"
     CATEGORY = CATEGORY
 
-    def apply(self, model, clip, ckpt_name, prompt_style, architecture, download_missing, civitai_api_key=""):
+    def apply(self, model, clip, ckpt_name, prompt_style, architecture, download_missing, civitai_api_key="", intensity=-1.0):
         family = resolve_flavor(prompt_style, ckpt_name)
+        scale = expression_intensity.lora_scale(node_intensity(intensity, family))
         if architecture == AUTO:
             architecture = expression_loras.guess_architecture(ckpt_name, family)
 
@@ -267,11 +292,14 @@ class AutoExpressExpressionLoras:
             if path is None:
                 log.warning(f"AutoExpress: expression LoRA {entry['name']} is not installed, skipping.")
                 continue
+            weight = round(entry["weight"] * scale, 3)
+            if weight == 0:
+                continue
             lora = comfy.utils.load_torch_file(path, safe_load=True)
-            model, clip = comfy.sd.load_lora_for_models(model, clip, lora, entry["weight"], entry["weight"])
+            model, clip = comfy.sd.load_lora_for_models(model, clip, lora, weight, weight)
             if entry.get("trigger"):
                 triggers.append(entry["trigger"])
-            log.info(f"AutoExpress: applied {entry['name']} at {entry['weight']} ({architecture}).")
+            log.info(f"AutoExpress: applied {entry['name']} at {weight:g} ({architecture}).")
 
         return (model, clip, ", ".join(triggers))
 

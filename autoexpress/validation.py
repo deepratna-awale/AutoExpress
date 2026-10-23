@@ -19,10 +19,11 @@ NUMERIC_FIELDS = {
     "seed": (int, -1, 2**63 - 1),
     "edit_steps": (int, 1, 100),
     "edit_cfg_scale": (float, 0.0, 20.0),
+    "expression_intensity": (float, 0.0, 1.0),
 }
 TEXT_FIELDS = ("ad_prompt", "ad_negative_prompt", "ad_checkpoint", "ad_sampler", "ad_scheduler", "edit_instruction", "edit_model")
 # field: allowed values
-CHOICE_FIELDS = {"edit_style": ("illustration", "photo"), "edit_intensity": ("subtle", "normal", "strong")}
+CHOICE_FIELDS = {"edit_style": ("illustration", "photo")}
 METHODS = ("inpaint", "instruct")
 MAX_TEXT = 10_000
 MAX_LORAS = 20

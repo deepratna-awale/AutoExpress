@@ -8,6 +8,11 @@
     "MeinaMix",
     "AbyssOrangeMix"
   ],
+  "defaults": {
+    "method": "inpaint",
+    "intensity": 0.5,
+    "edit_style": "illustration"
+  },
   "quality_tags": "masterpiece, best quality",
   "negative": "worst quality, low quality",
   "expressions": {

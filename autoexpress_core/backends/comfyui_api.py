@@ -493,7 +493,7 @@ class ComfyUIClient(RemoteBackend):
                 "positive": ["positive", 0],
                 "negative": ["negative", 0],
                 "latent_image": ["latent", 0],
-                "denoise": 1.0,
+                "denoise": settings.resolved_denoise(),
             },
         )
         workflow["decode"] = self._node("VAEDecode", {"samples": ["sampler", 0], "vae": ["vae", 0]})
@@ -681,6 +681,7 @@ class ComfyUIClient(RemoteBackend):
                 "Size": f"{result.size[0]}x{result.size[1]}",
                 "Model": workflow["unet"]["inputs"]["unet_name"],
                 "Lora": workflow.get("lightning", {}).get("inputs", {}).get("lora_name"),
+                "Denoising strength": f"{sampler['denoise']:g}",
                 "Version": "ComfyUI",
             }
             params = ", ".join(f"{key}: {value}" for key, value in fields.items() if value not in (None, ""))

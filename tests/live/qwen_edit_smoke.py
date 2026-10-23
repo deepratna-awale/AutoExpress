@@ -29,7 +29,7 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-lightning", action="store_true")
     parser.add_argument("--style", choices=instruction_edit.STYLES, default=instruction_edit.ILLUSTRATION, help="photo for realistic photos")
-    parser.add_argument("--intensity", choices=("auto",) + instruction_edit.INTENSITIES, default="auto", help="auto: subtle for photos, normal otherwise")
+    parser.add_argument("--intensity", type=float, default=None, help="0..1; default: 0.25 for photos, 0.5 otherwise")
     args = parser.parse_args()
 
     backend = ComfyUIClient(args.url)
@@ -39,7 +39,9 @@ def main() -> int:
         return 1
 
     names = [name.strip() for name in args.expressions.split(",") if name.strip()]
-    settings = {"seed": args.seed, "edit_lightning": not args.no_lightning, "edit_style": args.style, "edit_intensity": args.intensity}
+    settings = {"seed": args.seed, "edit_lightning": not args.no_lightning, "edit_style": args.style}
+    if args.intensity is not None:
+        settings["expression_intensity"] = args.intensity
     source = Image.open(args.image).convert("RGB")
     images, labels = [source], ["input"]
     started = time.monotonic()

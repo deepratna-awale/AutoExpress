@@ -419,6 +419,21 @@ def set_expression_family():
     return jsonify({"message": f"Expression family set to {model_family}"})
 
 
+@autoexpress.route("/expression-defaults", methods=["GET"])
+def get_expression_defaults():
+    """
+    The calibrated defaults (method, intensity, edit_style) of the family a checkpoint uses.
+
+    Query: checkpoint (the selected model), family (optional, else the selected prompt style).
+    """
+    family_choice = request.args.get("family") or model_family
+    try:
+        family = resolve_flavor(family_choice, request.args.get("checkpoint"), is_realistic)
+    except KeyError:
+        return error_response("invalid_request", f"Unknown expression family: {family_choice}", 400)
+    return jsonify({"family": family, "defaults": expression_sets.family_defaults(family)})
+
+
 @autoexpress.route("/edit-methods", methods=["GET"])
 def get_edit_methods():
     """The ways to change an expression, and which of them the selected WebUI can do."""

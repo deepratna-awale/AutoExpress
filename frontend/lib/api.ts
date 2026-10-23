@@ -93,8 +93,20 @@ export interface GenerateRequest {
   method?: string;
   /** Instruction edit wording: "illustration" keeps the art style, "photo" keeps a photo realistic. */
   edit_style?: string;
-  /** "subtle", "normal" or "strong"; omitted means the style's default (subtle for photos). */
-  edit_intensity?: string;
+  /** 0..1 expression strength; omitted means the model family's calibrated default. */
+  expression_intensity?: number;
+}
+
+/** What works best for a model family: method, expression intensity and instruction edit wording. */
+export interface FamilyDefaults {
+  method: string;
+  intensity: number;
+  edit_style: string;
+}
+
+export interface ExpressionDefaultsResponse {
+  family: string;
+  defaults: FamilyDefaults;
 }
 
 export interface JobProgress {
@@ -219,6 +231,12 @@ export const api = {
   setExpressionFamily: (family: string) => postJson<unknown>("/expression-family", { family }),
 
   editMethods: () => optional(request<EditMethodsResponse>("/edit-methods")),
+  expressionDefaults: (checkpoint: string, family: string) =>
+    optional(
+      request<ExpressionDefaultsResponse>(
+        `/expression-defaults?checkpoint=${encodeURIComponent(checkpoint)}&family=${encodeURIComponent(family)}`
+      )
+    ),
 
   setRealistic: (isRealistic: boolean) => postJson<unknown>("/toggle", { isRealistic }),
 

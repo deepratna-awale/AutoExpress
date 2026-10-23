@@ -58,9 +58,9 @@ def test_intensity_defaults_to_subtle_for_photos():
     assert "natural, genuine smile" in photo and "subtle and natural" in photo and "laughing" not in photo
     drawn = instruction_edit.build_instruction("joy")
     assert "laughing with a wide open smile" in drawn and "subtle" not in drawn
-    strong_photo = instruction_edit.build_instruction("joy", style="photo", intensity="strong")
+    strong_photo = instruction_edit.build_instruction("joy", style="photo", intensity=0.9)
     assert "laughing" in strong_photo and "strong and clearly readable" in strong_photo
-    assert instruction_edit.build_instruction("joy", intensity="subtle").startswith("Change only the facial expression. The character looks happy")
+    assert instruction_edit.build_instruction("joy", intensity=0.2).startswith("Change only the facial expression. The character looks happy")
 
 
 def test_edit_settings_from_app_settings():

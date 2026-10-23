@@ -335,7 +335,7 @@
       "widgets_values": [
         "all",
         "illustration",
-        "auto",
+        -1,
         ""
       ]
     },

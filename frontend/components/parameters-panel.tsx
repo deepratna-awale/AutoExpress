@@ -78,6 +78,7 @@ export function ParametersPanel() {
     setPhotoStyle,
     intensity,
     setIntensity,
+    familyDefaults,
     families,
     family,
     setFamily,
@@ -242,17 +243,6 @@ export function ParametersPanel() {
                       Photo
                     </Label>
                   </div>
-                  <Select value={intensity} onValueChange={setIntensity}>
-                    <SelectTrigger id="edit-intensity" className="w-full" aria-label="Expression intensity">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Intensity: auto ({photoStyle ? "subtle" : "normal"})</SelectItem>
-                      <SelectItem value="subtle">Intensity: subtle</SelectItem>
-                      <SelectItem value="normal">Intensity: normal</SelectItem>
-                      <SelectItem value="strong">Intensity: strong</SelectItem>
-                    </SelectContent>
-                  </Select>
                   <p className="text-xs text-muted-foreground">
                     {editMethods.find((m) => m.id === method)?.description} {vramNote}
                   </p>
@@ -260,6 +250,28 @@ export function ParametersPanel() {
               )}
             </div>
           )}
+
+          <div className="space-y-1">
+            <SliderField
+              id="expression-intensity"
+              label="Expression intensity"
+              value={intensity ?? familyDefaults?.intensity ?? 0.5}
+              onChange={(v) => setIntensity(Math.min(Math.max(Math.round(v * 100) / 100, 0), 1))}
+              min={0}
+              max={1}
+              step={0.05}
+            />
+            <p className="text-xs text-muted-foreground">
+              {intensity === null
+                ? `Default for ${familyDefaults?.family ?? "this model"}. Realistic models start low; strong expressions look uncanny on real faces.`
+                : "Custom. "}
+              {intensity !== null && (
+                <button type="button" className="underline" onClick={() => setIntensity(null)}>
+                  Use the model default ({familyDefaults?.intensity ?? 0.5})
+                </button>
+              )}
+            </p>
+          </div>
 
           {method !== INPAINT_METHOD ? null : families ? (
             <div className="space-y-2">

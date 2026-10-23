@@ -301,6 +301,14 @@ def test_generate_with_instruction_edit(client, monkeypatch, tmp_path):
 
 
 def test_generate_rejects_unknown_edit_style_or_intensity(client):
-    response = client.post("/generate", json=body(edit_style="sketch", edit_intensity="max"))
+    response = client.post("/generate", json=body(edit_style="sketch", expression_intensity="1.5"))
     fields = response.get_json()["error"]["fields"]
-    assert response.status_code == 400 and set(fields) == {"edit_style", "edit_intensity"}
+    assert response.status_code == 400 and set(fields) == {"edit_style", "expression_intensity"}
+
+
+def test_expression_defaults_follow_the_checkpoint(client):
+    realistic = client.get("/expression-defaults?checkpoint=juggernautXL_v9.safetensors&family=sdxl_base").get_json()
+    assert realistic["family"] == "sdxl_base" and realistic["defaults"]["edit_style"] == "photo"
+    anime = client.get("/expression-defaults?checkpoint=animagine-xl-3.1.safetensors&family=auto").get_json()
+    assert anime["family"] == "danbooru" and anime["defaults"]["intensity"] == 0.5
+    assert client.get("/expression-defaults?family=nope").status_code == 400

@@ -8,6 +8,11 @@
     "SD 1.5",
     "Realistic Vision"
   ],
+  "defaults": {
+    "method": "inpaint",
+    "intensity": 0.2,
+    "edit_style": "photo"
+  },
   "quality_tags": "",
   "negative": "",
   "expressions": {
