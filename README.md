@@ -325,7 +325,7 @@ chmod +x ./run.sh
 [http://127.0.0.1:5000](http:127.0.0.1:5000)
 
 ### Web interface (Next.js)
-Release zips and the Docker image already include the new interface. When running from source, build it once (needs [Node.js](https://nodejs.org/) 20+ and [pnpm](https://pnpm.io/)):
+Release zips and the Docker image already include the new interface. When running from source, build it once (needs [Node.js](https://nodejs.org/) 20.9+, 26 recommended, and [pnpm](https://pnpm.io/)):
 ```bash
 cd frontend
 pnpm install
