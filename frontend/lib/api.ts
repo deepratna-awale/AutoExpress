@@ -30,6 +30,23 @@ export interface ExpressionFamiliesResponse {
   families: ExpressionFamily[];
 }
 
+/** A way to change the expression: face inpainting, or the instruction edit mode (Qwen-Image-Edit). */
+export interface EditMethod {
+  id: string;
+  name: string;
+  description: string;
+  /** Whether the connected WebUI can do it. */
+  available: boolean;
+}
+
+export interface EditMethodsResponse {
+  backend: string;
+  methods: EditMethod[];
+  vram_note: string;
+}
+
+export const INPAINT_METHOD = "inpaint";
+
 export interface LoraSelection {
   lora_name: string;
   lora_strength: number | string;
@@ -73,6 +90,7 @@ export interface GenerateRequest {
   ad_clip_skip: number;
   ad_cfg_scale: number;
   ad_denoising_strength: number;
+  method?: string;
 }
 
 export interface JobProgress {
@@ -195,6 +213,8 @@ export const api = {
 
   expressionFamilies: () => optional(request<ExpressionFamiliesResponse>("/expression-families")),
   setExpressionFamily: (family: string) => postJson<unknown>("/expression-family", { family }),
+
+  editMethods: () => optional(request<EditMethodsResponse>("/edit-methods")),
 
   setRealistic: (isRealistic: boolean) => postJson<unknown>("/toggle", { isRealistic }),
 

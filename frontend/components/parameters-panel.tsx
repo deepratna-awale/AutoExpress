@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { LoraSelect } from "@/components/lora-select";
 import { SliderField } from "@/components/slider-field";
 import { FAMILY_DEFAULTS, detectFamily, type Adjustment } from "@/lib/model-defaults";
+import { INPAINT_METHOD } from "@/lib/api";
 
 function AdjustmentNote({ adjustment }: { adjustment?: Adjustment }) {
   if (!adjustment) return null;
@@ -69,6 +70,10 @@ export function ParametersPanel() {
     connection,
     connect,
     options,
+    editMethods,
+    vramNote,
+    method,
+    setMethod,
     families,
     family,
     setFamily,
@@ -205,7 +210,32 @@ export function ParametersPanel() {
             <LoraSelect available={options.loras} value={params.loras} onChange={(value) => setParam("loras", value)} />
           </div>
 
-          {families ? (
+          {editMethods && (
+            <div className="space-y-2">
+              <Label htmlFor="edit-method" className="text-sm font-medium">
+                Method
+              </Label>
+              <Select value={method} onValueChange={setMethod}>
+                <SelectTrigger id="edit-method" className="w-full">
+                  <SelectValue placeholder="Face inpainting" />
+                </SelectTrigger>
+                <SelectContent>
+                  {editMethods.map((m) => (
+                    <SelectItem key={m.id} value={m.id} disabled={!m.available} title={m.description}>
+                      {m.available ? m.name : `${m.name} (ComfyUI only)`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {method !== INPAINT_METHOD && (
+                <p className="text-xs text-muted-foreground">
+                  {editMethods.find((m) => m.id === method)?.description} {vramNote}
+                </p>
+              )}
+            </div>
+          )}
+
+          {method !== INPAINT_METHOD ? null : families ? (
             <div className="space-y-2">
               <Label htmlFor="prompt-style" className="text-sm font-medium">
                 Prompt Style

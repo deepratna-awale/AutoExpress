@@ -4,10 +4,12 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { toast } from "sonner";
 import {
   api,
+  INPAINT_METHOD,
   isActiveJob,
   resolveOutputDir,
   type Job,
   type BackendInfo,
+  type EditMethod,
   type ExpressionFamily,
   type LoraSelection,
   type UploadResponse,
@@ -77,6 +79,12 @@ interface AutoExpressState {
   connection: ConnectionStatus;
   connect: () => Promise<void>;
   options: Options;
+
+  // How the expression is changed; null when the backend has no /edit-methods
+  editMethods: EditMethod[] | null;
+  vramNote: string;
+  method: string;
+  setMethod: (id: string) => void;
 
   // Prompt style
   families: ExpressionFamily[] | null;
@@ -182,6 +190,10 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [connection, setConnection] = useState<ConnectionStatus>("idle");
   const [options, setOptions] = useState<Options>({ models: [], samplers: [], schedulers: [], loras: [] });
 
+  const [editMethods, setEditMethods] = useState<EditMethod[] | null>(null);
+  const [vramNote, setVramNote] = useState("");
+  const [method, setMethod] = useState(INPAINT_METHOD);
+
   const [families, setFamilies] = useState<ExpressionFamily[] | null>(null);
   const [family, setFamilyState] = useState(AUTO_FAMILY);
   const [isRealistic, setRealisticState] = useState(false);
@@ -248,8 +260,24 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     toast.success(`Applied ${family.label} defaults`);
   }, []);
 
+  /** Which methods the selected WebUI supports; falls back to inpainting when the chosen one isn't. */
+  const loadEditMethods = useCallback(() => {
+    api
+      .editMethods()
+      .then((data) => {
+        setEditMethods(data?.methods ?? null);
+        setVramNote(data?.vram_note ?? "");
+        setMethod((current) =>
+          data?.methods.some((m) => m.id === current && m.available) ? current : INPAINT_METHOD
+        );
+      })
+      .catch(() => setEditMethods(null));
+  }, []);
+
   // Restore the last used connection, then let the server's state win when it has one.
   useEffect(() => {
+    loadEditMethods();
+
     try {
       const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
       if (saved?.apiUrl) setApiUrl(saved.apiUrl);
@@ -311,6 +339,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         api.loras(),
       ]);
       setOptions({ models, samplers, schedulers, loras });
+      loadEditMethods();
       reconcile(paramsRef.current, { models, samplers, schedulers, loras });
       if (models.length === 0) {
         setConnection("error");
@@ -323,7 +352,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setConnection("error");
       toast.error(`Could not connect: ${error instanceof Error ? error.message : error}`);
     }
-  }, [apiUrl, backend, backends, reconcile]);
+  }, [apiUrl, backend, backends, reconcile, loadEditMethods]);
 
   const setFamily = useCallback((id: string) => {
     const previous = family;
@@ -513,6 +542,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ad_clip_skip: params.clipSkip,
         ad_cfg_scale: params.cfgScale,
         ad_denoising_strength: params.denoisingStrength,
+        ...(editMethods ? { method } : {}),
       });
       if (result.job_id && result.job && isActiveJob(result.job)) {
         tracking = true;
@@ -534,7 +564,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, loadImages, stopPolling, trackJob, finishJob]);
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, loadImages, stopPolling, trackJob, finishJob]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -559,6 +589,10 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       connection,
       connect,
       options,
+      editMethods,
+      vramNote,
+      method,
+      setMethod,
       families,
       family,
       setFamily,
@@ -585,7 +619,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       loadImages,
     }),
     [
-      backends, backend, setBackend, apiUrl, connection, connect, options, families, family, setFamily,
+      backends, backend, setBackend, apiUrl, connection, connect, options, editMethods, vramNote, method, families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]
