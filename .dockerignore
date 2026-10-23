@@ -12,3 +12,8 @@ uploads/
 __pycache__/
 .env
 .venv/
+
+# Frontend build output and dependencies (built in the frontend stage)
+frontend/node_modules/
+frontend/.next/
+frontend/out/

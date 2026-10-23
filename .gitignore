@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!frontend/lib/
 lib64/
 parts/
 sdist/
@@ -160,3 +161,8 @@ uploads/**/*
 .DS_Store
 QOL CHANGES.txt
 install_logs.txt
+# Next.js frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts

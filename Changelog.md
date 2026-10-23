@@ -1,4 +1,9 @@
 ## 2026-10-23
+- New web interface built with Next.js and shadcn/ui (in [frontend/](frontend/)). Flask serves it at http://127.0.0.1:5000 once it is built; the original interface stays at `/classic`.
+  - Resizable panels, mobile layout, light/dark mode and a theme editor with presets (saved in the browser).
+  - LoRA picker with a strength per LoRA, live gallery that fills in while expressions generate, raw metadata viewer.
+  - Shows the Prompt Style and WebUI backend selectors when the backend supports them.
+- Release zips and the Docker image include the built interface.
 - Expression prompts now come in one set per model family: Danbooru, e621, Pony, Illustrious/NoobAI, SDXL/SD1.5 (CLIP) and natural language (Flux, SD3, ...).
 - The Anime/Realistic switch is replaced by a **Prompt Style** dropdown. **Auto** picks the family from the checkpoint name.
 - Family quality tags (e.g. Pony `score_` tags) and negatives are added only when missing from your prompt.
