@@ -163,7 +163,7 @@ def test_unreachable_and_refused_reports(webui):
         port = s.getsockname()[1]
     report = A1111Client(url=f"http://127.0.0.1:{port}", retries=0, connect_timeout=1).check_capabilities()
     assert report["error"]["code"] == "backend_unavailable"
-    assert "proxy.runpod.net" in " ".join(items(report)["api"]["fix"]["steps"])
+    assert any(step.startswith("On RunPod and similar hosts") for step in items(report)["api"]["fix"]["steps"])
 
 
 def test_comfyui_report_lists_missing_custom_nodes():
