@@ -85,6 +85,9 @@ interface AutoExpressState {
   vramNote: string;
   method: string;
   setMethod: (id: string) => void;
+  /** Instruction edit wording for drawn images or for photos. */
+  photoStyle: boolean;
+  setPhotoStyle: (value: boolean) => void;
 
   // Prompt style
   families: ExpressionFamily[] | null;
@@ -193,6 +196,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [editMethods, setEditMethods] = useState<EditMethod[] | null>(null);
   const [vramNote, setVramNote] = useState("");
   const [method, setMethod] = useState(INPAINT_METHOD);
+  const [photoStyle, setPhotoStyle] = useState(false);
 
   const [families, setFamilies] = useState<ExpressionFamily[] | null>(null);
   const [family, setFamilyState] = useState(AUTO_FAMILY);
@@ -543,6 +547,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ad_cfg_scale: params.cfgScale,
         ad_denoising_strength: params.denoisingStrength,
         ...(editMethods ? { method } : {}),
+        ...(method !== INPAINT_METHOD ? { edit_style: photoStyle ? "photo" : "illustration" } : {}),
       });
       if (result.job_id && result.job && isActiveJob(result.job)) {
         tracking = true;
@@ -564,7 +569,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, editMethods, method, loadImages, stopPolling, trackJob, finishJob]);
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, loadImages, stopPolling, trackJob, finishJob]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -593,6 +598,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       vramNote,
       method,
       setMethod,
+      photoStyle,
+      setPhotoStyle,
       families,
       family,
       setFamily,
@@ -619,7 +626,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       loadImages,
     }),
     [
-      backends, backend, setBackend, apiUrl, connection, connect, options, editMethods, vramNote, method, families, family, setFamily,
+      backends, backend, setBackend, apiUrl, connection, connect, options, editMethods, vramNote, method, photoStyle, families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]

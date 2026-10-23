@@ -74,6 +74,8 @@ export function ParametersPanel() {
     vramNote,
     method,
     setMethod,
+    photoStyle,
+    setPhotoStyle,
     families,
     family,
     setFamily,
@@ -228,9 +230,20 @@ export function ParametersPanel() {
                 </SelectContent>
               </Select>
               {method !== INPAINT_METHOD && (
-                <p className="text-xs text-muted-foreground">
-                  {editMethods.find((m) => m.id === method)?.description} {vramNote}
-                </p>
+                <>
+                  <div className="flex items-center justify-center gap-3 text-sm">
+                    <Label htmlFor="edit-style-toggle" className={cn(!photoStyle && "font-semibold")}>
+                      Illustration
+                    </Label>
+                    <Switch id="edit-style-toggle" checked={photoStyle} onCheckedChange={setPhotoStyle} />
+                    <Label htmlFor="edit-style-toggle" className={cn(photoStyle && "font-semibold")}>
+                      Photo
+                    </Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {editMethods.find((m) => m.id === method)?.description} {vramNote}
+                  </p>
+                </>
               )}
             </div>
           )}

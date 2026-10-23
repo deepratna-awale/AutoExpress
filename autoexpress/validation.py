@@ -20,7 +20,7 @@ NUMERIC_FIELDS = {
     "edit_steps": (int, 1, 100),
     "edit_cfg_scale": (float, 0.0, 20.0),
 }
-TEXT_FIELDS = ("ad_prompt", "ad_negative_prompt", "ad_checkpoint", "ad_sampler", "ad_scheduler", "edit_instruction", "edit_model")
+TEXT_FIELDS = ("ad_prompt", "ad_negative_prompt", "ad_checkpoint", "ad_sampler", "ad_scheduler", "edit_instruction", "edit_model", "edit_style")
 METHODS = ("inpaint", "instruct")
 MAX_TEXT = 10_000
 MAX_LORAS = 20

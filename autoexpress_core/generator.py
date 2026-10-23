@@ -73,7 +73,8 @@ class ExpressionGenerator:
             is_realistic (bool): Tie-breaker for "auto" when the checkpoint name says nothing.
             method (str): instruction_edit.INPAINT (face inpainting with the family's prompts) or
                 instruction_edit.INSTRUCT (Qwen-Image-Edit with one sentence per expression; flavor,
-                lora_prompt and the ad_* settings are not used, edit_* settings and seed are).
+                lora_prompt and the ad_* settings are not used, edit_* settings and seed are; is_realistic
+                picks the photo wording unless edit_style says otherwise).
 
         Yields:
             tuple[str, Image.Image]: Expression name and the generated image.
@@ -83,7 +84,7 @@ class ExpressionGenerator:
         settings = dict(settings or {})
 
         if method == instruction_edit.INSTRUCT:
-            yield from self._iter_instruction_edits(b64_image, settings, only, output_dir)
+            yield from self._iter_instruction_edits(b64_image, settings, only, output_dir, is_realistic)
             return
 
         family = resolve_flavor(flavor, settings.get("ad_checkpoint"), is_realistic)
@@ -122,22 +123,23 @@ class ExpressionGenerator:
 
         log.info(f"Generated {len(expressions)} expressions.")
 
-    def _iter_instruction_edits(self, b64_image: str, settings: dict, only, output_dir) -> Iterator[tuple[str, Image.Image]]:
+    def _iter_instruction_edits(self, b64_image: str, settings: dict, only, output_dir, is_realistic=False) -> Iterator[tuple[str, Image.Image]]:
         if instruction_edit.INSTRUCT not in getattr(self.backend, "edit_methods", ()):
             raise ValueError(f"{type(self.backend).__name__} has no instruction edit mode; use the ComfyUI backend.")
         self.family = instruction_edit.INSTRUCT
         instructions = instruction_edit.get_instructions(only)
         edit_settings = instruction_edit.EditSettings.from_settings(settings)
         extra = settings.get("edit_instruction", "")
+        style = instruction_edit.resolve_style(settings.get("edit_style"), is_realistic)
         output_dir = self._prepare_output(output_dir)
-        log.info(f"Using instruction edits ({len(instructions)} expressions).")
+        log.info(f"Using {style} instruction edits ({len(instructions)} expressions).")
 
         for expression_name in instructions:
             if self._stop.is_set():
                 log.info("Interrupted by user. Stopping..")
                 return
             log.info(f"Editing the expression to {expression_name}.")
-            instruction = instruction_edit.build_instruction(expression_name, extra)
+            instruction = instruction_edit.build_instruction(expression_name, extra, style)
             result = self.backend.instruction_edit(b64_image, instruction, edit_settings)
             if result is None:
                 log.error(f"Instruction edit failed for {expression_name}, stopping.")

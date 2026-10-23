@@ -34,7 +34,19 @@ def test_tuned_instructions_for_known_problems():
     # "deep blush" turned the whole face red, and sadness tilted the head.
     embarrassment = instruction_edit.get_instructions(["embarrassment"])["embarrassment"]
     assert "only on the cheeks" in embarrassment and "deep blush" not in embarrassment
+    assert "blush" not in instruction_edit.get_instructions(["joy"])["joy"]
     assert "does not move" in instruction_edit.get_instructions(["sadness"])["sadness"]
+
+
+def test_photo_style_keeps_photos_realistic():
+    text = instruction_edit.build_instruction("joy", style="photo")
+    assert text.startswith("Edit this photograph: change only the person's facial expression. The person is overjoyed")
+    assert text.endswith("Do not stylize or cartoonize.")
+    assert instruction_edit.resolve_style(None, is_realistic=True) == "photo"
+    assert instruction_edit.resolve_style("illustration", is_realistic=True) == "illustration"
+    assert instruction_edit.resolve_style("auto") == "illustration"
+    with pytest.raises(KeyError):
+        instruction_edit.build_instruction("joy", style="sketch")
 
 
 def test_edit_settings_from_app_settings():
@@ -227,3 +239,12 @@ def test_example_workflow_wires_the_instruction_node():
     instructions = next(n for n in workflow["nodes"] if n["type"] == "AutoExpressEditInstructions")
     prompt_link = instructions["outputs"][0]["links"][0]
     assert types[links[prompt_link][3]] == "TextEncodeQwenImageEditPlus"
+
+
+def test_generator_uses_photo_wording_for_realistic_images(face_image):
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = ComfySession(edit_routes())
+    ExpressionGenerator(backend).generate(face_image, only=["joy"], method="instruct", is_realistic=True)
+    ExpressionGenerator(backend).generate(face_image, settings={"edit_style": "illustration"}, only=["joy"], method="instruct", is_realistic=True)
+    prompts = [kw["json"]["prompt"]["positive"]["inputs"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt"]
+    assert prompts[0].startswith("Edit this photograph") and prompts[1].startswith("Change only the facial expression.")

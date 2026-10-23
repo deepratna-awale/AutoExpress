@@ -91,6 +91,8 @@ export interface GenerateRequest {
   ad_cfg_scale: number;
   ad_denoising_strength: number;
   method?: string;
+  /** Instruction edit wording: "illustration" keeps the art style, "photo" keeps a photo realistic. */
+  edit_style?: string;
 }
 
 export interface JobProgress {

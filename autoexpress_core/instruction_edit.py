@@ -48,6 +48,11 @@ METHODS = {
     },
 }
 
+# Wording that keeps the input's look: illustrations stay drawn, photos stay photos (without it Qwen cartoonizes photos).
+ILLUSTRATION = "illustration"
+PHOTO = "photo"
+STYLES = (ILLUSTRATION, PHOTO)
+
 INSTRUCTIONS_FILE = pathlib.Path(__file__).resolve().parent / "resources" / "edit_instructions.json"
 
 VRAM_NOTE = (
@@ -76,19 +81,32 @@ def get_instructions(only: list[str] | None = None) -> dict[str, str]:
     return expressions
 
 
-def build_instruction(expression: str, extra: str = "") -> str:
+def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATION) -> str:
     """
     The full edit instruction for one expression.
 
     Args:
         expression (str): An expression name, see instruction_names().
         extra (str): Optional text added before the "keep the same ..." sentence, e.g. "Keep the glasses on."
+        style (str): ILLUSTRATION (anime, cartoon, furry art) or PHOTO (realistic photos).
     """
     data = _load()
     if expression not in data["expressions"]:
         raise KeyError(f"No edit instruction for '{expression}'. Valid names: {', '.join(data['expressions'])}")
-    parts = [data["prefix"], data["expressions"][expression], (extra or "").strip(), data["suffix"]]
+    if style not in data["styles"]:
+        raise KeyError(f"Unknown instruction style '{style}'. Choose from: {', '.join(data['styles'])}")
+    sentence = data["expressions"][expression]
+    if style == PHOTO:
+        sentence = sentence.replace("The character", "The person")
+    parts = [data["styles"][style]["prefix"], sentence, (extra or "").strip(), data["styles"][style]["suffix"]]
     return " ".join(part for part in parts if part)
+
+
+def resolve_style(style: str | None = None, is_realistic: bool = False) -> str:
+    """A style id from a user choice; "auto" or None picks PHOTO for realistic images."""
+    if style in STYLES:
+        return style
+    return PHOTO if is_realistic else ILLUSTRATION
 
 
 @dataclass
