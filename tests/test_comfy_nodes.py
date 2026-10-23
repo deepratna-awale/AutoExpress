@@ -69,6 +69,7 @@ def test_nodes_are_registered(comfy):
         "AutoExpressExpressionPrompts",
         "AutoExpressExpressionPrompt",
         "AutoExpressExpressionLoras",
+        "AutoExpressEditInstructions",
         "AutoExpressSaveExpressions",
         "AutoExpressSpriteSheet",
     }
@@ -105,3 +106,12 @@ def test_expression_loras_skips_missing_files(comfy):
     node = comfy.nodes["AutoExpressExpressionLoras"]()
     model, clip, trigger = node.apply("model", "clip", "", "auto", "flux", download_missing=False)
     assert comfy.applied == [] and (model, clip, trigger) == ("model", "clip", "")
+
+
+def test_edit_instructions_node(comfy):
+    node = comfy.nodes["AutoExpressEditInstructions"]()
+    instructions, names, count = node.build("joy, anger", "Keep the glasses on.")
+    assert names == ["anger", "joy"] and count == 2
+    assert all(text.startswith("Change only the facial expression.") and "Keep the glasses on." in text for text in instructions)
+    with pytest.raises(ValueError):
+        node.build("smug", "")

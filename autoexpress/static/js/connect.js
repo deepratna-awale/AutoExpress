@@ -32,6 +32,7 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
                 console.log('Data sent successfully');
                 button.style.backgroundColor = 'grey';  // Set button background to grey
                 loadListings();
+                loadEditMethods();
             } else {
                 console.log('Failed to send data');
                 button.style.backgroundColor = 'red';  // Set button background to red

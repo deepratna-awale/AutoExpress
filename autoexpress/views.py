@@ -14,7 +14,7 @@ from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, JobManager, JobSpec
 from autoexpress.modules import expression_sets, image_parser
 from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
 from autoexpress.validation import ValidationError, resolve_inside, validate_generate
-from autoexpress_core import get_expressions, resolve_flavor
+from autoexpress_core import get_expressions, instruction_edit, resolve_flavor
 from autoexpress_core.backends.base import BackendError, BackendNotReady
 from autoexpress_core.backends.registry import REMOTE_BACKENDS, create_backend, describe_backends
 from autoexpress_core.civitai_key import find_civitai_key
@@ -261,16 +261,27 @@ def generate():
     By default the request waits until the job finishes, like before. Send
     "wait": false to get a job id back immediately (HTTP 202) and follow it
     with GET /jobs/<id>.
+
+    "method": "instruct" uses the instruction edit mode (Qwen-Image-Edit, ComfyUI
+    only) instead of face inpainting; see GET /edit-methods.
     """
     request_data = validate_generate(request.get_json(silent=True), settings.max_image_pixels)
     backend = current_backend()
+    method = request_data["method"]
+    if method not in backend.edit_methods:
+        raise ValidationError(
+            {"method": f"{backend.label} has no {instruction_edit.METHODS[method]['name']} mode. Use the ComfyUI backend for it."}
+        )
 
     job_settings = dict(request_data["settings"])
     for lora_name, lora_strength in request_data["loras"]:
         job_settings["ad_prompt"] = f"{job_settings.get('ad_prompt', '')} <lora:{lora_name}:{lora_strength}>, "
 
     family = resolve_flavor(model_family, job_settings.get("ad_checkpoint"), is_realistic)
-    expressions = list(get_expressions(family, request_data["expressions"]))
+    if method == instruction_edit.INSTRUCT:
+        expressions = list(instruction_edit.get_instructions(request_data["expressions"]))
+    else:
+        expressions = list(get_expressions(family, request_data["expressions"]))
     if not expressions:
         raise ValidationError({"expressions": "None of the requested expressions exist."})
 
@@ -283,11 +294,11 @@ def generate():
     # A fresh client per job, so switching WebUI or interrupting never touches another job.
     job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
     # Fail fast instead of waiting behind queued jobs to find out the WebUI is down.
-    ready, message = job_backend.check_ready()
+    ready, message = job_backend.check_ready(method)
     if not ready:
         raise job_backend.last_error or BackendNotReady(message)
     civitai_api_key = None
-    if lora_settings["enabled"]:
+    if lora_settings["enabled"] and method == instruction_edit.INPAINT:
         civitai_api_key, source = civitai_key_for(job_backend)
         if source:
             log.info(f"Civitai API key from {source}")
@@ -304,6 +315,7 @@ def generate():
             use_expression_loras=lora_settings["enabled"],
             lora_dir=lora_settings["lora_dir"] or None,
             civitai_api_key=civitai_api_key,
+            method=method,
         )
     )
 
@@ -392,6 +404,22 @@ def set_expression_family():
     model_family = family
     log.info(f"Expression family set to {model_family}")
     return jsonify({"message": f"Expression family set to {model_family}"})
+
+
+@autoexpress.route("/edit-methods", methods=["GET"])
+def get_edit_methods():
+    """The ways to change an expression, and which of them the selected WebUI can do."""
+    backend = current_backend()
+    return jsonify(
+        {
+            "backend": backend.kind,
+            "methods": [
+                {"id": method_id, **info, "available": method_id in backend.edit_methods}
+                for method_id, info in instruction_edit.METHODS.items()
+            ],
+            "vram_note": instruction_edit.VRAM_NOTE,
+        }
+    )
 
 
 @autoexpress.route("/expression-loras", methods=["GET"])

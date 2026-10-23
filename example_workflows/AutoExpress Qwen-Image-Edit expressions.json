@@ -1,0 +1,908 @@
+{
+  "last_node_id": 17,
+  "last_link_id": 24,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "pos": [
+        0,
+        0
+      ],
+      "size": [
+        320,
+        360
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "character.png",
+        "image"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "ImageScaleToTotalPixels",
+      "pos": [
+        360,
+        0
+      ],
+      "size": [
+        300,
+        100
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            8,
+            11,
+            13
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageScaleToTotalPixels"
+      },
+      "widgets_values": [
+        "lanczos",
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "type": "UNETLoader",
+      "pos": [
+        0,
+        420
+      ],
+      "size": [
+        340,
+        90
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UNETLoader"
+      },
+      "widgets_values": [
+        "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+        "default"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "LoraLoaderModelOnly",
+      "pos": [
+        360,
+        420
+      ],
+      "size": [
+        340,
+        90
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoraLoaderModelOnly"
+      },
+      "widgets_values": [
+        "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors",
+        1
+      ],
+      "title": "Lightning 8-step LoRA (bypass it for 40 steps at CFG 4)"
+    },
+    {
+      "id": 5,
+      "type": "ModelSamplingAuraFlow",
+      "pos": [
+        720,
+        420
+      ],
+      "size": [
+        300,
+        100
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ModelSamplingAuraFlow"
+      },
+      "widgets_values": [
+        3
+      ]
+    },
+    {
+      "id": 6,
+      "type": "CFGNorm",
+      "pos": [
+        1060,
+        420
+      ],
+      "size": [
+        300,
+        100
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "patched_model",
+          "type": "MODEL",
+          "links": [
+            5
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CFGNorm"
+      },
+      "widgets_values": [
+        1
+      ]
+    },
+    {
+      "id": 7,
+      "type": "CLIPLoader",
+      "pos": [
+        0,
+        560
+      ],
+      "size": [
+        340,
+        110
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            6,
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPLoader"
+      },
+      "widgets_values": [
+        "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "qwen_image",
+        "default"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "VAELoader",
+      "pos": [
+        0,
+        720
+      ],
+      "size": [
+        340,
+        60
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            7,
+            10,
+            14,
+            19
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "qwen_image_vae.safetensors"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "AutoExpressEditInstructions",
+      "pos": [
+        360,
+        120
+      ],
+      "size": [
+        320,
+        160
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "instructions",
+          "type": "STRING",
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "names",
+          "type": "STRING",
+          "links": [
+            21,
+            23
+          ]
+        },
+        {
+          "name": "count",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "AutoExpressEditInstructions"
+      },
+      "widgets_values": [
+        "all",
+        ""
+      ]
+    },
+    {
+      "id": 10,
+      "type": "TextEncodeQwenImageEditPlus",
+      "pos": [
+        720,
+        0
+      ],
+      "size": [
+        320,
+        200
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 6
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 7
+        },
+        {
+          "name": "image1",
+          "type": "IMAGE",
+          "link": 8
+        },
+        {
+          "name": "image2",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image3",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "link": 12,
+          "widget": {
+            "name": "prompt"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            15
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TextEncodeQwenImageEditPlus"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "title": "Edit instruction"
+    },
+    {
+      "id": 11,
+      "type": "TextEncodeQwenImageEditPlus",
+      "pos": [
+        720,
+        240
+      ],
+      "size": [
+        320,
+        140
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 9
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 10
+        },
+        {
+          "name": "image1",
+          "type": "IMAGE",
+          "link": 11
+        },
+        {
+          "name": "image2",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image3",
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            16
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TextEncodeQwenImageEditPlus"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "title": "Negative (empty)"
+    },
+    {
+      "id": 12,
+      "type": "VAEEncode",
+      "pos": [
+        720,
+        580
+      ],
+      "size": [
+        200,
+        50
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "pixels",
+          "type": "IMAGE",
+          "link": 13
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            17
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEEncode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 13,
+      "type": "KSampler",
+      "pos": [
+        1100,
+        0
+      ],
+      "size": [
+        300,
+        260
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 5
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 15
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 16
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 17
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        42,
+        "fixed",
+        8,
+        1,
+        "euler",
+        "simple",
+        1
+      ]
+    },
+    {
+      "id": 14,
+      "type": "VAEDecode",
+      "pos": [
+        1440,
+        0
+      ],
+      "size": [
+        200,
+        50
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 18
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            20,
+            22
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 15,
+      "type": "AutoExpressSaveExpressions",
+      "pos": [
+        1680,
+        0
+      ],
+      "size": [
+        320,
+        300
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 20
+        },
+        {
+          "name": "names",
+          "type": "STRING",
+          "link": 21
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "AutoExpressSaveExpressions"
+      },
+      "widgets_values": [
+        "New_Character"
+      ]
+    },
+    {
+      "id": 16,
+      "type": "AutoExpressSpriteSheet",
+      "pos": [
+        1680,
+        340
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 22
+        },
+        {
+          "name": "names",
+          "type": "STRING",
+          "link": 23
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sprite_sheet",
+          "type": "IMAGE",
+          "links": [
+            24
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "AutoExpressSpriteSheet"
+      },
+      "widgets_values": [
+        7,
+        true
+      ]
+    },
+    {
+      "id": 17,
+      "type": "PreviewImage",
+      "pos": [
+        2020,
+        340
+      ],
+      "size": [
+        400,
+        400
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 24
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      3,
+      0,
+      4,
+      0,
+      "MODEL"
+    ],
+    [
+      3,
+      4,
+      0,
+      5,
+      0,
+      "MODEL"
+    ],
+    [
+      4,
+      5,
+      0,
+      6,
+      0,
+      "MODEL"
+    ],
+    [
+      5,
+      6,
+      0,
+      13,
+      0,
+      "MODEL"
+    ],
+    [
+      6,
+      7,
+      0,
+      10,
+      0,
+      "CLIP"
+    ],
+    [
+      7,
+      8,
+      0,
+      10,
+      1,
+      "VAE"
+    ],
+    [
+      8,
+      2,
+      0,
+      10,
+      2,
+      "IMAGE"
+    ],
+    [
+      9,
+      7,
+      0,
+      11,
+      0,
+      "CLIP"
+    ],
+    [
+      10,
+      8,
+      0,
+      11,
+      1,
+      "VAE"
+    ],
+    [
+      11,
+      2,
+      0,
+      11,
+      2,
+      "IMAGE"
+    ],
+    [
+      12,
+      9,
+      0,
+      10,
+      5,
+      "STRING"
+    ],
+    [
+      13,
+      2,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      14,
+      8,
+      0,
+      12,
+      1,
+      "VAE"
+    ],
+    [
+      15,
+      10,
+      0,
+      13,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      16,
+      11,
+      0,
+      13,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      17,
+      12,
+      0,
+      13,
+      3,
+      "LATENT"
+    ],
+    [
+      18,
+      13,
+      0,
+      14,
+      0,
+      "LATENT"
+    ],
+    [
+      19,
+      8,
+      0,
+      14,
+      1,
+      "VAE"
+    ],
+    [
+      20,
+      14,
+      0,
+      15,
+      0,
+      "IMAGE"
+    ],
+    [
+      21,
+      9,
+      1,
+      15,
+      1,
+      "STRING"
+    ],
+    [
+      22,
+      14,
+      0,
+      16,
+      0,
+      "IMAGE"
+    ],
+    [
+      23,
+      9,
+      1,
+      16,
+      1,
+      "STRING"
+    ],
+    [
+      24,
+      16,
+      0,
+      17,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "info": "AutoExpress instruction edit: one Qwen-Image-Edit-2509 run per expression. Needs about 24 GB of VRAM. Get the models with: python -m autoexpress_core.instruction_edit download <ComfyUI folder>"
+  },
+  "version": 0.4
+}

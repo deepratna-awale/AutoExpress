@@ -37,6 +37,7 @@ class JobSpec:
     use_expression_loras: bool = True
     lora_dir: str | None = None
     civitai_api_key: str | None = None
+    method: str = "inpaint"
 
 
 @dataclass
@@ -77,6 +78,7 @@ class Job:
             "status": self.status,
             "backend": self.spec.backend.kind,
             "backend_name": self.spec.backend.label,
+            "method": self.spec.method,
             "output_dir": self.spec.output_name,
             "created_at": self.created_at,
             "started_at": self.started_at,
@@ -212,7 +214,7 @@ def run_expression_job(job: Job) -> None:
     from autoexpress_core import ExpressionGenerator
 
     spec = job.spec
-    ready, message = spec.backend.check_ready()
+    ready, message = spec.backend.check_ready(spec.method)
     if not ready:
         raise spec.backend.last_error or BackendNotReady(message)
 
@@ -232,6 +234,7 @@ def run_expression_job(job: Job) -> None:
         civitai_api_key=spec.civitai_api_key,
         generator=job.generator,
         only=spec.expressions,
+        method=spec.method,
     ):
         job.completed.append(name)
         if job.cancel_requested.is_set():

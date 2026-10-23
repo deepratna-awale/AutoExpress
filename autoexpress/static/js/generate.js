@@ -87,6 +87,7 @@ document.querySelector('.generate-button').addEventListener('click', function ()
         init_images: thumbnailSrc,
         output_dir: document.getElementById('output-directory').value,
         wait: false,
+        method: document.getElementById('edit-method-input').value,
         ad_scheduler: document.getElementById('scheduler-input').value,
         loras: loras,
         seed: document.getElementById('seed-input').value,

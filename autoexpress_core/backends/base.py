@@ -18,6 +18,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.util.retry import Retry
 
+from ..instruction_edit import INPAINT, INSTRUCT, METHODS
 from ..payload import SAME_CHECKPOINT, find_nested_key
 from ..log import log
 
@@ -277,6 +278,8 @@ class RemoteBackend:
     kind = ""
     label = ""
     default_url = "http://127.0.0.1:7860"
+    # Ways this WebUI can change an expression, see instruction_edit.METHODS.
+    edit_methods: tuple[str, ...] = (INPAINT,)
 
     def __init__(self, url: str | None = None, timeout: float | None = None, options: ConnectionOptions | None = None, **option_overrides) -> None:
         self.connection = dataclasses.replace(options) if options else ConnectionOptions()
@@ -458,10 +461,13 @@ class RemoteBackend:
         """Progress of the image being generated: {"fraction": 0..1, "eta": seconds or None}, or None if unknown."""
         return None
 
-    def check_ready(self) -> tuple[bool, str]:
-        """Check the server is reachable and has what AutoExpress needs. Returns (ok, message)."""
+    def check_ready(self, method: str = INPAINT) -> tuple[bool, str]:
+        """Check the server is reachable and has what AutoExpress needs for a method. Returns (ok, message)."""
         try:
-            self.ensure_ready()
+            if method == INPAINT:
+                self.ensure_ready()
+            else:
+                self.ensure_edit_ready()
         except BackendError as e:
             self.last_error = e
             return False, str(e)
@@ -469,6 +475,16 @@ class RemoteBackend:
 
     def ensure_ready(self) -> None:
         """Raise a BackendError explaining what is missing; return quietly when ready."""
+        raise NotImplementedError
+
+    def ensure_edit_ready(self) -> None:
+        """Like ensure_ready, for the instruction edit mode."""
+        if INSTRUCT not in self.edit_methods:
+            raise BackendNotReady(f"{self.label} has no {METHODS[INSTRUCT]['name']} mode. Use the ComfyUI backend for it.")
+        raise NotImplementedError
+
+    def instruction_edit(self, image: str, instruction: str, settings):
+        """Apply one edit instruction to a base64 image. Only backends listing INSTRUCT in edit_methods have it."""
         raise NotImplementedError
 
     def health(self) -> dict:

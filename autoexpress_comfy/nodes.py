@@ -12,6 +12,15 @@ FaceDetailer. These nodes provide the AutoExpress specific parts around it:
 
 Because the prompts output is a list, ComfyUI runs FaceDetailer once per
 expression on its own, no loop nodes needed.
+
+The instruction edit mode skips FaceDetailer and has Qwen-Image-Edit-2509
+rewrite the expression from a sentence (about 24 GB of VRAM, see
+autoexpress_core.instruction_edit):
+
+    AutoExpress Edit Instructions -> instructions (list) -> TextEncodeQwenImageEditPlus prompt
+                                  -> names (list)        -> AutoExpress Save Expressions / Sprite Sheet
+
+example_workflows/ has both graphs ready to load.
 """
 
 import os
@@ -33,6 +42,7 @@ from ..autoexpress_core import (
     expression_loras,
     expression_names,
     expression_sets,
+    instruction_edit,
     make_sprite_sheet,
     resolve_flavor,
 )
@@ -149,6 +159,51 @@ class AutoExpressExpressionPrompt:
     def build(self, prompt_style, expression, base_prompt, ckpt_name=""):
         family = resolve_flavor(prompt_style, ckpt_name)
         return (expression_sets.build_prompt(base_prompt, expression, family), expression)
+
+
+class AutoExpressEditInstructions:
+    """Every AutoExpress expression as an edit instruction for Qwen-Image-Edit."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "expressions": ("STRING", {
+                    "default": "all",
+                    "tooltip": "'all', or a comma separated list such as: joy, anger, surprise",
+                }),
+                "extra_instruction": ("STRING", {
+                    "multiline": True,
+                    "default": "",
+                    "tooltip": "Added to every instruction, e.g. 'Keep the glasses on.'",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "INT")
+    RETURN_NAMES = ("instructions", "names", "count")
+    OUTPUT_IS_LIST = (True, True, False)
+    OUTPUT_TOOLTIPS = (
+        "One edit instruction per expression. Connect to TextEncodeQwenImageEditPlus's prompt.",
+        "Expression names, in the same order as the instructions.",
+        "Number of expressions.",
+    )
+    FUNCTION = "build"
+    CATEGORY = CATEGORY
+    DESCRIPTION = (
+        "Edit instructions for Qwen-Image-Edit-2509: stronger expressions than face inpainting, "
+        "no face detector or LoRA. " + instruction_edit.VRAM_NOTE
+    )
+
+    def build(self, expressions, extra_instruction=""):
+        all_names = instruction_edit.instruction_names()
+        wanted = parse_selection(expressions)
+        names = [name for name in all_names if wanted is None or name in wanted]
+        if not names:
+            raise ValueError(f"No expressions matched '{expressions}'. Valid names: {', '.join(all_names)}")
+        instructions = [instruction_edit.build_instruction(name, extra_instruction) for name in names]
+        log.info(f"AutoExpress: {len(names)} edit instructions.")
+        return (instructions, names, len(names))
 
 
 class AutoExpressExpressionLoras:
@@ -291,6 +346,7 @@ NODE_CLASS_MAPPINGS = {
     "AutoExpressExpressionPrompts": AutoExpressExpressionPrompts,
     "AutoExpressExpressionPrompt": AutoExpressExpressionPrompt,
     "AutoExpressExpressionLoras": AutoExpressExpressionLoras,
+    "AutoExpressEditInstructions": AutoExpressEditInstructions,
     "AutoExpressSaveExpressions": AutoExpressSaveExpressions,
     "AutoExpressSpriteSheet": AutoExpressSpriteSheet,
 }
@@ -299,6 +355,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AutoExpressExpressionPrompts": "AutoExpress Expression Prompts",
     "AutoExpressExpressionPrompt": "AutoExpress Expression Prompt",
     "AutoExpressExpressionLoras": "AutoExpress Expression LoRAs",
+    "AutoExpressEditInstructions": "AutoExpress Edit Instructions",
     "AutoExpressSaveExpressions": "AutoExpress Save Expressions",
     "AutoExpressSpriteSheet": "AutoExpress Sprite Sheet",
 }

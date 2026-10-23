@@ -252,3 +252,49 @@ def test_civitai_key_comes_from_the_webui_unless_typed_in(client, monkeypatch):
     typed = secrets.token_hex(8)
     monkeypatch.setitem(views.lora_settings, "civitai_api_key", typed)
     assert views.civitai_key_for(views.current_backend()) == (typed, "AutoExpress")
+
+
+class FakeEditWebUI(FakeWebUI):
+    kind = "fake_edit"
+    edit_methods = ("inpaint", "instruct")
+    instructions = []
+
+    def ensure_edit_ready(self):
+        if not FakeWebUI.ready:
+            raise BackendNotReady("Fake WebUI has no Qwen-Image-Edit.")
+
+    def instruction_edit(self, image, instruction, settings):
+        FakeEditWebUI.instructions.append((instruction, settings.seed))
+        return Image.new("RGB", (16, 16))
+
+
+def test_edit_methods_follow_the_backend(client, monkeypatch):
+    methods = client.get("/edit-methods").get_json()
+    assert {m["id"]: m["available"] for m in methods["methods"]} == {"inpaint": True, "instruct": False}
+    assert "24 GB" in methods["vram_note"]
+
+    response = client.post("/generate", json=body(method="instruct"))
+    assert response.status_code == 400 and "ComfyUI" in response.get_json()["error"]["fields"]["method"]
+    assert client.post("/generate", json=body(method="nope")).status_code == 400
+
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_edit", FakeEditWebUI)
+    views.state.connect("fake_edit", None)
+    assert all(m["available"] for m in client.get("/edit-methods").get_json()["methods"])
+
+
+def test_generate_with_instruction_edit(client, monkeypatch, tmp_path):
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_edit", FakeEditWebUI)
+    monkeypatch.setitem(views.lora_settings, "enabled", True)
+    FakeEditWebUI.instructions = []
+    views.state.connect("fake_edit", None)
+
+    result = client.post("/generate", json=body(method="instruct", seed="9", expressions=["joy", "sadness"])).get_json()
+    assert result["status"] == "success" and result["job"]["method"] == "instruct"
+    assert FakeWebUI.calls == 0  # no inpainting
+    assert [text.split(". ")[1].split(":")[0] for text, _ in FakeEditWebUI.instructions] == ["The character is overjoyed", "The character is sad"]
+    assert {seed for _, seed in FakeEditWebUI.instructions} == {9}
+    assert sorted(p.name for p in (tmp_path / "out" / "Alice").iterdir()) == ["joy.png", "sadness.png"]
+
+    FakeWebUI.ready = False
+    response = client.post("/generate", json=body(method="instruct"))
+    assert response.status_code == 409 and "Qwen-Image-Edit" in response.get_json()["message"]

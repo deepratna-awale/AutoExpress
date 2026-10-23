@@ -39,6 +39,42 @@ expressionFamilySelect.addEventListener("change", () => {
 
 loadExpressionFamilies();
 
+// Face inpainting or instruction edit, limited to what the connected WebUI can do
+const editMethodSelect = document.getElementById("edit-method-input");
+
+function loadEditMethods() {
+  fetch("/edit-methods")
+    .then((response) => response.json())
+    .then((data) => {
+      const selected = editMethodSelect.value;
+      editMethodSelect.innerHTML = "";
+      data.methods.forEach((method) => {
+        const option = document.createElement("option");
+        option.value = method.id;
+        option.textContent = method.available ? method.name : `${method.name} (ComfyUI only)`;
+        option.title = method.description;
+        option.disabled = !method.available;
+        editMethodSelect.appendChild(option);
+      });
+      const still = data.methods.find((method) => method.id === selected && method.available);
+      editMethodSelect.value = still ? selected : "inpaint";
+      editMethodSelect.dispatchEvent(new Event("change"));
+    })
+    .catch((error) => {
+      console.error("Could not load edit methods:", error);
+    });
+}
+
+// Prompt style and expression LoRAs only apply to face inpainting
+editMethodSelect.addEventListener("change", () => {
+  const inpaint = editMethodSelect.value === "inpaint";
+  expressionFamilySelect.disabled = !inpaint;
+  const lorasToggle = document.getElementById("expression-loras-toggle");
+  if (lorasToggle) lorasToggle.disabled = !inpaint;
+});
+
+loadEditMethods();
+
 // Expression LoRA settings
 const expressionLorasToggle = document.getElementById("expression-loras-toggle");
 const loraDirInput = document.getElementById("lora-dir-input");
