@@ -303,7 +303,7 @@ def on_ui_tabs():
                     steps = gr.Slider(label="Steps", minimum=1, maximum=150, step=1, value=28)
                     cfg_scale = gr.Slider(label="CFG scale", minimum=1.0, maximum=30.0, step=0.5, value=7.0)
                 with gr.Row():
-                    denoising_strength = gr.Slider(label="Denoising strength", minimum=0.0, maximum=1.0, step=0.01, value=0.4)
+                    denoising_strength = gr.Slider(label="Denoising strength", minimum=0.0, maximum=1.0, step=0.01, value=0.55)
                     clip_skip = gr.Slider(label="Clip skip", minimum=1, maximum=12, step=1, value=2)
                 with gr.Row():
                     seed = gr.Number(label="Seed", value=-1, precision=0)
