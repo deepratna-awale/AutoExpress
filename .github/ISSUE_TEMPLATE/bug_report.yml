@@ -1,0 +1,43 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: dropdown
+    id: integration
+    attributes:
+      label: Where do you run AutoExpress?
+      options:
+        - AUTOMATIC1111 / Forge / reForge / SD.Next extension
+        - ComfyUI nodes
+        - InvokeAI node
+        - Standalone app
+    validations:
+      required: true
+  - type: input
+    id: webui
+    attributes:
+      label: WebUI and version
+      placeholder: e.g. Forge f2.0.1, ComfyUI 0.3.40, running on RunPod
+  - type: input
+    id: model
+    attributes:
+      label: Checkpoint and prompt style
+      placeholder: e.g. NoobAI-XL 1.1, prompt style Auto
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error message
+      description: Paste the console output. Remove any API keys first.
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Optional. Images must be safe for work.
