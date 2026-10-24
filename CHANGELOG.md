@@ -2,13 +2,12 @@
 
 All notable changes to AutoExpress are listed here, newest first.
 
-## 2026-10-24
-- The standalone app runs as a Hugging Face Space ([damientheodore/AutoExpress](https://huggingface.co/spaces/damientheodore/AutoExpress)), updated from `main` by a GitHub Actions workflow.
-- The Docker image runs as an unprivileged user (uid 1000). A mounted results folder needs to be writable by it. `--build-arg PRELOAD_REMBG_MODELS="..."` bakes background removal models into the image.
-- **Remove background** in the standalone app saves every expression with a transparent background, only the character is kept. Uses rembg (`isnet-anime` for drawn characters, `u2net_human_seg` for photos), installed from `requirements.txt`. Also `"remove_background": true` on `POST /generate`, and `GET /background-removal`.
-- matplotlib is no longer a dependency.
+## 2.1.0 (2026-10-24)
 
-## 2026-10-23
+### New
+- **Instruction edit mode** on ComfyUI: Qwen-Image-Edit changes the expression from one sentence instead of inpainting the face. Tuned illustration and photo wordings for all 28 expressions, an Edit Instructions node, readiness checks and an example workflow that needs only core nodes.
+  - Photos use Qwen-Image-Edit-2511 at 40 steps and CFG 4, and only the edited face is pasted back onto the original through a feathered mask, so the rest of the photo is untouched.
+- **Expression intensity** slider (0 to 1) with a default per model family: inpainting with expression LoRAs for anime families, instruction edit with photo wording for realistic and natural-language models.
 - The standalone app works with a WebUI hosted anywhere (LAN, RunPod and other hosts, https, reverse-proxy sub-paths, logins). Nothing assumes it runs on this machine.
   - **Detect automatically** (the new default) reads the WebUI type from its API: A1111, Forge, SD.Next, ComfyUI, SwarmUI or InvokeAI.
   - After connecting, a setup check lists what the WebUI has and what's missing (ADetailer and its face model, Impact Pack and Subpack, face detection models, checkpoints, samplers, LoRAs). Each missing piece comes with steps for that WebUI, commands to copy, links, and a **Re-check** button. Also at `GET /backend/capabilities`.
@@ -16,6 +15,24 @@ All notable changes to AutoExpress are listed here, newest first.
   - A RunPod proxy URL for a port the pod doesn't expose says to add the port under Expose HTTP Ports.
   - Expression LoRAs you renamed on the WebUI are recognised by the hashes in their metadata (A1111 family, InvokeAI with sha256 hashing).
   - Expression LoRAs are written to the LoRA folder only when it's on this machine. InvokeAI installs missing ones itself through its Model Manager. For other WebUIs, the run lists each missing LoRA with its download link (`notes` on the job).
+- **Remove background** in the standalone app saves every expression with a transparent background, only the character is kept. Uses rembg (`isnet-anime` for drawn characters, `u2net_human_seg` for photos), installed from `requirements.txt`. Also `"remove_background": true` on `POST /generate`, and `GET /background-removal`.
+
+### Changed
+- The expression LoRA base (SD 1.5, SD 2, SDXL, Flux) is read from the model itself instead of guessed from the checkpoint name, so SD 1.5 checkpoints with unusual names no longer get SDXL LoRAs. The name still tells Pony and Illustrious apart from plain SDXL.
+- LoRA entries can set a weight per expression (0 drops the LoRA and its trigger). The Illustrious expressions LoRA is skipped for anger, and the Illustrious family recommends NoobAI-XL, WAI and other finetunes over base Illustrious-XL 0.1.
+- `install.sh` / `install.bat` build the web interface too (Node.js 20.9+, pnpm or corepack), check for Python 3.10+, reuse `.venv` unless `--clean` is given and accept `--skip-frontend`. `install.sh` no longer runs `apt update/upgrade`, so it works on macOS.
+- `run` / `run_debug` check that the app is installed and start from their own folder. `run_debug` listens on 127.0.0.1 by default, since the Werkzeug debugger can run code.
+- The Docker image runs as an unprivileged user (uid 1000). A mounted results folder needs to be writable by it. `--build-arg PRELOAD_REMBG_MODELS="..."` bakes background removal models into the image.
+- The frontend, release zips and Docker image build on Node 26.
+- Release notes come from this changelog.
+- matplotlib is no longer a dependency.
+- README and docs restructured, with a page per integration under [docs/](docs/).
+
+### Security
+- Option values and labels are escaped in the classic interface, the LoRA tag parser runs in linear time, and release jobs get minimal permissions.
+- Dependabot and a weekly dependency audit (pip-audit and pnpm audit); sd-parsers 0.6 and higher requirement floors.
+
+## 2.0.0 (2026-10-23)
 - New web interface built with Next.js and shadcn/ui (in [frontend/](frontend/)). Flask serves it at http://127.0.0.1:5000 once it is built; the original interface stays at `/classic`.
   - Resizable panels, mobile layout, light/dark mode and a theme editor with presets (saved in the browser).
   - LoRA picker with a strength per LoRA, live gallery that fills in while expressions generate, raw metadata viewer.
