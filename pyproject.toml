@@ -5,14 +5,38 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "autoexpress"
 description = "Generate 28 facial expressions of a character from one image. Works as a standalone app, an AUTOMATIC1111/Forge/SD.Next extension, ComfyUI nodes and InvokeAI nodes."
-version = "2.1.0"
+version = "2.1.1"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-# Only what the shared core needs. Every supported WebUI already ships these.
+classifiers = ["Operating System :: OS Independent"]
+# Only what the shared core needs. Every supported WebUI already ships these, and
+# they're all the WebUI extension and nodes (and the Comfy Registry) install.
 dependencies = ["pillow", "requests"]
 
-classifiers = ["Operating System :: OS Independent"]
+[project.optional-dependencies]
+# The standalone app: install.sh / install.bat, the release zips and the Docker
+# image install these from uv.lock, which pins every package for each platform.
+standalone = [
+    "flask>=3.1.3",
+    "werkzeug>=3.1.9",
+    "sd-parsers==0.6",
+    "pillow>=13.0.0; python_version >= '3.11'",
+    "pillow>=12.0.0; python_version < '3.11'",
+    "requests>=2.34.2",
+    "loguru>=0.7.3",
+    # Production server for "python -m autoexpress"
+    "waitress>=3.0.2",
+    # Optional: live step progress from ComfyUI
+    "websocket-client>=1.9.2",
+    # "Remove background" on exports (the rembg models download on first use).
+    # onnxruntime has no Intel macOS wheels, so it's left out there and the option is hidden.
+    "rembg[cpu]>=2.0.67; sys_platform != 'darwin' or platform_machine == 'arm64'",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
 
 [project.urls]
 Repository = "https://github.com/deepratna-awale/AutoExpress"
