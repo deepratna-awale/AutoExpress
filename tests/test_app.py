@@ -375,7 +375,7 @@ def test_generate_without_method_uses_the_family_default(client, monkeypatch):
     views.state.connect("fake_edit", None)
     FakeEditWebUI.instructions = []
     result = client.post("/generate", json=body(expressions=["joy"])).get_json()
-    assert result["job"]["method"] == "instruct" and FakeEditWebUI.instructions[0][0].startswith("Edit this photograph")
+    assert result["job"]["method"] == "instruct" and FakeEditWebUI.instructions[0][0].startswith("Make the person look a little happy.")
 
     views.state.connect("fake", None)  # no edit mode: falls back to inpainting
     assert client.post("/generate", json=body(expressions=["joy"])).get_json()["job"]["method"] == "inpaint"

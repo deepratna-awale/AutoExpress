@@ -107,17 +107,27 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
     if style not in data["styles"]:
         raise KeyError(f"Unknown instruction style '{style}'. Choose from: {', '.join(data['styles'])}")
     tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO), photo=style == PHOTO)
-    sentence = data["subtle" if tier in ("subtle", "minimal", "trace") else "expressions"][expression]
     if style == PHOTO:
-        sentence = sentence.replace("The character", "The person")
+        sentence, clause = photo_sentence(expression, tier), ""
+    else:
+        sentence = data["subtle" if tier in ("subtle", "minimal", "trace") else "expressions"][expression]
+        clause = data["intensity"][tier]
     parts = [
         data["styles"][style]["prefix"],
         sentence,
-        data["intensity"][tier],
+        clause,
         (extra or "").strip(),
         data["styles"][style]["suffix"],
     ]
     return " ".join(part for part in parts if part)
+
+
+def photo_sentence(expression: str, tier: str) -> str:
+    """The plain photo sentence, "Make the person look a little sad.", with the degree word for an edit_tier."""
+    photo = _load()["photo"]
+    level = "high" if tier == "strong" else "mid" if tier == "normal" else "low"
+    degree = "" if expression in photo["fixed"] else photo["soft_degree" if expression in photo["soft"] else "degree"][level]
+    return photo["template"].format(degree=degree, word=photo["words"][expression])
 
 
 def expression_intensity_for(expression: str, intensity: float, style: str = ILLUSTRATION) -> float:

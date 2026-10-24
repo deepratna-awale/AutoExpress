@@ -14,15 +14,15 @@ The curves are plain functions so they can be tuned from test renders.
 
 RunPod photo tests: face inpainting barely moves a real face at any setting
 (ADetailer's 0.4 denoise is too low to change a photo, and more breaks the
-likeness), so realistic families default to the instruction edit at 0.07:
-0.03 barely changes a real face, 0.05 is subtle but visible and 0.1 is already too strong.
+likeness), so realistic families default to the instruction edit at 0.1 with
+plain photo sentences ("Make the person look a little sad.").
 """
 
 import re
 
 DEFAULT = 0.5
 # Real faces read as uncanny well before drawn ones do.
-PHOTO_DEFAULT = 0.07
+PHOTO_DEFAULT = 0.1
 
 
 def resolve(value=None, realistic: bool = False) -> float:
