@@ -7,7 +7,7 @@
     },
     "photo": {
       "prefix": "",
-      "suffix": "Keep everything else about the photo the same."
+      "suffix": ""
     }
   },
   "expressions": {
@@ -43,9 +43,7 @@
   "intensity": {
     "subtle": "Keep the change subtle and natural, the way a real person would show it.",
     "normal": "",
-    "strong": "Make the expression strong and clearly readable.",
-    "minimal": "Make only a barely noticeable change: the faintest hint of this expression, with the face almost exactly as it is.",
-    "trace": "Change the face only very slightly, so it is hard to tell it was edited: just a trace of this expression."
+    "strong": "Make the expression strong and clearly readable."
   },
   "subtle": {
     "admiration": "The character looks on with quiet admiration: eyes a little brighter and a soft, slight smile.",
@@ -81,55 +79,11 @@
     "_comment": "Multiplies the intensity for photos, per expression. Empty since the plain photo sentences: RunPod tests showed every expression reading at the same value."
   },
   "photo": {
-    "_comment": "Photos get one plain sentence, 'Make the person look a little sad.': on real faces, plain emotion words matched their labels far better than descriptions of brows and mouths, which the model over-acted. The degree word follows the intensity tier; surprise and fear read too strong with 'a little', so they use 'slightly'. 'fixed' expressions take no degree word.",
-    "template": "Make the person look {degree}{word}.",
-    "degree": {
-      "low": "a little ",
-      "mid": "",
-      "high": "very "
-    },
-    "soft_degree": {
-      "low": "slightly ",
-      "mid": "",
-      "high": "very "
-    },
-    "soft": [
-      "surprise",
-      "fear"
-    ],
-    "fixed": [
-      "neutral",
-      "realization"
-    ],
+    "_comment": "Photos get just the expression's name: on real faces the bare name matched every label, while descriptions of brows and mouths were over-acted and plain sentences barely moved the face. The intensity sets only the denoise. 'Joy' came out weak and 'embarrassment' painted pink cheeks, so they are renamed; the skin-color note stops disgust, pride and embarrassment from tinting the skin.",
+    "template": "{word}. Keep it a realistic photo with natural skin color.",
     "words": {
-      "admiration": "admiring",
-      "amusement": "amused",
-      "anger": "angry",
-      "annoyance": "annoyed",
-      "approval": "approving",
-      "caring": "caring",
-      "confusion": "confused",
-      "curiosity": "curious",
-      "desire": "full of longing",
-      "disappointment": "disappointed",
-      "disapproval": "disapproving",
-      "disgust": "disgusted",
-      "embarrassment": "shy and awkward",
-      "excitement": "excited",
-      "fear": "scared",
-      "gratitude": "grateful",
-      "grief": "grief-stricken",
-      "joy": "happy",
-      "love": "loving",
-      "nervousness": "nervous",
-      "neutral": "calm and neutral",
-      "optimism": "hopeful",
-      "pride": "proud",
-      "realization": "like they just realized something",
-      "relief": "relieved",
-      "remorse": "remorseful",
-      "sadness": "sad",
-      "surprise": "surprised"
+      "joy": "smiling",
+      "embarrassment": "shy"
     }
   }
 }

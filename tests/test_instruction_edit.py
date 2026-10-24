@@ -35,18 +35,18 @@ def test_tuned_instructions_for_known_problems():
     embarrassment = instruction_edit.get_instructions(["embarrassment"])["embarrassment"]
     assert "only on the cheeks" in embarrassment and "deep blush" not in embarrassment
     assert "blush" not in instruction_edit.get_instructions(["joy"])["joy"]
-    # On photos "embarrass" itself paints blotches on the cheeks, and surprise/fear blew up the eyes.
-    photo = {name: instruction_edit.build_instruction(name, style="photo") for name in ("embarrassment", "surprise", "fear")}
-    assert "embarrass" not in photo["embarrassment"].lower() and "blush" not in photo["embarrassment"]
-    assert "slightly surprised" in photo["surprise"] and "slightly scared" in photo["fear"]
+    # On photos "embarrassment" paints pink cheeks and "joy" barely smiles; disgust and pride tinted the skin.
+    photo = {name: instruction_edit.build_instruction(name, style="photo") for name in ("embarrassment", "joy", "disgust")}
+    assert photo["embarrassment"].startswith("shy.") and photo["joy"].startswith("smiling.")
+    assert photo["disgust"].endswith("natural skin color.")
     assert "does not move" in instruction_edit.get_instructions(["sadness"])["sadness"]
 
 
 def test_photo_style_keeps_photos_realistic():
     text = instruction_edit.build_instruction("joy", style="photo")
-    # Plain emotion words matched their labels on real faces; feature descriptions were over-acted.
-    assert text == "Make the person look a little happy. Keep everything else about the photo the same."
-    assert instruction_edit.build_instruction("neutral", style="photo").startswith("Make the person look calm and neutral.")
+    # The bare name matched every label on real faces; feature descriptions were over-acted.
+    assert text == "smiling. Keep it a realistic photo with natural skin color."
+    assert instruction_edit.build_instruction("sadness", style="photo").startswith("sadness.")
     assert instruction_edit.resolve_style(None, is_realistic=True) == "photo"
     assert instruction_edit.resolve_style("illustration", is_realistic=True) == "illustration"
     assert instruction_edit.resolve_style("auto") == "illustration"
@@ -55,13 +55,11 @@ def test_photo_style_keeps_photos_realistic():
 
 
 def test_intensity_defaults_to_subtle_for_photos():
-    photo = instruction_edit.build_instruction("joy", style="photo")
-    assert "a little happy" in photo and "smile" not in photo
     drawn = instruction_edit.build_instruction("joy")
     assert "laughing with a wide open smile" in drawn and "subtle" not in drawn
-    strong_photo = instruction_edit.build_instruction("joy", style="photo", intensity=0.9)
-    assert strong_photo.startswith("Make the person look very happy.")
-    assert instruction_edit.build_instruction("joy", style="photo", intensity=0.6).startswith("Make the person look happy.")
+    # Photo wording doesn't change with intensity; only the denoise does.
+    photos = {instruction_edit.build_instruction("joy", style="photo", intensity=value) for value in (0.1, 0.5, 0.9)}
+    assert len(photos) == 1
     assert instruction_edit.build_instruction("joy", intensity=0.2).startswith("Change only the facial expression. The character looks happy")
 
 
@@ -263,7 +261,7 @@ def test_generator_uses_photo_wording_for_realistic_images(face_image):
     ExpressionGenerator(backend).generate(face_image, only=["joy"], method="instruct", is_realistic=True)
     ExpressionGenerator(backend).generate(face_image, settings={"edit_style": "illustration"}, only=["joy"], method="instruct", is_realistic=True)
     prompts = [kw["json"]["prompt"]["positive"]["inputs"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt"]
-    assert prompts[0].startswith("Make the person look") and prompts[1].startswith("Change only the facial expression.")
+    assert prompts[0].startswith("smiling.") and prompts[1].startswith("Change only the facial expression.")
 
 
 def test_edit_requirements_report_fixes_over_the_api():

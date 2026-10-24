@@ -14,15 +14,15 @@ The curves are plain functions so they can be tuned from test renders.
 
 RunPod photo tests: face inpainting barely moves a real face at any setting
 (ADetailer's 0.4 denoise is too low to change a photo, and more breaks the
-likeness), so realistic families default to the instruction edit at 0.1 with
-plain photo sentences ("Make the person look a little sad.").
+likeness), so realistic families default to the instruction edit, which on
+photos sends only the expression's name and is toned by its denoise.
 """
 
 import re
 
 DEFAULT = 0.5
-# Real faces read as uncanny well before drawn ones do.
-PHOTO_DEFAULT = 0.1
+# Photos have their own denoise curve (see edit_denoise), calibrated so 0.5 is also their natural strength.
+PHOTO_DEFAULT = 0.5
 
 
 def resolve(value=None, realistic: bool = False) -> float:
@@ -107,16 +107,8 @@ def scale_lora_tags(prompt: str, intensity: float) -> str:
 
 
 # Instruction edit --------------------------------------------------------------
-def edit_tier(intensity: float, photo: bool = False) -> str:
-    """
-    Which wording the instruction edit uses: subtle below 0.4, strong from 0.8, normal between.
-
-    Photos get "minimal" below 0.2 and "trace" below 0.05: even the subtle sentences moved a real face too much.
-    """
-    if photo and intensity < 0.05:
-        return "trace"
-    if photo and intensity < 0.2:
-        return "minimal"
+def edit_tier(intensity: float) -> str:
+    """Which wording the illustration edit uses: subtle below 0.4, strong from 0.8, normal between."""
     if intensity < 0.4:
         return "subtle"
     if intensity >= 0.8:
@@ -128,9 +120,9 @@ def edit_denoise(intensity: float, photo: bool = False) -> float:
     """
     Sampler denoise for Qwen-Image-Edit. Below 1 the edit starts from the input's latent, so it keeps more of the face.
 
-    Illustrations: 0.55 at 0 up to 1.0 from 0.75. Photos: 0.2 + intensity (0.03 -> 0.23, 0.1 -> 0.3,
-    full from 0.8), since 0.55 + 0.6 x 0.1 still changed a real face too much.
+    Illustrations: 0.55 at 0 up to 1.0 from 0.75. Photos: 0.2 at 0, 0.6 at 0.5 and 1.0 at 1. On RunPod
+    photo tests 0.3 barely moved a real face and 0.6 matched every label without changing the person.
     """
     if photo:
-        return round(min(1.0, 0.2 + intensity), 3)
+        return round(0.2 + 0.8 * intensity, 3)
     return round(min(1.0, 0.55 + 0.6 * intensity), 2)

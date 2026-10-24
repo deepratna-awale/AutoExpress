@@ -106,11 +106,11 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
         raise KeyError(f"No edit instruction for '{expression}'. Valid names: {', '.join(data['expressions'])}")
     if style not in data["styles"]:
         raise KeyError(f"Unknown instruction style '{style}'. Choose from: {', '.join(data['styles'])}")
-    tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO), photo=style == PHOTO)
+    tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO))
     if style == PHOTO:
-        sentence, clause = photo_sentence(expression, tier), ""
+        sentence, clause = photo_sentence(expression), ""
     else:
-        sentence = data["subtle" if tier in ("subtle", "minimal", "trace") else "expressions"][expression]
+        sentence = data["subtle" if tier == "subtle" else "expressions"][expression]
         clause = data["intensity"][tier]
     parts = [
         data["styles"][style]["prefix"],
@@ -122,12 +122,10 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
     return " ".join(part for part in parts if part)
 
 
-def photo_sentence(expression: str, tier: str) -> str:
-    """The plain photo sentence, "Make the person look a little sad.", with the degree word for an edit_tier."""
+def photo_sentence(expression: str) -> str:
+    """The photo instruction, "sadness. Keep it a realistic photo with natural skin color."; intensity only sets the denoise."""
     photo = _load()["photo"]
-    level = "high" if tier == "strong" else "mid" if tier == "normal" else "low"
-    degree = "" if expression in photo["fixed"] else photo["soft_degree" if expression in photo["soft"] else "degree"][level]
-    return photo["template"].format(degree=degree, word=photo["words"][expression])
+    return photo["template"].format(word=photo["words"].get(expression, expression))
 
 
 def expression_intensity_for(expression: str, intensity: float, style: str = ILLUSTRATION) -> float:

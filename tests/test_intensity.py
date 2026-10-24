@@ -9,7 +9,7 @@ from autoexpress_core.payload import find_nested_key
 
 def test_resolve_clamps_and_defaults():
     assert expression_intensity.resolve(None) == 0.5
-    assert expression_intensity.resolve(None, realistic=True) == 0.1
+    assert expression_intensity.resolve(None, realistic=True) == 0.5
     assert expression_intensity.resolve("auto") == 0.5
     assert expression_intensity.resolve(2) == 1.0 and expression_intensity.resolve("-3") == 0.0
 
@@ -43,16 +43,16 @@ def test_families_carry_calibrated_defaults():
     }
     # RunPod photo tests: inpainting barely moves a real face, the edit at 0.2 looks natural.
     assert families["sdxl_base"]["defaults"] == {
-        "method": "instruct", "intensity": 0.1, "edit_style": "photo", "expression_loras": False,
+        "method": "instruct", "intensity": 0.5, "edit_style": "photo", "expression_loras": False,
     }
     assert families["natural_language"]["defaults"]["method"] == "instruct"
     for family in families.values():
         assert 0 <= family["defaults"]["intensity"] <= 1 and family["defaults"]["method"] in ("inpaint", "instruct")
 
 
-def test_generator_tones_down_realistic_families(face_image, fake_backend):
+def test_generator_tones_down_inpainting(face_image, fake_backend):
     generator = ExpressionGenerator(fake_backend)
-    generator.generate(face_image, settings={"ad_denoising_strength": 0.5}, flavor="sdxl_base", only=["joy"],
+    generator.generate(face_image, settings={"ad_denoising_strength": 0.5, "expression_intensity": 0.1}, flavor="sdxl_base", only=["joy"],
                        lora_prompt="<lora:expr:0.6>")
     prompt = find_nested_key(fake_backend.payloads[0], "ad_prompt")
     joy = expression_sets.load_family("sdxl_base")["expressions"]["joy"]
@@ -88,11 +88,10 @@ def test_photo_offsets_per_expression():
     assert "pale" not in expression_sets.load_family("sdxl_base")["expressions"]["fear"]
 
 
-def test_low_photo_values_stay_distinct():
-    # Deep found 0.1 too strong on a real face; 0.03 must change less than 0.1.
-    assert expression_intensity.edit_denoise(0.03, photo=True) == pytest.approx(0.23)
-    assert expression_intensity.edit_denoise(0.1, photo=True) == pytest.approx(0.3)
+def test_photo_denoise_curve():
+    # RunPod photo tests: denoise 0.3 barely moved a real face, 0.6 matched every label.
+    assert expression_intensity.edit_denoise(0.5, photo=True) == pytest.approx(0.6)
+    assert expression_intensity.edit_denoise(0.1, photo=True) == pytest.approx(0.28)
+    assert expression_intensity.edit_denoise(1.0, photo=True) == pytest.approx(1.0)
     assert expression_intensity.edit_denoise(0.1) == pytest.approx(0.61)
-    assert expression_intensity.edit_tier(0.03, photo=True) == "trace"
-    assert expression_intensity.edit_tier(0.1, photo=True) == "minimal"
     assert expression_intensity.edit_tier(0.1) == "subtle"
