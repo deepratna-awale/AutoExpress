@@ -12,9 +12,10 @@ validation. Step progress is read from ComfyUI's websocket when the optional
 websocket-client package is installed; completion is always confirmed through
 /history, so the websocket is never required.
 
-The instruction edit mode (see instruction_edit) runs a Qwen-Image-Edit-2509
-workflow instead, built only from nodes that ship with ComfyUI, so it does not
-need Impact Pack.
+The instruction edit mode (see instruction_edit) runs a Qwen-Image-Edit-2511
+workflow instead, built only from nodes that ship with ComfyUI. On photos it
+also detects the face with Impact Pack, when installed, so only the edited face
+is pasted back onto the original.
 """
 
 import dataclasses
@@ -27,7 +28,7 @@ import threading
 import time
 import uuid
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
 from .. import instruction_edit
 from ..civitai_key import comfyui_sources
@@ -51,10 +52,39 @@ REQUIRED_NODES = ("CheckpointLoaderSimple", "FaceDetailer", "UltralyticsDetector
 # Core ComfyUI nodes of the Qwen-Image-Edit workflow. TextEncodeQwenImageEditPlus came with ComfyUI 0.3.60.
 EDIT_NODES = ("UNETLoader", "CLIPLoader", "VAELoader", "ModelSamplingAuraFlow", "KSampler", "VAEEncode", "VAEDecode", "ImageScaleToTotalPixels")
 EDIT_ENCODERS = ("TextEncodeQwenImageEditPlus", "TextEncodeQwenImageEdit")
+# Impact Pack nodes that find the face for pasting a photo edit back onto the original.
+FACE_MASK_NODES = ("UltralyticsDetectorProvider", "BboxDetectorSEGS", "SegsToCombinedMask", "MaskToImage")
 
 IMPACT_PACK = "https://github.com/ltdrdata/ComfyUI-Impact-Pack"
 IMPACT_SUBPACK = "https://github.com/ltdrdata/ComfyUI-Impact-Subpack"
 FACE_MODEL_URL = "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt"
+
+
+# ComfyUI's "Edit Model Reference Method" node.
+REFERENCE_METHOD_NODE = "FluxKontextMultiReferenceLatentMethod"
+FACE_MASK_OUTPUT = "face_mask_output"
+
+
+def paste_face(original: Image.Image, edited: Image.Image, mask: Image.Image) -> Image.Image:
+    """
+    The original photo with only the edited face pasted in, through a feathered mask.
+
+    mask is the detector's face box (white on black) at any size. With no face found the whole edit is kept.
+    """
+    mask = mask.convert("L").resize(original.size, Image.NEAREST)
+    box = mask.getbbox()
+    if not box:
+        log.warning("No face found in the photo, keeping the whole edit.")
+        return edited
+    # Grow the box past the chin and brows, then feather it so the seam disappears into the skin.
+    size = min(box[2] - box[0], box[3] - box[1])
+    grow = max(4, round(size * 0.12))
+    grown = Image.new("L", original.size, 0)
+    ImageDraw.Draw(grown).rectangle((box[0] - grow, box[1] - grow, box[2] + grow, box[3] + grow), fill=255)
+    feathered = grown.filter(ImageFilter.GaussianBlur(max(3, size * 0.08)))
+    result = Image.composite(edited.convert("RGB"), original.convert("RGB"), feathered)
+    result.info = dict(edited.info)
+    return result
 
 
 def custom_node_fix(name: str, repo: str) -> Fix:
@@ -221,7 +251,7 @@ class ComfyUIClient(RemoteBackend):
         if not any(self.object_info(node) for node in EDIT_ENCODERS):
             missing.append(EDIT_ENCODERS[0])
         if missing:
-            raise BackendNotReady(f"ComfyUI is missing {', '.join(missing)}. Update ComfyUI to 0.3.60 or newer for Qwen-Image-Edit-2509.")
+            raise BackendNotReady(f"ComfyUI is missing {', '.join(missing)}. Update ComfyUI to 0.3.60 or newer for Qwen-Image-Edit.")
         if "qwen_image" not in self.options("CLIPLoader", "type"):
             raise BackendNotReady("This ComfyUI's CLIPLoader has no qwen_image type. Update ComfyUI for Qwen-Image-Edit.")
         lists = {
@@ -287,7 +317,7 @@ class ComfyUIClient(RemoteBackend):
             "lightning_lora": lambda: self.options("LoraLoaderModelOnly", "lora_name") or self.options("LoraLoader", "lora_name"),
         }
         labels = {
-            "diffusion_model": "Qwen-Image-Edit-2509 model",
+            "diffusion_model": "Qwen-Image-Edit-2511 model",
             "text_encoder": "Qwen2.5-VL text encoder",
             "vae": "Qwen-Image VAE",
             "lightning_lora": "Lightning 8-step LoRA (optional, 5x faster)",
@@ -318,6 +348,26 @@ class ComfyUIClient(RemoteBackend):
                     },
                 }
             )
+        has_face_mask = all(self.object_info(node) for node in FACE_MASK_NODES) and bool(self.options("UltralyticsDetectorProvider", "model_name"))
+        items.append(
+            {
+                "key": "qwen_edit_face_paste",
+                "label": "Face paste-back for photos (optional)",
+                "ok": has_face_mask,
+                "detail": "Impact Pack face detector found" if has_face_mask
+                else "Without Impact Pack and a face detector, photo edits keep the whole re-rendered image.",
+                "required": False,
+                "fix": None if has_face_mask else {
+                    "steps": [
+                        "Install ComfyUI Impact Pack and ComfyUI Impact Subpack (ComfyUI Manager > Custom Nodes Manager).",
+                        "Download face_yolov8m.pt into ComfyUI/models/ultralytics/bbox/.",
+                        "Restart ComfyUI.",
+                    ],
+                    "commands": [f"wget -c -P ComfyUI/models/ultralytics/bbox {FACE_MODEL_URL}"],
+                    "links": [{"label": "ComfyUI Impact Pack", "url": IMPACT_PACK}, {"label": "ComfyUI Impact Subpack", "url": IMPACT_SUBPACK}],
+                },
+            }
+        )
         items.append(
             {
                 "key": "qwen_edit_vram",
@@ -558,14 +608,14 @@ class ComfyUIClient(RemoteBackend):
         return workflow
 
     def build_edit_workflow(self, instruction: str, image_name: str, settings: instruction_edit.EditSettings) -> dict:
-        """A Qwen-Image-Edit-2509 workflow that applies one edit instruction to the uploaded image."""
+        """A Qwen-Image-Edit workflow that applies one edit instruction to the uploaded image, plus a face mask output for paste-back."""
         unet = instruction_edit.find_model("diffusion_model", self.options("UNETLoader", "unet_name"), settings.model)
         text_encoder = instruction_edit.find_model("text_encoder", self.options("CLIPLoader", "clip_name"))
         vae_name = instruction_edit.find_model("vae", self.options("VAELoader", "vae_name"))
         if not (unet and text_encoder and vae_name):
             self.ensure_edit_ready()  # raises with the list of missing files
         lightning = None
-        if settings.lightning:
+        if settings.resolved_lightning():
             lightning = instruction_edit.find_model("lightning_lora", self.options("LoraLoaderModelOnly", "lora_name"))
             if not lightning:
                 log.warning("Qwen-Image-Edit Lightning LoRA not found, sampling 40 steps at CFG 4 instead of 8 at CFG 1.")
@@ -593,8 +643,17 @@ class ComfyUIClient(RemoteBackend):
             encoder, image_input = "TextEncodeQwenImageEditPlus", "image1"
         else:
             encoder, image_input = "TextEncodeQwenImageEdit", "image"
+        conditioning = {}
         for node_id, text in (("positive", instruction), ("negative", "")):
             workflow[node_id] = self._node(encoder, {"clip": ["clip", 0], "prompt": text, "vae": ["vae", 0], image_input: ["scaled", 0]})
+            conditioning[node_id] = [node_id, 0]
+        # 2511 was trained with its reference image at timestep zero; ComfyUI's own 2511 template sets this method.
+        if "2511" in unet and "index_timestep_zero" in self.options(REFERENCE_METHOD_NODE, "reference_latents_method"):
+            for node_id in ("positive", "negative"):
+                workflow[f"{node_id}_reference"] = self._node(
+                    REFERENCE_METHOD_NODE, {"conditioning": conditioning[node_id], "reference_latents_method": "index_timestep_zero"}
+                )
+                conditioning[node_id] = [f"{node_id}_reference", 0]
 
         workflow["latent"] = self._node("VAEEncode", {"pixels": ["scaled", 0], "vae": ["vae", 0]})
         seed = settings.seed if settings.seed >= 0 else random.randint(0, 2**32 - 1)
@@ -607,14 +666,27 @@ class ComfyUIClient(RemoteBackend):
                 "cfg": settings.resolved_cfg(bool(lightning)),
                 "sampler_name": pick(settings.sampler, self.options("KSampler", "sampler_name"), SAMPLERS, "euler"),
                 "scheduler": pick(settings.scheduler, self.options("KSampler", "scheduler"), SCHEDULERS, "simple"),
-                "positive": ["positive", 0],
-                "negative": ["negative", 0],
+                "positive": conditioning["positive"],
+                "negative": conditioning["negative"],
                 "latent_image": ["latent", 0],
                 "denoise": settings.resolved_denoise(),
             },
         )
         workflow["decode"] = self._node("VAEDecode", {"samples": ["sampler", 0], "vae": ["vae", 0]})
         workflow["output"] = {"class_type": "PreviewImage", "inputs": {"images": ["decode", 0]}}
+        if settings.resolved_paste_face():
+            if all(self.object_info(node) for node in FACE_MASK_NODES) and self.options("UltralyticsDetectorProvider", "model_name"):
+                # The face box on the original image; instruction_edit() feathers it and pastes the edited face in.
+                workflow["face_detector"] = self._node("UltralyticsDetectorProvider", {"model_name": self.detector_model(None)})
+                workflow["face_segs"] = self._node(
+                    "BboxDetectorSEGS",
+                    {"bbox_detector": ["face_detector", 0], "image": ["image", 0], "threshold": 0.5, "dilation": 0, "crop_factor": 1.0, "drop_size": 10, "labels": "all"},
+                )
+                workflow["face_mask"] = self._node("SegsToCombinedMask", {"segs": ["face_segs", 0]})
+                workflow["face_mask_image"] = self._node("MaskToImage", {"mask": ["face_mask", 0]})
+                workflow[FACE_MASK_OUTPUT] = {"class_type": "PreviewImage", "inputs": {"images": ["face_mask_image", 0]}}
+            else:
+                log.warning("No Impact Pack face detector in ComfyUI, so the whole re-rendered photo is kept instead of only the face.")
         return workflow
 
     # Running --------------------------------------------------------------
@@ -684,8 +756,8 @@ class ComfyUIClient(RemoteBackend):
             time.sleep(self.poll_interval)
         raise BackendTimeout(f"ComfyUI job {prompt_id} did not finish within {self.job_timeout:.0f}s.")
 
-    def fetch_image(self, entry: dict) -> Image.Image:
-        images = entry.get("outputs", {}).get("output", {}).get("images", [])
+    def fetch_image(self, entry: dict, node: str = "output") -> Image.Image:
+        images = entry.get("outputs", {}).get(node, {}).get("images", [])
         if not images:
             raise BackendRejected("ComfyUI finished without an output image (was a face detected?).")
         image = images[0]
@@ -784,10 +856,14 @@ class ComfyUIClient(RemoteBackend):
             workflow = self.build_edit_workflow(instruction, self.upload_image(image), settings)
             stop_listening = self._listen_for_progress()
             self._prompt_id = self.queue_prompt(workflow)
-            result = self.fetch_image(self.wait_for(self._prompt_id))
-            source_size = b64_to_pil(image).size
-            if settings.keep_size and result.size != source_size:
-                result = result.convert("RGB").resize(source_size, Image.LANCZOS)
+            entry = self.wait_for(self._prompt_id)
+            result = self.fetch_image(entry)
+            source = b64_to_pil(image)
+            if (settings.keep_size or FACE_MASK_OUTPUT in workflow) and result.size != source.size:
+                result = result.convert("RGB").resize(source.size, Image.LANCZOS)
+            if FACE_MASK_OUTPUT in workflow:
+                mask = self.fetch_image(entry, FACE_MASK_OUTPUT)
+                result = paste_face(source, result, mask)
             sampler = workflow["sampler"]["inputs"]
             fields = {
                 "Steps": sampler["steps"],

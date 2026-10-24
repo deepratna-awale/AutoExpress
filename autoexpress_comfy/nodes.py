@@ -13,7 +13,7 @@ FaceDetailer. These nodes provide the AutoExpress specific parts around it:
 Because the prompts output is a list, ComfyUI runs FaceDetailer once per
 expression on its own, no loop nodes needed.
 
-The instruction edit mode skips FaceDetailer and has Qwen-Image-Edit-2509
+The instruction edit mode skips FaceDetailer and has Qwen-Image-Edit-2511
 rewrite the expression from a sentence (about 24 GB of VRAM, see
 autoexpress_core.instruction_edit):
 
@@ -242,7 +242,7 @@ class AutoExpressEditInstructions:
     FUNCTION = "build"
     CATEGORY = CATEGORY
     DESCRIPTION = (
-        "Edit instructions for Qwen-Image-Edit-2509: stronger expressions than face inpainting, "
+        "Edit instructions for Qwen-Image-Edit-2511 (or 2509): stronger expressions than face inpainting, "
         "no face detector or LoRA. " + instruction_edit.VRAM_NOTE
     )
 

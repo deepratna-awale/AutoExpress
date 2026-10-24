@@ -116,8 +116,8 @@ def test_edit_instructions_node(comfy):
     with pytest.raises(ValueError):
         node.build("smug", "illustration", -1.0, "")
     photo, _, _, photo_denoise = node.build("joy, anger", "photo", 0.03, "")
-    assert photo[0].startswith("Edit this photograph") and "Do not stylize" in photo[0]
-    assert photo_denoise == [pytest.approx(0.215), pytest.approx(0.23)]  # anger runs at half
+    assert photo[0] == "anger. Keep it a realistic photo with natural skin color."
+    assert photo_denoise == [pytest.approx(0.224), pytest.approx(0.224)]
 
 
 def test_nodes_apply_intensity(comfy):

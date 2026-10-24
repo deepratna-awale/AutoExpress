@@ -58,7 +58,7 @@ The LoRA node has `download_missing` on and an empty key, so it fetches the expr
 
 ## Instruction edit mode (Qwen-Image-Edit)
 
-Instead of repainting the face with FaceDetailer, AutoExpress can edit the whole image with Qwen-Image-Edit-2509 from one sentence per expression. It needs no face detector or expression LoRA, gives stronger expressions and keeps the character.
+Instead of repainting the face with FaceDetailer, AutoExpress can edit the whole image with Qwen-Image-Edit-2511 (2509 also works) from one sentence per expression. It needs no face detector or expression LoRA, gives stronger expressions and keeps the character.
 
 <p align="center">
   <img src="../.github/readme/method_comparison.jpg" alt="FaceDetailer and LoRA compared with Qwen-Image-Edit" width="100%">
@@ -74,12 +74,14 @@ or run `python -m autoexpress_core.instruction_edit check /path/to/ComfyUI` to l
 
 | File | Folder |
 | --- | --- |
-| `qwen_image_edit_2509_fp8_e4m3fn` | `models/diffusion_models` |
+| `qwen_image_edit_2511_fp8mixed` | `models/diffusion_models` |
 | `qwen_2.5_vl_7b_fp8_scaled` | `models/text_encoders` |
 | `qwen_image_vae` | `models/vae` |
-| `Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16` (optional) | `models/loras` |
+| `Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16` (optional, drawn images only) | `models/loras` |
 
 With the Lightning LoRA use 8 steps at CFG 1, without it 40 steps at CFG 4.
+
+**Photos.** Use the `photo` style and skip the Lightning LoRA: its 8 steps make real skin look plastic, so run 40 steps at CFG 4, about 2 minutes per expression on an A40. The photo instructions are just the expression's name plus "Keep it a realistic photo with natural skin color.", and the node's `denoise` output (0.6 at the default intensity) goes to the KSampler. The standalone app and the ComfyUI backend also paste only the edited face back onto the original photo, found with Impact Pack's face detector, so skin, hair and background stay untouched. In a graph, do the same with a face mask and `ImageCompositeMasked`.
 
 **VRAM.** About 24 GB: the model is around 20 GB and the ~9 GB text encoder is offloaded by ComfyUI. 16 GB cards work with `--lowvram`, several times slower.
 

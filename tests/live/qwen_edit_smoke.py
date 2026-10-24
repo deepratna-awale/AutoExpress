@@ -27,9 +27,9 @@ def main() -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--expressions", default="neutral,joy,anger,sadness,surprise,embarrassment,confusion,fear,disgust,pride")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--no-lightning", action="store_true")
+    parser.add_argument("--no-lightning", action="store_true", help="40 steps without the Lightning LoRA (always on for photos)")
     parser.add_argument("--style", choices=instruction_edit.STYLES, default=instruction_edit.ILLUSTRATION, help="photo for realistic photos")
-    parser.add_argument("--intensity", type=float, default=None, help="0..1; default: 0.25 for photos, 0.5 otherwise")
+    parser.add_argument("--intensity", type=float, default=None, help="0..1; default: the model family's, 0.5")
     args = parser.parse_args()
 
     backend = ComfyUIClient(args.url)
@@ -39,7 +39,7 @@ def main() -> int:
         return 1
 
     names = [name.strip() for name in args.expressions.split(",") if name.strip()]
-    settings = {"seed": args.seed, "edit_lightning": not args.no_lightning, "edit_style": args.style}
+    settings = {"seed": args.seed, "edit_lightning": False if args.no_lightning else None, "edit_style": args.style}
     if args.intensity is not None:
         settings["expression_intensity"] = args.intensity
     source = Image.open(args.image).convert("RGB")
