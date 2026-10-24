@@ -19,9 +19,11 @@ Download the latest release for your platform from the [Releases page](https://g
 ## Docker
 
 ```bash
-docker pull deepratna/autoexpress
-docker run -p 5000:5000 deepratna/autoexpress
+docker pull ghcr.io/deepratna-awale/autoexpress
+docker run -p 5000:5000 ghcr.io/deepratna-awale/autoexpress
 ```
+
+Each release publishes the image with its version (`ghcr.io/deepratna-awale/autoexpress:2.1.0`) and as `latest`. The old `deepratna/autoexpress` image on Docker Hub is from 2024 and no longer updated.
 
 The container runs as an unprivileged user with uid 1000. If you mount a folder for the results, make it writable by that user (`-v "$PWD/Output:/AutoExpress/Output"` after `chown 1000 Output`). Build with `--build-arg PRELOAD_REMBG_MODELS="isnet-anime u2net_human_seg"` to include the background removal models in the image instead of downloading them on first use.
 
