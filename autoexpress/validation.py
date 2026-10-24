@@ -85,7 +85,8 @@ def validate_generate(data, max_pixels: int) -> dict:
     Returns:
         dict: image (base64 str), output_name, loras (list of (name, weight)),
               settings (payload overrides), expressions (list or None), wait (bool),
-              method ("inpaint", "instruct" or None for the family's default).
+              method ("inpaint", "instruct" or None for the family's default),
+              remove_background (bool).
     """
     if not isinstance(data, dict):
         raise ValidationError({"body": "Expected a JSON object."})
@@ -166,6 +167,10 @@ def validate_generate(data, max_pixels: int) -> dict:
     if method is not None and method not in METHODS:
         errors["method"] = f"must be one of {', '.join(METHODS)}"
 
+    remove_background = data.get("remove_background", False)
+    if not isinstance(remove_background, bool):
+        errors["remove_background"] = "must be true or false"
+
     if errors:
         raise ValidationError(errors)
 
@@ -177,4 +182,5 @@ def validate_generate(data, max_pixels: int) -> dict:
         "expressions": expressions or None,
         "wait": data.get("wait", True) is not False,
         "method": method,
+        "remove_background": remove_background,
     }

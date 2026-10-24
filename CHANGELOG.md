@@ -2,6 +2,10 @@
 
 All notable changes to AutoExpress are listed here, newest first.
 
+## 2026-10-24
+- **Remove background** in the standalone app saves every expression with a transparent background, only the character is kept. Uses rembg (`isnet-anime` for drawn characters, `u2net_human_seg` for photos), installed from `requirements.txt`. Also `"remove_background": true` on `POST /generate`, and `GET /background-removal`.
+- matplotlib is no longer a dependency.
+
 ## 2026-10-23
 - The standalone app works with a WebUI hosted anywhere (LAN, RunPod and other hosts, https, reverse-proxy sub-paths, logins). Nothing assumes it runs on this machine.
   - **Detect automatically** (the new default) reads the WebUI type from its API: A1111, Forge, SD.Next, ComfyUI, SwarmUI or InvokeAI.

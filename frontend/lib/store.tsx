@@ -12,6 +12,7 @@ import {
   resolveOutputDir,
   type Job,
   type BackendInfo,
+  type BackgroundRemovalInfo,
   type EditMethod,
   type FamilyDefaults,
   type Capabilities,
@@ -64,6 +65,7 @@ export const AUTO_FAMILY = "auto";
 const POLL_INTERVAL_MS = 2500;
 const JOB_POLL_INTERVAL_MS = 1500;
 const SETTINGS_KEY = "autoexpress-connection";
+const REMOVE_BACKGROUND_KEY = "autoexpress-remove-background";
 
 type Adjustments = Partial<Record<"model" | "sampler" | "scheduler", Adjustment>>;
 
@@ -130,6 +132,10 @@ interface AutoExpressState {
   // Generation and output
   outputDirectory: string;
   setOutputDirectory: (dir: string) => void;
+  /** Background removal on the server; null when it has no such endpoint. */
+  backgroundRemoval: BackgroundRemovalInfo | null;
+  removeBackground: boolean;
+  setRemoveBackground: (value: boolean) => void;
   generating: boolean;
   /** The running job on backends with the job API, null otherwise. */
   job: Job | null;
@@ -241,6 +247,31 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [uploading, setUploading] = useState(false);
 
   const [outputDirectory, setOutputDirectory] = useState("");
+  const [backgroundRemoval, setBackgroundRemoval] = useState<BackgroundRemovalInfo | null>(null);
+  const [removeBackground, setRemoveBackgroundState] = useState(false);
+  const setRemoveBackground = useCallback((value: boolean) => {
+    setRemoveBackgroundState(value);
+    try {
+      localStorage.setItem(REMOVE_BACKGROUND_KEY, value ? "1" : "0");
+    } catch {
+      // Storage can be blocked; the choice then lasts until reload.
+    }
+  }, []);
+  useEffect(() => {
+    api
+      .backgroundRemoval()
+      .then((info) => {
+        setBackgroundRemoval(info);
+        let saved = false;
+        try {
+          saved = localStorage.getItem(REMOVE_BACKGROUND_KEY) === "1";
+        } catch {
+          // Storage can be blocked.
+        }
+        setRemoveBackgroundState(saved);
+      })
+      .catch(() => setBackgroundRemoval(null));
+  }, []);
   const [generating, setGenerating] = useState(false);
   const [images, setImages] = useState<string[]>([]);
   const [galleryDir, setGalleryDir] = useState("");
@@ -634,6 +665,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ...(editMethods ? { method } : {}),
         ...(method !== INPAINT_METHOD ? { edit_style: photoStyle ? "photo" : "illustration" } : {}),
         ...(intensity !== null ? { expression_intensity: intensity } : {}),
+        ...(removeBackground && backgroundRemoval?.available ? { remove_background: true } : {}),
       });
       if (result.job_id && result.job && isActiveJob(result.job)) {
         tracking = true;
@@ -659,7 +691,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -713,6 +745,9 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setFile,
       outputDirectory,
       setOutputDirectory,
+      backgroundRemoval,
+      removeBackground,
+      setRemoveBackground,
       generating,
       job,
       generate,
@@ -727,7 +762,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       capabilities, checkingCapabilities, checkCapabilities, editMethods, vramNote, method, setMethod, photoStyle, setPhotoStyle, intensity, familyDefaults,
       families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
-      outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
+      outputDirectory, backgroundRemoval, removeBackground, setRemoveBackground, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]
   );
 
