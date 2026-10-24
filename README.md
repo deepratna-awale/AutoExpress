@@ -66,7 +66,7 @@ Each sheet is one input image and eight of its expressions, generated at 1024×1
 
 Every run can save a labelled sprite sheet like these next to the individual images.
 
-Photos work too. On a real face AutoExpress keeps the change deliberately small, so it still looks like the same person. This set was made from a selfie with the [instruction edit mode](#instruction-edit-mode-comfyui) at the photo default [expression intensity](#expression-intensity) of 0.07:
+Photos work too. On a real face AutoExpress keeps the change deliberately small, so it still looks like the same person. This set was made from a selfie with the [instruction edit mode](#instruction-edit-mode-comfyui) at the photo default [expression intensity](#expression-intensity) of 0.1:
 
 <p align="center">
   <a href=".github/readme/sheet_photo.jpg"><img src=".github/readme/sheet_photo.jpg" alt="A selfie and its subtle joy, anger, fear and disgust expressions" width="100%"></a>
@@ -121,7 +121,7 @@ Each prompt style has its own default, used when you leave the slider on **auto*
 | Images | Recommended |
 | --- | --- |
 | Anime and other drawn styles (Danbooru, Pony, Illustrious) | Face inpainting at 0.5 with the expression LoRA on |
-| Photos (SDXL / realistic, Flux) | Instruction edit at 0.07. Real faces look uncanny even at 0.1, so keep it very low. |
+| Photos (SDXL / realistic, Flux) | Instruction edit at 0.1, with plain emotion prompts such as "look a little sad". Keep it low so the face stays natural. |
 
 The slider is the **Expression intensity** control in the standalone app and the `intensity` input on the AutoExpress ComfyUI nodes, where -1 means the default.
 
