@@ -24,6 +24,7 @@ its type is read from its API.
 | AUTOEXPRESS_LOG_LEVEL | INFO | Log level |
 | AUTOEXPRESS_LOG_JSON | false | One JSON object per log line |
 | AUTOEXPRESS_LOG_FILE | | Also log to this file (rotated at 10 MB) |
+| AUTOEXPRESS_BACKGROUND_MODEL | isnet-anime / u2net_human_seg | rembg model for "Remove background" (illustration / photo) |
 """
 
 import os

@@ -7,6 +7,8 @@ import { expressionName } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { JobNotes } from "@/components/job-notes";
 
@@ -15,8 +17,21 @@ interface DropZoneInputsPanelProps {
 }
 
 export function DropZoneInputsPanel({ onViewImages }: DropZoneInputsPanelProps) {
-  const { file, params, setParam, outputDirectory, setOutputDirectory, generating, job, generate, interrupt, loadImages } =
-    useAutoExpress();
+  const {
+    file,
+    params,
+    setParam,
+    outputDirectory,
+    setOutputDirectory,
+    backgroundRemoval,
+    removeBackground,
+    setRemoveBackground,
+    generating,
+    job,
+    generate,
+    interrupt,
+    loadImages,
+  } = useAutoExpress();
   const progress = generating && job ? job.progress : null;
 
   const handleLoadImages = () => {
@@ -96,6 +111,25 @@ export function DropZoneInputsPanel({ onViewImages }: DropZoneInputsPanelProps) 
           <RefreshCw className="h-4 w-4" />
         </Button>
       </form>
+
+      {backgroundRemoval && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-sm">
+            <Switch
+              id="remove-background"
+              checked={removeBackground && backgroundRemoval.available}
+              onCheckedChange={setRemoveBackground}
+              disabled={!backgroundRemoval.available || generating}
+            />
+            <Label htmlFor="remove-background">Remove background</Label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {backgroundRemoval.available
+              ? "Saves each expression with a transparent background, only the character is kept."
+              : `Needs rembg on the AutoExpress server: ${backgroundRemoval.install_command}`}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

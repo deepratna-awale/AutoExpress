@@ -12,6 +12,7 @@ pytest.importorskip("flask")
 pytest.importorskip("sd_parsers")
 
 from autoexpress import views  # noqa: E402
+from autoexpress_core import background  # noqa: E402
 from autoexpress_core.backends import registry  # noqa: E402
 from autoexpress_core.backends.base import BackendNotReady, BackendUnavailable, RemoteBackend  # noqa: E402
 from autoexpress_core.images import pil_to_b64  # noqa: E402
@@ -379,3 +380,49 @@ def test_generate_without_method_uses_the_family_default(client, monkeypatch):
 
     views.state.connect("fake", None)  # no edit mode: falls back to inpainting
     assert client.post("/generate", json=body(expressions=["joy"])).get_json()["job"]["method"] == "inpaint"
+
+
+def test_generate_can_remove_backgrounds(client, tmp_path, monkeypatch):
+    models = []
+
+    def cut_out(image, model):
+        models.append(model)
+        result = image.convert("RGBA")
+        result.putalpha(0)
+        return result
+
+    monkeypatch.setattr(background, "available", lambda: True)
+    monkeypatch.setattr(background, "remove_background", cut_out)
+    info = client.get("/background-removal").get_json()
+    assert info["available"] is True and info["models"]["illustration"] == background.ILLUSTRATION_MODEL
+
+    result = client.post("/generate", json=body(remove_background=True)).get_json()
+    assert result["status"] == "success"
+    assert models == [background.ILLUSTRATION_MODEL] * 2
+    with Image.open(tmp_path / "out" / "Alice" / "joy.png") as image:
+        assert image.mode == "RGBA" and image.getpixel((0, 0))[3] == 0
+
+    result = client.post("/generate", json=body(output_dir="Bob", edit_style="photo", remove_background=True)).get_json()
+    assert result["status"] == "success"
+    assert models[-1] == background.PHOTO_MODEL
+
+
+def test_background_removal_failure_keeps_the_images(client, tmp_path, monkeypatch):
+    def broken(image, model):
+        raise RuntimeError("no model")
+
+    monkeypatch.setattr(background, "available", lambda: True)
+    monkeypatch.setattr(background, "remove_background", broken)
+    result = client.post("/generate", json=body(remove_background=True)).get_json()
+    assert result["status"] == "success"
+    assert [note["kind"] for note in result["job"]["notes"]] == ["background_removal_failed"]
+    with Image.open(tmp_path / "out" / "Alice" / "joy.png") as image:
+        assert image.mode == "RGB"
+
+
+def test_remove_background_needs_rembg(client, monkeypatch):
+    monkeypatch.setattr(background, "available", lambda: False)
+    response = client.post("/generate", json=body(remove_background=True))
+    assert response.status_code == 400
+    assert "rembg" in response.get_json()["error"]["fields"]["remove_background"]
+    assert client.post("/generate", json=body(remove_background="yes")).status_code == 400
