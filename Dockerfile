@@ -22,12 +22,13 @@ ENV HOME=/home/user \
 WORKDIR /AutoExpress
 RUN chown user:user /AutoExpress
 
-# Copy the requirements file first to leverage Docker's caching for dependencies
-COPY requirements.txt .
-
-# Upgrade pip and install dependencies
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+# Install the dependencies first to leverage Docker's caching: the "standalone"
+# extra from pyproject.toml, pinned and hash-checked by uv.lock
+COPY pyproject.toml uv.lock ./
+RUN --mount=from=ghcr.io/astral-sh/uv:0.13.5,source=/uv,target=/bin/uv \
+    uv export --frozen --extra standalone --no-dev --no-emit-project -o /tmp/requirements.txt \
+    && uv pip install --system --no-cache --require-hashes --only-binary :all: -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 USER user
 

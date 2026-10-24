@@ -13,6 +13,12 @@ This is a pre-built release of AutoExpress with all dependencies included.
 2. Run: `./run.sh`
 3. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser
 
+### macOS
+The Apple silicon zip needs macOS 14 or newer. The Intel zip has no Remove background option, since its ONNX runtime isn't built for Intel Macs.
+1. Open Terminal in the extracted folder
+2. Run: `./run.sh` (it clears the download quarantine on the bundled Python, so macOS lets it start)
+3. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser
+
 ## Requirements
 A Stable Diffusion WebUI with its API enabled, on this machine or hosted anywhere (LAN, RunPod, ...): AUTOMATIC1111, Forge / reForge, SD.Next, ComfyUI, SwarmUI or InvokeAI. After connecting, AutoExpress checks the WebUI and lists anything missing (for example ADetailer or Impact Pack) with steps to fix it.
 
@@ -23,7 +29,7 @@ A Stable Diffusion WebUI with its API enabled, on this machine or hosted anywher
 4. Enter the WebUI address, upload an image and generate expressions!
 
 ## Notes
-- This release includes a pre-configured Python virtual environment with all dependencies installed
+- This release includes its own Python (in `runtime/`) with all dependencies installed for this platform
 - No additional Python packages need to be installed
 - If you encounter any issues, please visit the [GitHub repository](https://github.com/deepratna-awale/AutoExpress) for support
 

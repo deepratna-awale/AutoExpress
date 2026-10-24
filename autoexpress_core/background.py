@@ -2,7 +2,7 @@
 Background removal for exported expressions, so only the character is left.
 
 Uses rembg, which is optional: the WebUI integrations don't need it, and the
-standalone app installs it from requirements.txt. Each rembg model is
+standalone app installs it with its "standalone" extra (pyproject.toml). Each rembg model is
 downloaded once on first use (about 170 MB) and then kept in memory for the
 next image.
 """

@@ -29,9 +29,15 @@ You need Python 3.10 or newer. For the web interface you also need Node.js 20.9 
 ```bash
 git clone https://github.com/deepratna-awale/AutoExpress.git
 cd AutoExpress
+uv sync --extra standalone         # .venv with the app's dependencies and the dev tools (pytest)
+```
+
+Dependencies live in `pyproject.toml`: `dependencies` for the WebUI extension and nodes, the `standalone` extra for the app, and the `dev` group for tests. After changing them, run `uv lock` and commit `uv.lock`; the release zips, the Docker image and `install` use the versions pinned there. Without uv:
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt pytest
+pip install -e ".[standalone]" pytest
 ```
 
 Run the standalone app with `python -m autoexpress`, then open http://127.0.0.1:5000. To work on the interface, see [frontend/README.md](frontend/README.md).
@@ -39,7 +45,7 @@ Run the standalone app with `python -m autoexpress`, then open http://127.0.0.1:
 ## Tests
 
 ```bash
-python -m pytest
+uv run pytest                      # or python -m pytest in an activated .venv
 ```
 
 The suite doesn't need a GPU or a running WebUI, because the backends are tested against mocked APIs. `tests/live/` holds optional smoke tests that need a real ComfyUI. For frontend changes, also run `pnpm lint` and `pnpm build` in `frontend/`.

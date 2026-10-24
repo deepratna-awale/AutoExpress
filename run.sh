@@ -15,7 +15,16 @@ echo "                                     | |                         "
 echo "                                     |_|                         "
 echo ""
 
-if [ ! -x ".venv/bin/python" ]; then
+# Release zips bundle their own Python in runtime/; a source checkout uses .venv.
+if [ -x "runtime/bin/python3" ]; then
+    PYTHON="runtime/bin/python3"
+    # macOS quarantines downloaded files and would refuse to start the bundled Python.
+    if [ "$(uname)" = "Darwin" ]; then
+        xattr -dr com.apple.quarantine runtime 2>/dev/null || true
+    fi
+elif [ -x ".venv/bin/python" ]; then
+    PYTHON=".venv/bin/python"
+else
     echo "AutoExpress isn't installed yet. Run ./install.sh first."
     exit 1
 fi
@@ -31,4 +40,4 @@ echo "Your WebUI can run on this machine or anywhere else (RunPod etc.): paste i
 echo "address in the page and press connect. A1111 and Forge need the --api flag."
 echo ""
 
-exec .venv/bin/python -m autoexpress
+exec "$PYTHON" -m autoexpress

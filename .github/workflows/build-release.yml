@@ -1,0 +1,164 @@
+name: Build release zips
+
+# Builds the ready-to-run standalone app for each platform on that platform:
+# a standalone Python (installed with uv) in runtime/, the "standalone" extra from
+# pyproject.toml installed into it from uv.lock (the wheels for that OS and CPU,
+# hash-checked), and the built web interface. Run it by hand to
+# test the zips without publishing a release.
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        required: true
+        type: string
+        description: 'The tag name for the release'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        required: false
+        type: string
+        default: 'dev'
+        description: 'Name used in the zip file names'
+  # Also check the zips still build and start when what goes into them changes.
+  pull_request:
+    paths:
+      - '.github/workflows/build-release.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'run.sh'
+      - 'run.bat'
+      - 'RELEASE_README.md'
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            runner: windows-latest
+            python_exe: runtime/python.exe
+          - platform: Linux
+            runner: ubuntu-latest
+            python_exe: runtime/bin/python3
+          # Apple silicon, macOS 14 or newer (onnxruntime's minimum)
+          - platform: macOS
+            runner: macos-latest
+            python_exe: runtime/bin/python3
+          # onnxruntime has no Intel macOS wheels, so this one has no Remove background.
+          - platform: macOS-Intel
+            runner: macos-15-intel
+            python_exe: runtime/bin/python3
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'  # Same as the Dockerfile
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.node-version
+
+      - name: Build the web interface
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Assemble the release folder
+        env:
+          TAG: ${{ inputs.tag_name || 'dev' }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          folder="autoexpress-${TAG}-${PLATFORM}"
+          echo "FOLDER=$folder" >> "$GITHUB_ENV"
+
+          # Tracked files only, so local output, caches and node_modules stay out.
+          mkdir "$folder"
+          git archive --format=tar HEAD | tar -x -C "$folder"
+          rm -rf "$folder/.github" "$folder/frontend/node_modules"
+          cp -R frontend/out "$folder/frontend/out"
+          mv "$folder/RELEASE_README.md" "$folder/README.md"
+
+      - name: Check that uv.lock matches pyproject.toml
+        run: uv lock --check
+
+      - name: Bundle Python and install the dependencies
+        run: |
+          # A relocatable CPython build for this OS and CPU, private to the release.
+          uv python install "$PYTHON_VERSION" --install-dir _python
+          src=$(ls -d _python/cpython-"$PYTHON_VERSION".*/ | head -n 1)
+          cp -R "$src" "$FOLDER/runtime"
+          # It's the app's own interpreter, so pip installs into it are fine.
+          find "$FOLDER/runtime" -name EXTERNALLY-MANAGED -delete
+
+          # Every pinned package from uv.lock, with its hashes. Markers pick what this
+          # platform needs, and --only-binary fails the build if a wheel is missing
+          # here instead of compiling it or shipping a zip that doesn't start.
+          uv export --frozen --extra standalone --no-dev --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
+          python="$FOLDER/${{ matrix.python_exe }}"
+          uv pip install --python "$python" --require-hashes --only-binary :all: \
+            --link-mode copy --compile-bytecode -r "$RUNNER_TEMP/requirements.txt"
+          uv pip list --python "$python"
+
+      - name: Smoke test the app
+        working-directory: ${{ env.FOLDER }}
+        env:
+          EXPECT_REMBG: ${{ matrix.platform != 'macOS-Intel' }}
+        run: |
+          # The bundled Python starts the app and serves the built interface.
+          ./${{ matrix.python_exe }} - <<'PY'
+          from autoexpress import autoexpress
+          client = autoexpress.test_client()
+          health = client.get("/health")
+          assert health.status_code == 200, health.status_code
+          page = client.get("/")
+          assert page.status_code == 200 and b"_next" in page.data, "web interface not served"
+          import os
+          from autoexpress_core import background
+          assert background.available() == (os.environ["EXPECT_REMBG"] == "true"), "Remove background"
+          print("OK", health.get_json())
+          PY
+
+      - name: Zip
+        id: zip
+        run: |
+          zip_name="${FOLDER}_Release.zip"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a -tzip -mx=9 "$zip_name" "$FOLDER" > /dev/null
+          else
+            chmod +x "$FOLDER"/*.sh
+            # -y keeps the runtime's symlinks as symlinks.
+            zip -qry "$zip_name" "$FOLDER"
+          fi
+          ls -l "$zip_name"
+          echo "zip_name=$zip_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.platform }}
+          path: ${{ steps.zip.outputs.zip_name }}
+          retention-days: 3

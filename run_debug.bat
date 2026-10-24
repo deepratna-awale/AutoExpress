@@ -14,7 +14,10 @@ echo "                                     | |                         "
 echo "                                     |_|                         "
 echo.
 
-if not exist ".venv\Scripts\python.exe" (
+:: Release zips bundle their own Python in runtime\; a source checkout uses .venv.
+set "PYTHON=.venv\Scripts\python.exe"
+if exist "runtime\python.exe" set "PYTHON=runtime\python.exe"
+if not exist "%PYTHON%" (
     echo AutoExpress isn't installed yet. Run install.bat first.
     pause
     exit /b 1
@@ -23,4 +26,4 @@ if not exist ".venv\Scripts\python.exe" (
 :: The debugger allows running code from the browser, so only listen locally.
 if not defined AUTOEXPRESS_HOST set AUTOEXPRESS_HOST=127.0.0.1
 if not defined AUTOEXPRESS_PORT set AUTOEXPRESS_PORT=5000
-".venv\Scripts\python.exe" -m flask --app autoexpress run --debug --host=%AUTOEXPRESS_HOST% --port=%AUTOEXPRESS_PORT%
+"%PYTHON%" -m flask --app autoexpress run --debug --host=%AUTOEXPRESS_HOST% --port=%AUTOEXPRESS_PORT%

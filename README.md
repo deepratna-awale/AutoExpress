@@ -104,7 +104,6 @@ The full documentation is in [docs/](docs/README.md):
 ## Roadmap
 
 - Change the pose along with the expression while keeping clothes and background consistent.
-- Better expressions on realistic images.
 
 ## Contributing
 

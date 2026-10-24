@@ -15,8 +15,8 @@ run.sh
 run_debug.bat
 run_debug.sh
 RELEASE_README.md
-# The standalone app's dependencies; the nodes need only the ones in pyproject.toml
-requirements.txt
+# The standalone app's lockfile; the nodes need only pyproject.toml's dependencies
+uv.lock
 
 # Other WebUIs
 scripts/

@@ -14,11 +14,20 @@ echo "                                     | |                         "
 echo "                                     |_|                         "
 echo ""
 
-if [ ! -x ".venv/bin/python" ]; then
+# Release zips bundle their own Python in runtime/; a source checkout uses .venv.
+if [ -x "runtime/bin/python3" ]; then
+    PYTHON="runtime/bin/python3"
+    # macOS quarantines downloaded files and would refuse to start the bundled Python.
+    if [ "$(uname)" = "Darwin" ]; then
+        xattr -dr com.apple.quarantine runtime 2>/dev/null || true
+    fi
+elif [ -x ".venv/bin/python" ]; then
+    PYTHON=".venv/bin/python"
+else
     echo "AutoExpress isn't installed yet. Run ./install.sh first."
     exit 1
 fi
 
 # The debugger allows running code from the browser, so only listen locally.
-exec .venv/bin/python -m flask --app autoexpress run --debug \
+exec "$PYTHON" -m flask --app autoexpress run --debug \
     --host="${AUTOEXPRESS_HOST:-127.0.0.1}" --port="${AUTOEXPRESS_PORT:-5000}"
