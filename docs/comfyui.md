@@ -32,9 +32,9 @@ AutoExpress Expression Prompts ─ negative ─► CLIP Text Encode ────
 
 | Node | What it does |
 | ---- | ------------ |
-| AutoExpress Expression Prompts | Every expression (or a comma separated subset) as a prompt list in the right [prompt style](../README.md#prompt-styles), plus the matching negative prompt |
+| AutoExpress Expression Prompts | Every expression (or a comma separated subset) as a prompt list in the right [prompt style](prompt-styles.md), plus the matching negative prompt |
 | AutoExpress Expression Prompt | One expression prompt |
-| AutoExpress Expression LoRAs | Applies the matching [expression LoRAs](../README.md#expression-loras), downloading them into `models/loras` when missing, and outputs their trigger words |
+| AutoExpress Expression LoRAs | Applies the matching [expression LoRAs](expression-loras.md), downloading them into `models/loras` when missing, and outputs their trigger words |
 | AutoExpress Save Expressions | Saves to `output/autoexpress/<character>/<expression>.png` |
 | AutoExpress Sprite Sheet | Tiles the results into one labelled image |
 ## Ready-made workflows
@@ -49,7 +49,7 @@ Every workflow below runs Load Checkpoint → **AutoExpress Expression LoRAs** �
 | [Illustrious / NoobAI](../example_workflows/AutoExpress%20Illustrious%20NoobAI.json) | NoobAI-XL 1.1 (two LoRAs) | 30 steps, CFG 5, Euler a, denoise 0.55 | 105 s |
 | [Flux](../example_workflows/AutoExpress%20Flux.json) | Flux.1 dev fp8 | 20 steps, CFG 1, Euler simple, denoise 0.5 | 200 s |
 
-The LoRA node has `download_missing` on and an empty key, so it fetches the expression LoRAs with the [Civitai key](../README.md#civitai-key) it finds. Flux keeps the face clean but its expressions are milder than the SDXL-based families. Every workflow uses `face_yolov8m.pt` from Impact Subpack as the face detector.
+The LoRA node has `download_missing` on and an empty key, so it fetches the expression LoRAs with the [Civitai key](expression-loras.md#civitai-key) it finds. Flux keeps the face clean but its expressions are milder than the SDXL-based families. Every workflow uses `face_yolov8m.pt` from Impact Subpack as the face detector.
 
 <p align="center">
   <img src="../example_workflows/AutoExpress%20Illustrious%20NoobAI.jpg" alt="The Illustrious / NoobAI workflow" width="100%">
