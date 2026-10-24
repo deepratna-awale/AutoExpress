@@ -37,7 +37,8 @@ def test_tuned_instructions_for_known_problems():
     assert "blush" not in instruction_edit.get_instructions(["joy"])["joy"]
     # On photos "embarrassment" paints pink cheeks and "joy" barely smiles; disgust and pride tinted the skin.
     photo = {name: instruction_edit.build_instruction(name, style="photo") for name in ("embarrassment", "joy", "disgust")}
-    assert photo["embarrassment"].startswith("shy.") and photo["joy"].startswith("smiling.")
+    assert photo["embarrassment"].startswith("shy,") and "blush" not in photo["embarrassment"] and photo["joy"].startswith("smiling.")
+    assert "eyes their normal size" in instruction_edit.build_instruction("surprise", style="photo")
     assert photo["disgust"].endswith("natural skin color.")
     assert "does not move" in instruction_edit.get_instructions(["sadness"])["sadness"]
 
@@ -192,7 +193,7 @@ def test_comfyui_edit_ready_names_missing_models():
     backend = ComfyUIClient()
     backend.session = ComfySession(routes)
     ok, message = backend.check_ready("instruct")
-    assert not ok and "qwen_image_edit_2509_fp8_e4m3fn" in message and "instruction_edit download" in message
+    assert not ok and "qwen_image_edit_2511_fp8mixed" in message and "instruction_edit download" in message
 
     routes = edit_routes()
     routes["GET /object_info/TextEncodeQwenImageEditPlus"] = {}
@@ -306,3 +307,61 @@ def test_example_workflow_wires_denoise_and_scale_widgets():
     denoise = next(slot for slot in nodes["KSampler"]["inputs"] if slot["name"] == "denoise")
     link = next(link for link in workflow["links"] if link[0] == denoise["link"])
     assert link[1] == nodes["AutoExpressEditInstructions"]["id"] and link[2] == 3
+
+
+def photo_routes():
+    routes = edit_routes()
+    combo = lambda *options: [list(options)]  # noqa: E731
+    routes["GET /object_info/UNETLoader"]["UNETLoader"]["input"]["required"]["unet_name"] = combo(
+        "qwen_image_edit_2509_fp8_e4m3fn.safetensors", "qwen_image_edit_2511_fp8mixed.safetensors"
+    )
+    info = {
+        "FluxKontextMultiReferenceLatentMethod": {"input": {"required": {"conditioning": ["CONDITIONING"], "reference_latents_method": combo("offset", "index", "index_timestep_zero")}}},
+        "BboxDetectorSEGS": {"input": {"required": {"bbox_detector": ["BBOX_DETECTOR"], "image": ["IMAGE"], "threshold": ["FLOAT", {}], "dilation": ["INT", {}], "crop_factor": ["FLOAT", {}], "drop_size": ["INT", {}], "labels": ["STRING", {}]}}},
+        "SegsToCombinedMask": {"input": {"required": {"segs": ["SEGS"]}}},
+        "MaskToImage": {"input": {"required": {"mask": ["MASK"]}}},
+    }
+    routes.update({f"GET /object_info/{node}": {node: spec} for node, spec in info.items()})
+    routes["GET /history/p1"]["p1"]["outputs"]["face_mask_output"] = {"images": [{"filename": "mask.png", "subfolder": "", "type": "temp"}]}
+    return routes
+
+
+def test_photo_edit_runs_full_steps_on_2511_and_pastes_the_face(face_image):
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = ComfySession(photo_routes())
+    result = backend.instruction_edit(pil_to_b64(face_image), "sadness.", instruction_edit.EditSettings(seed=1, photo=True, intensity=0.5))
+    assert result.size == face_image.size
+
+    workflow = next(kw["json"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt")
+    # Lightning makes real skin plastic, so photos take 40 steps at CFG 4 on the newest model.
+    assert workflow["unet"]["inputs"]["unet_name"] == "qwen_image_edit_2511_fp8mixed.safetensors"
+    assert "lightning" not in workflow
+    sampler = workflow["sampler"]["inputs"]
+    assert (sampler["steps"], sampler["cfg"], sampler["denoise"]) == (40, 4.0, pytest.approx(0.6))
+    assert workflow["positive_reference"]["inputs"]["reference_latents_method"] == "index_timestep_zero"
+    assert sampler["positive"] == ["positive_reference", 0] and sampler["negative"] == ["negative_reference", 0]
+    assert workflow["face_segs"]["inputs"]["image"] == ["image", 0]
+    assert workflow["face_mask_output"]["inputs"]["images"] == ["face_mask_image", 0]
+    assert sum(1 for m, p, kw in backend.session.calls if p == "/view") == 2
+
+
+def test_drawn_edits_keep_lightning_and_the_whole_image(face_image):
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = ComfySession(photo_routes())
+    backend.instruction_edit(pil_to_b64(face_image), "x", instruction_edit.EditSettings(seed=1))
+    workflow = next(kw["json"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt")
+    assert "lightning" in workflow and "face_segs" not in workflow
+    settings = instruction_edit.EditSettings.from_settings({"edit_lightning": True, "edit_paste_face": "false"})
+    assert (settings.lightning, settings.paste_face) == (True, False)
+    assert instruction_edit.EditSettings(photo=True, lightning=True).resolved_lightning()
+
+
+def test_paste_face_keeps_the_original_outside_the_face():
+    from autoexpress_core.backends.comfyui_api import paste_face
+
+    original, edited = Image.new("RGB", (200, 200), "red"), Image.new("RGB", (200, 200), "blue")
+    mask = Image.new("L", (100, 100), 0)
+    mask.paste(255, (40, 40, 60, 60))  # a small face box, at half the size
+    result = paste_face(original, edited, mask)
+    assert result.getpixel((100, 100)) == (0, 0, 255) and result.getpixel((5, 5)) == (255, 0, 0)
+    assert paste_face(original, edited, Image.new("L", (10, 10), 0)) is edited

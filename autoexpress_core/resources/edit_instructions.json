@@ -79,11 +79,12 @@
     "_comment": "Multiplies the intensity for photos, per expression. Empty since the plain photo sentences: RunPod tests showed every expression reading at the same value."
   },
   "photo": {
-    "_comment": "Photos get just the expression's name: on real faces the bare name matched every label, while descriptions of brows and mouths were over-acted and plain sentences barely moved the face. The intensity sets only the denoise. 'Joy' came out weak and 'embarrassment' painted pink cheeks, so they are renamed; the skin-color note stops disgust, pride and embarrassment from tinting the skin.",
+    "_comment": "Photos get just the expression's name: on real faces the bare name matched every label, while descriptions of brows and mouths were over-acted and plain sentences barely moved the face. The intensity sets only the denoise. 'Joy' came out weak, 'embarrassment' painted pink cheeks and 'surprise' blew the eyes up into an uncanny stare, so they are reworded; the skin-color note stops disgust, pride and embarrassment from tinting the skin.",
     "template": "{word}. Keep it a realistic photo with natural skin color.",
     "words": {
       "joy": "smiling",
-      "embarrassment": "shy"
+      "embarrassment": "shy, with a small awkward smile and the eyes glancing away",
+      "surprise": "mild surprise, with the eyebrows raised and the eyes their normal size"
     }
   }
 }

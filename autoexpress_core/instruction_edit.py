@@ -2,21 +2,24 @@
 Instruction edit mode: change the expression with an image edit model instead of face inpainting.
 
 The default mode inpaints the face with ADetailer / FaceDetailer and a tag
-prompt. This mode hands the whole image to Qwen-Image-Edit-2509 with one
+prompt. This mode hands the whole image to Qwen-Image-Edit-2511 with one
 sentence per expression ("Change only the facial expression. The character is
 furious: ..."). It needs no face detector and no expression LoRA, keeps the
 character and style, and gives much stronger expressions, but it only runs on
 ComfyUI and needs a big GPU:
 
-- qwen_image_edit_2509_fp8_e4m3fn  ~20 GB  (models/diffusion_models)
+- qwen_image_edit_2511_fp8mixed    ~20 GB  (models/diffusion_models); 2509 still works
 - qwen_2.5_vl_7b_fp8_scaled        ~9 GB   (models/text_encoders)
 - qwen_image_vae                   ~0.25 GB (models/vae)
-- Qwen-Image-Edit-2509 Lightning 8-step LoRA ~0.85 GB (models/loras), optional
+- Qwen-Image-Edit Lightning 8-step LoRA ~0.85 GB (models/loras), optional, drawn images only
 
 24 GB of VRAM (RTX 3090 / 4090) is the comfortable minimum; ComfyUI offloads
 the text encoder between steps. 16 GB cards work with --lowvram at a few
 times the run time. Without the Lightning LoRA it takes 40 steps at CFG 4
-instead of 8 steps at CFG 1.
+instead of 8 steps at CFG 1. Photos always take the 40 steps: Lightning smooths
+skin into a plastic look. On photos only the edited face is pasted back onto
+the original (with Impact Pack's face detector), so skin, hair and background
+keep every original pixel.
 
 Download the files into a ComfyUI install with either of:
 
@@ -52,7 +55,7 @@ METHODS = {
     },
     INSTRUCT: {
         "name": "Instruction edit (Qwen-Image-Edit)",
-        "description": "Rewrites the expression with Qwen-Image-Edit-2509 from one sentence per expression. Stronger expressions, same character, no face detector or LoRA. ComfyUI only, about 24 GB of VRAM.",
+        "description": "Rewrites the expression with Qwen-Image-Edit-2511 from one sentence per expression. Stronger expressions, same character, no face detector or LoRA. ComfyUI only, about 24 GB of VRAM.",
     },
 }
 
@@ -65,8 +68,9 @@ STYLES = (ILLUSTRATION, PHOTO)
 INSTRUCTIONS_FILE = pathlib.Path(__file__).resolve().parent / "resources" / "edit_instructions.json"
 
 VRAM_NOTE = (
-    "Qwen-Image-Edit-2509 fp8 needs about 24 GB of VRAM (20 GB model + 9 GB text encoder, "
-    "offloaded by ComfyUI). 16 GB cards work with ComfyUI's --lowvram, several times slower."
+    "Qwen-Image-Edit-2511 fp8 needs about 24 GB of VRAM (20 GB model + 9 GB text encoder, "
+    "offloaded by ComfyUI). 16 GB cards work with ComfyUI's --lowvram, several times slower. "
+    "Photos run 40 steps, about 2 minutes per expression on an A40."
 )
 
 
@@ -155,7 +159,9 @@ class EditSettings:
     shift: float = 3.0
     megapixels: float = 1.0
     model: str | None = None
-    lightning: bool = True
+    # None: Lightning for drawn images only, face paste-back for photos only
+    lightning: bool | None = None
+    paste_face: bool | None = None
     keep_size: bool = True
     # 0..1 expression intensity; below 0.75 the sampler starts from the input's latent so less changes.
     intensity: float | None = None
@@ -166,6 +172,14 @@ class EditSettings:
         if self.denoise is not None:
             return self.denoise
         return 1.0 if self.intensity is None else expression_intensity.edit_denoise(self.intensity, self.photo)
+
+    def resolved_lightning(self) -> bool:
+        """Lightning's 8 steps make real skin look plastic, so photos take the full 40."""
+        return (not self.photo) if self.lightning is None else self.lightning
+
+    def resolved_paste_face(self) -> bool:
+        """Photos keep the original pixels outside the face; drawn images keep the whole edit."""
+        return self.photo if self.paste_face is None else self.paste_face
 
     def resolved_steps(self, lightning: bool) -> int:
         return self.steps or (8 if lightning else 40)
@@ -185,6 +199,10 @@ class EditSettings:
             except (TypeError, ValueError):
                 return None
 
+        def flag(key):
+            value = settings.get(key)
+            return None if value in (None, "", "auto") else value not in (False, "false", "False", 0)
+
         seed = number("seed", int)
         intensity = number("expression_intensity", float)
         return cls(
@@ -193,7 +211,8 @@ class EditSettings:
             steps=number("edit_steps", int),
             cfg=number("edit_cfg_scale", float),
             model=settings.get("edit_model") or None,
-            lightning=settings.get("edit_lightning", True) is not False,
+            lightning=flag("edit_lightning"),
+            paste_face=flag("edit_paste_face"),
         )
 
 
@@ -219,8 +238,12 @@ MODELS = (
     ModelFile(
         "diffusion_model",
         "diffusion_models",
-        "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
-        (f"{HF}/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors",),
+        "qwen_image_edit_2511_fp8mixed.safetensors",
+        (
+            f"{HF}/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors",
+            f"{HF}/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_fp8_e4m3fn.safetensors",
+            f"{HF}/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_bf16.safetensors",
+        ),
         20.4,
         pattern=r"qwen.*image.*edit",
     ),

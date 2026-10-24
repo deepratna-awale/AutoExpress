@@ -108,7 +108,7 @@
         "Node name for S&R": "UNETLoader"
       },
       "widgets_values": [
-        "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+        "qwen_image_edit_2511_fp8mixed.safetensors",
         "default"
       ]
     },
@@ -928,7 +928,7 @@
   "groups": [],
   "config": {},
   "extra": {
-    "info": "AutoExpress instruction edit: one Qwen-Image-Edit-2509 run per expression. Needs about 24 GB of VRAM. Get the models with: python -m autoexpress_core.instruction_edit download <ComfyUI folder>"
+    "info": "AutoExpress instruction edit: one Qwen-Image-Edit-2511 run per expression (Lightning for drawn images; for photos bypass the LoRA and use 40 steps at CFG 4). Needs about 24 GB of VRAM. Get the models with: python -m autoexpress_core.instruction_edit download <ComfyUI folder>"
   },
   "version": 0.4
 }
