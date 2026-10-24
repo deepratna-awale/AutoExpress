@@ -50,65 +50,42 @@ jobs:
             echo "prerelease=false" >> $GITHUB_OUTPUT
           fi
       
-      - name: Generate changelog
+      - name: Write release notes
         id: changelog
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          # Get the previous tag
-          PREV_TAG=$(git tag --sort=-version:refname | grep -v "${{ steps.tag.outputs.tag }}" | head -n 1)
-          
-          # Generate changelog from commits
-          if [ -z "$PREV_TAG" ]; then
-            # If no previous tag, get all commits
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
-          else
-            # Get commits since previous tag
-            CHANGELOG=$(git log ${PREV_TAG}..${{ steps.tag.outputs.tag }} --pretty=format:"- %s (%h)" --no-merges)
+          VERSION="${TAG#v}"
+          PREV_TAG=$(git tag --sort=-version:refname | grep -vx "$TAG" | head -n 1)
+
+          # The release notes are the CHANGELOG.md section headed "## <version>".
+          awk -v version="$VERSION" '
+            /^## / { if (found) exit; if (index($0, "## " version " ") == 1 || $0 == "## " version) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > section.md
+          if [ ! -s section.md ]; then
+            echo "::error::CHANGELOG.md has no '## $VERSION' section"
+            exit 1
           fi
-          
-          # Create release notes
-          cat > release_notes.md << EOF
-          ## AutoExpress ${{ steps.tag.outputs.tag }}
-          
-          AutoExpress automatically creates 28 different expressions from a given image using Automatic1111 Stable Diffusion WebUI API.
-          
-          ### What's Changed
-          ${CHANGELOG}
-          
-          ### Downloads
-          
-          #### 🚀 Ready-to-Run Releases (Recommended)
-          - **Windows**: Download \`autoexpress-${{ steps.tag.outputs.tag }}-Windows_Release.zip\`, extract and run \`run.bat\`
-          - **Linux**: Download \`autoexpress-${{ steps.tag.outputs.tag }}-Linux_Release.zip\`, extract and run \`./run.sh\`
-          
-          These releases include all dependencies pre-installed in a virtual environment. No additional setup required!
-          
-          #### 📦 Installation Options
-          
-          **Option 1: Docker (Cross-platform)**
-          \`\`\`bash
-          docker pull deepratna/autoexpress:${{ steps.tag.outputs.tag }}
-          docker run -p 7860:7860 deepratna/autoexpress:${{ steps.tag.outputs.tag }}
-          \`\`\`
-          
-          **Option 2: From Source**
-          1. Download and extract the source code (\`autoexpress-${{ steps.tag.outputs.tag }}-source.zip\`)
-          2. Install dependencies: \`pip install -r requirements.txt\`
-          3. Run the application: \`python -m autoexpress\`
-          
-          ### Requirements
-          - Automatic1111 Stable Diffusion WebUI with API enabled
-          - After Detailer Extension installed
-          
-          ### Links
-          - 🌐 [Try it online](https://autoexpress.live)
-          - 🐳 [Docker Hub](https://hub.docker.com/r/deepratna/autoexpress)
-          - 📖 [Documentation](https://github.com/deepratna-awale/AutoExpress/blob/main/README.md)
-          
-          **Full Changelog**: https://github.com/deepratna-awale/AutoExpress/compare/${PREV_TAG}...${{ steps.tag.outputs.tag }}
-          EOF
-          
-          echo "changelog_file=release_notes.md" >> $GITHUB_OUTPUT
-      
+
+          {
+            cat section.md
+            echo
+            echo "### Downloads"
+            echo
+            echo "- **ComfyUI**: install AutoExpress from ComfyUI-Manager or the [Comfy Registry](https://registry.comfy.org/nodes/autoexpress)."
+            echo "- **AUTOMATIC1111 / Forge / reForge / SD.Next**: Extensions > Install from URL, paste \`https://github.com/deepratna-awale/AutoExpress\`."
+            echo "- **Standalone app, Windows**: download \`autoexpress-$TAG-Windows_Release.zip\`, extract it and run \`run.bat\`."
+            echo "- **Standalone app, Linux**: download \`autoexpress-$TAG-Linux_Release.zip\`, extract it and run \`./run.sh\`."
+            echo "- **From source**: see the [README](https://github.com/deepratna-awale/AutoExpress#readme)."
+            if [ -n "$PREV_TAG" ]; then
+              echo
+              echo "**Full changelog**: https://github.com/deepratna-awale/AutoExpress/compare/$PREV_TAG...$TAG"
+            fi
+          } > release_notes.md
+
+          echo "changelog_file=release_notes.md" >> "$GITHUB_OUTPUT"
+
       - name: Create source code archive
         run: |
           # Create a clean archive without .git, __pycache__, etc.
