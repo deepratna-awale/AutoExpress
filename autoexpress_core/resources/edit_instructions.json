@@ -78,9 +78,11 @@
     "surprise": "The character looks mildly surprised: eyes their normal size, eyebrows slightly raised, lips slightly parted."
   },
   "photo_intensity_scale": {
-    "_comment": "Multiplies the intensity for photos, from RunPod photo tests: anger, sadness and surprise read as natural at about half the others' value.",
+    "_comment": "Multiplies the intensity for photos, from RunPod photo tests: anger shows at about half the others' value, while sadness, surprise, disgust and pride barely move at 0.05 and need a little more.",
     "anger": 0.5,
-    "sadness": 0.5,
-    "surprise": 0.5
+    "sadness": 1.4,
+    "surprise": 1.4,
+    "disgust": 1.4,
+    "pride": 1.4
   }
 }

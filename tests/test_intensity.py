@@ -9,7 +9,7 @@ from autoexpress_core.payload import find_nested_key
 
 def test_resolve_clamps_and_defaults():
     assert expression_intensity.resolve(None) == 0.5
-    assert expression_intensity.resolve(None, realistic=True) == 0.1
+    assert expression_intensity.resolve(None, realistic=True) == 0.07
     assert expression_intensity.resolve("auto") == 0.5
     assert expression_intensity.resolve(2) == 1.0 and expression_intensity.resolve("-3") == 0.0
 
@@ -43,7 +43,7 @@ def test_families_carry_calibrated_defaults():
     }
     # RunPod photo tests: inpainting barely moves a real face, the edit at 0.2 looks natural.
     assert families["sdxl_base"]["defaults"] == {
-        "method": "instruct", "intensity": 0.1, "edit_style": "photo", "expression_loras": False,
+        "method": "instruct", "intensity": 0.07, "edit_style": "photo", "expression_loras": False,
     }
     assert families["natural_language"]["defaults"]["method"] == "instruct"
     for family in families.values():
@@ -56,10 +56,10 @@ def test_generator_tones_down_realistic_families(face_image, fake_backend):
                        lora_prompt="<lora:expr:0.6>")
     prompt = find_nested_key(fake_backend.payloads[0], "ad_prompt")
     joy = expression_sets.load_family("sdxl_base")["expressions"]["joy"]
-    # 0.1 -> weight 0.68, with the family's own (tag:1.4) weights removed so they don't cancel it
-    assert f"({expression_intensity.strip_weights(joy)}:0.68)" in prompt and ":1.4" not in prompt
-    assert "<lora:expr:0.12>" in prompt  # 0.6 * 0.2
-    assert find_nested_key(fake_backend.payloads[0], "ad_denoising_strength") == pytest.approx(0.38)  # 0.5 * 0.76
+    # 0.07 -> weight 0.66, with the family's own (tag:1.4) weights removed so they don't cancel it
+    assert f"({expression_intensity.strip_weights(joy)}:0.66)" in prompt and ":1.4" not in prompt
+    assert "<lora:expr:0.08>" in prompt  # 0.6 * 0.14
+    assert find_nested_key(fake_backend.payloads[0], "ad_denoising_strength") == pytest.approx(0.371)  # 0.5 * 0.742
 
 
 def test_generator_explicit_intensity_wins(face_image, fake_backend):
@@ -82,6 +82,7 @@ def test_photo_offsets_per_expression():
     assert instruction_edit.expression_intensity_for("anger", 0.2, "photo") == pytest.approx(0.1)
     assert instruction_edit.expression_intensity_for("anger", 0.03, "photo") == pytest.approx(0.015)
     assert instruction_edit.expression_intensity_for("joy", 0.2, "photo") == 0.2
+    assert instruction_edit.expression_intensity_for("sadness", 0.05, "photo") == pytest.approx(0.07)  # barely moved at 0.05
     assert instruction_edit.expression_intensity_for("anger", 0.2, "illustration") == 0.2
     surprise = instruction_edit.build_instruction("surprise", style="photo", intensity=0.1)
     assert "eyes their normal size, eyebrows slightly raised, lips slightly parted" in surprise
