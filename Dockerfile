@@ -11,7 +11,7 @@ RUN pnpm build
 # Use the official Python image and specify a version (e.g., 3.9-slim for a lighter image)
 FROM python:3.13-slim
 
-# Run as an unprivileged user with uid 1000 (what Hugging Face Spaces expect),
+# Run as an unprivileged user with uid 1000,
 # so the app, its Output/uploads folders and the rembg model cache are writable
 RUN useradd --create-home --uid 1000 user
 ENV HOME=/home/user \

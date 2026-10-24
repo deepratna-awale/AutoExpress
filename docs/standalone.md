@@ -16,12 +16,6 @@ It gives matching results whichever WebUI does the work:
 
 Download the latest release for your platform from the [Releases page](https://github.com/deepratna-awale/AutoExpress/releases), extract it and run `run.bat` (Windows) or `./run.sh` (Linux). Then open [http://127.0.0.1:5000](http://127.0.0.1:5000). Releases include all dependencies and the web interface.
 
-## Hugging Face Space
-
-Try it without installing anything at [huggingface.co/spaces/damientheodore/AutoExpress](https://huggingface.co/spaces/damientheodore/AutoExpress), then paste the address of your WebUI (it has to be reachable from the internet, such as a RunPod proxy URL). The Space is one shared instance: the connected WebUI, a Civitai key and the generated images are shared with everyone using it. For your own private copy, use **⋮ → Duplicate this Space** and make it private. Generated images last until the Space restarts.
-
-The Space is built from the [Dockerfile](../Dockerfile) and updated from `main` by the [Hugging Face Space workflow](../.github/workflows/huggingface-space.yml). Its page and settings come from [space/README.md](../space/README.md). The workflow needs an `HF_TOKEN` repository secret with write access; set the `HF_SPACE` repository variable to publish somewhere else.
-
 ## Docker
 
 ```bash

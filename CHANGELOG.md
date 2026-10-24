@@ -3,7 +3,7 @@
 All notable changes to AutoExpress are listed here, newest first.
 
 ## 2026-10-24
-- The standalone app runs as a Hugging Face Space ([damientheodore/AutoExpress](https://huggingface.co/spaces/damientheodore/AutoExpress)), updated from `main` by a GitHub Actions workflow.
+- The Docker image builds again on Node 26 (pnpm is installed with npm, since corepack is gone).
 - The Docker image runs as an unprivileged user (uid 1000). A mounted results folder needs to be writable by it. `--build-arg PRELOAD_REMBG_MODELS="..."` bakes background removal models into the image.
 - **Remove background** in the standalone app saves every expression with a transparent background, only the character is kept. Uses rembg (`isnet-anime` for drawn characters, `u2net_human_seg` for photos), installed from `requirements.txt`. Also `"remove_background": true` on `POST /generate`, and `GET /background-removal`.
 - matplotlib is no longer a dependency.
