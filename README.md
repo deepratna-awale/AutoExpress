@@ -66,10 +66,10 @@ Each sheet is one input image and eight of its expressions, generated at 1024×1
 
 Every run can save a labelled sprite sheet like these next to the individual images.
 
-Photos work too. On a real face AutoExpress keeps the change natural, so it still looks like the same person. This set was made from a selfie with the [instruction edit mode](#instruction-edit-mode-comfyui) (Qwen-Image-Edit-2511, 40 steps) at the photo default [expression intensity](#expression-intensity) of 0.5, with only the edited face pasted back onto the original photo:
+Photos work too. On a real face AutoExpress keeps the change natural, so it still looks like the same person. This set was made from a generated portrait with the [instruction edit mode](#instruction-edit-mode-comfyui) (Qwen-Image-Edit-2511, 40 steps) at the photo default [expression intensity](#expression-intensity) of 0.5, with only the edited face pasted back onto the original photo:
 
 <p align="center">
-  <a href=".github/readme/sheet_photo.jpg"><img src=".github/readme/sheet_photo.jpg" alt="A selfie and its amusement, anger, sadness, fear and disgust expressions" width="100%"></a>
+  <a href=".github/readme/sheet_photo.jpg"><img src=".github/readme/sheet_photo.jpg" alt="A realistic portrait and its anger, sadness and surprise expressions" width="100%"></a>
 </p>
 
 ---
