@@ -11,6 +11,7 @@ the rest from the body instead of hard coding one WebUI.
 import copy
 import json
 import pathlib
+import re
 
 import requests
 from PIL import Image
@@ -49,12 +50,15 @@ class A1111Client(RemoteBackend):
         Initialize the A1111Client object.
 
         Args:
-            host (str, optional): The host of the sd server. Defaults to "127.0.0.1".
+            host (str, optional): The host of the sd server. Defaults to "127.0.0.1". A full URL
+                ("http://host:7860") is used as url, like the other backends' first argument.
             port (str, optional): The port of the sd server. Defaults to "7860".
             use_https (bool, optional): Whether to use https for the connection. Defaults to False.
             url (str, optional): Full base URL, takes precedence over host/port.
             **options: ConnectionOptions fields (username, password, token, timeout, retries, ...).
         """
+        if url is None and re.match(r"^[a-z][a-z0-9+.-]*://", host or "", re.IGNORECASE):
+            url = host
         protocol = "https" if use_https else "http"
         self._alwayson_scripts: set[str] | None = None
         super().__init__(url or f"{protocol}://{host}:{port}", **options)

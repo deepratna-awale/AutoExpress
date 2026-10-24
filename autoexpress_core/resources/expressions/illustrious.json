@@ -6,6 +6,12 @@
     "WAI-Illustrious",
     "Illustrious-XL"
   ],
+  "defaults": {
+    "method": "inpaint",
+    "intensity": 0.5,
+    "edit_style": "illustration",
+    "expression_loras": true
+  },
   "quality_tags": "masterpiece, best quality, amazing quality",
   "negative": "worst quality, low quality, bad anatomy",
   "expressions": {

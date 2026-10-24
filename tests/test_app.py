@@ -254,6 +254,66 @@ def test_civitai_key_comes_from_the_webui_unless_typed_in(client, monkeypatch):
     assert views.civitai_key_for(views.current_backend()) == (typed, "AutoExpress")
 
 
+class FakeEditWebUI(FakeWebUI):
+    kind = "fake_edit"
+    edit_methods = ("inpaint", "instruct")
+    instructions = []
+
+    def ensure_edit_ready(self):
+        if not FakeWebUI.ready:
+            raise BackendNotReady("Fake WebUI has no Qwen-Image-Edit.")
+
+    def instruction_edit(self, image, instruction, settings):
+        FakeEditWebUI.instructions.append((instruction, settings.seed))
+        return Image.new("RGB", (16, 16))
+
+
+def test_edit_methods_follow_the_backend(client, monkeypatch):
+    methods = client.get("/edit-methods").get_json()
+    assert {m["id"]: m["available"] for m in methods["methods"]} == {"inpaint": True, "instruct": False}
+    assert "24 GB" in methods["vram_note"]
+
+    response = client.post("/generate", json=body(method="instruct"))
+    assert response.status_code == 400 and "ComfyUI" in response.get_json()["error"]["fields"]["method"]
+    assert client.post("/generate", json=body(method="nope")).status_code == 400
+
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_edit", FakeEditWebUI)
+    views.state.connect("fake_edit", None)
+    assert all(m["available"] for m in client.get("/edit-methods").get_json()["methods"])
+
+
+def test_generate_with_instruction_edit(client, monkeypatch, tmp_path):
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_edit", FakeEditWebUI)
+    monkeypatch.setitem(views.lora_settings, "enabled", True)
+    FakeEditWebUI.instructions = []
+    views.state.connect("fake_edit", None)
+
+    result = client.post("/generate", json=body(method="instruct", seed="9", expressions=["joy", "sadness"])).get_json()
+    assert result["status"] == "success" and result["job"]["method"] == "instruct"
+    assert FakeWebUI.calls == 0  # no inpainting
+    assert [text.split(". ")[1].split(":")[0] for text, _ in FakeEditWebUI.instructions] == ["The character is overjoyed", "The character is sad"]
+    assert {seed for _, seed in FakeEditWebUI.instructions} == {9}
+    assert sorted(p.name for p in (tmp_path / "out" / "Alice").iterdir()) == ["joy.png", "sadness.png"]
+
+    FakeWebUI.ready = False
+    response = client.post("/generate", json=body(method="instruct"))
+    assert response.status_code == 409 and "Qwen-Image-Edit" in response.get_json()["message"]
+
+
+def test_generate_rejects_unknown_edit_style_or_intensity(client):
+    response = client.post("/generate", json=body(edit_style="sketch", expression_intensity="1.5"))
+    fields = response.get_json()["error"]["fields"]
+    assert response.status_code == 400 and set(fields) == {"edit_style", "expression_intensity"}
+
+
+def test_expression_defaults_follow_the_checkpoint(client):
+    realistic = client.get("/expression-defaults?checkpoint=juggernautXL_v9.safetensors&family=sdxl_base").get_json()
+    assert realistic["family"] == "sdxl_base" and realistic["defaults"]["edit_style"] == "photo"
+    anime = client.get("/expression-defaults?checkpoint=animagine-xl-3.1.safetensors&family=auto").get_json()
+    assert anime["family"] == "danbooru" and anime["defaults"]["intensity"] == 0.5
+    assert client.get("/expression-defaults?family=nope").status_code == 400
+
+
 def test_auto_detects_the_webui_and_reports_capabilities(client, monkeypatch):
     from autoexpress_core.backends.detect import Detection
 
@@ -307,3 +367,15 @@ def test_auto_detect_failures_explain_what_to_do(client, monkeypatch):
     fix = response.get_json()["error"]["fix"]
     assert response.status_code == 409 and fix["steps"][0].startswith("In RunPod, open the pod")
     assert "add 7999 to Expose HTTP Ports" in fix["steps"][0]
+
+
+def test_generate_without_method_uses_the_family_default(client, monkeypatch):
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_edit", FakeEditWebUI)
+    monkeypatch.setattr(views, "model_family", "sdxl_base")
+    views.state.connect("fake_edit", None)
+    FakeEditWebUI.instructions = []
+    result = client.post("/generate", json=body(expressions=["joy"])).get_json()
+    assert result["job"]["method"] == "instruct" and FakeEditWebUI.instructions[0][0].startswith("Edit this photograph")
+
+    views.state.connect("fake", None)  # no edit mode: falls back to inpainting
+    assert client.post("/generate", json=body(expressions=["joy"])).get_json()["job"]["method"] == "inpaint"

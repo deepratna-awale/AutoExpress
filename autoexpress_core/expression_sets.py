@@ -1,7 +1,14 @@
 """Expression prompt sets per model family.
 
 Each family lives in resources/expressions/<family>.json with:
-    name, description, models, quality_tags, negative, expressions
+    name, description, models, defaults, quality_tags, negative, expressions
+
+defaults holds what works best for that family's models, calibrated on RunPod:
+the method ("inpaint" or "instruct"; inpainting barely moves a real face, so
+realistic families use the instruction edit), the expression intensity (0..1,
+see intensity.py; realistic families sit much lower because full-strength
+expressions look uncanny on real faces), the instruction edit wording
+("illustration" or "photo") and whether the expression LoRAs are used.
 
 Only the standard library is used, and paths resolve relative to this file,
 so the module can move into a shared core package unchanged.
@@ -13,6 +20,7 @@ import re
 from functools import lru_cache
 
 from . import expression_loras
+from . import intensity as expression_intensity
 
 EXPRESSIONS_DIR = pathlib.Path(__file__).resolve().parent / "resources" / "expressions"
 
@@ -42,6 +50,7 @@ def list_families():
                 "name": data["name"],
                 "description": data["description"],
                 "models": data["models"],
+                "defaults": family_defaults(family_id),
             }
         )
     return families
@@ -60,6 +69,19 @@ def _load(family_id):
         raise KeyError(f"Unknown expression family: {family_id}")
     with open(path, "r", encoding="utf-8") as family_file:
         return json.load(family_file)
+
+
+FALLBACK_DEFAULTS = {
+    "method": "inpaint",
+    "intensity": expression_intensity.DEFAULT,
+    "edit_style": "illustration",
+    "expression_loras": True,
+}
+
+
+def family_defaults(family_id):
+    """The family's calibrated defaults (method, intensity, edit_style, expression_loras), filled in where the file leaves them out."""
+    return {**FALLBACK_DEFAULTS, **(_load(family_id).get("defaults") or {})}
 
 
 def load_family(family_id):
@@ -96,12 +118,22 @@ def _missing_tags(prompt, tags):
     return [t for t in tags if t and t.lower() not in present]
 
 
-def build_prompt(base_prompt, expression, family_id, add_quality_tags=True):
-    """Base prompt plus the family's quality tags (if absent) plus the expression."""
+def build_prompt(base_prompt, expression, family_id, add_quality_tags=True, intensity=None):
+    """
+    Base prompt plus the family's quality tags (if absent) plus the expression.
+
+    intensity (0..1) weights the expression, see intensity.weight_expression; None keeps it as written.
+    """
     family = _load(family_id)
     quality = _missing_tags(base_prompt, family["quality_tags"]) if add_quality_tags else []
-    base_prompt = expression_loras.apply_expression_weights(base_prompt or "", expression)
-    return join_prompt(", ".join(quality), base_prompt, family["expressions"][expression])
+    lora_scale = 1.0 if intensity is None else expression_intensity.lora_scale(intensity)
+    base_prompt = expression_loras.apply_expression_weights(base_prompt or "", expression, lora_scale)
+    expression_prompt = family["expressions"][expression]
+    if intensity is not None:
+        expression_prompt = expression_intensity.weight_expression(
+            expression_prompt, intensity, natural_language=family_id == "natural_language"
+        )
+    return join_prompt(", ".join(quality), base_prompt, expression_prompt)
 
 
 def build_negative(base_negative, family_id):

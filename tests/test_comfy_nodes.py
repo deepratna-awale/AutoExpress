@@ -69,6 +69,7 @@ def test_nodes_are_registered(comfy):
         "AutoExpressExpressionPrompts",
         "AutoExpressExpressionPrompt",
         "AutoExpressExpressionLoras",
+        "AutoExpressEditInstructions",
         "AutoExpressSaveExpressions",
         "AutoExpressSpriteSheet",
     }
@@ -105,6 +106,25 @@ def test_expression_loras_skips_missing_files(comfy):
     node = comfy.nodes["AutoExpressExpressionLoras"]()
     model, clip, trigger = node.apply("model", "clip", "", "auto", "flux", download_missing=False)
     assert comfy.applied == [] and (model, clip, trigger) == ("model", "clip", "")
+
+
+def test_edit_instructions_node(comfy):
+    node = comfy.nodes["AutoExpressEditInstructions"]()
+    instructions, names, count, denoise = node.build("joy, anger", "illustration", -1.0, "Keep the glasses on.")
+    assert names == ["anger", "joy"] and count == 2 and denoise == [0.85, 0.85]
+    assert all(text.startswith("Change only the facial expression.") and "Keep the glasses on." in text for text in instructions)
+    with pytest.raises(ValueError):
+        node.build("smug", "illustration", -1.0, "")
+    photo, _, _, photo_denoise = node.build("joy, anger", "photo", 0.03, "")
+    assert photo[0].startswith("Edit this photograph") and "Do not stylize" in photo[0]
+    assert photo_denoise == [pytest.approx(0.215), pytest.approx(0.23)]  # anger runs at half
+
+
+def test_nodes_apply_intensity(comfy):
+    prompts, *_ = comfy.nodes["AutoExpressExpressionPrompts"]().build("danbooru", "1girl", "", "joy", "", "", 0.25)
+    assert prompts[0].startswith("(") is False and ":0.8)" in prompts[0]
+    plain, *_ = comfy.nodes["AutoExpressExpressionPrompts"]().build("danbooru", "1girl", "", "joy", "", "", -1.0)
+    assert ":0.8)" not in plain[0]
 
 
 class _Tensor:

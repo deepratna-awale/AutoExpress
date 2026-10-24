@@ -17,8 +17,14 @@ NUMERIC_FIELDS = {
     "ad_inpaint_width": (int, 64, 4096),
     "ad_inpaint_height": (int, 64, 4096),
     "seed": (int, -1, 2**63 - 1),
+    "edit_steps": (int, 1, 100),
+    "edit_cfg_scale": (float, 0.0, 20.0),
+    "expression_intensity": (float, 0.0, 1.0),
 }
-TEXT_FIELDS = ("ad_prompt", "ad_negative_prompt", "ad_checkpoint", "ad_sampler", "ad_scheduler")
+TEXT_FIELDS = ("ad_prompt", "ad_negative_prompt", "ad_checkpoint", "ad_sampler", "ad_scheduler", "edit_instruction", "edit_model")
+# field: allowed values
+CHOICE_FIELDS = {"edit_style": ("illustration", "photo")}
+METHODS = ("inpaint", "instruct")
 MAX_TEXT = 10_000
 MAX_LORAS = 20
 
@@ -78,7 +84,8 @@ def validate_generate(data, max_pixels: int) -> dict:
 
     Returns:
         dict: image (base64 str), output_name, loras (list of (name, weight)),
-              settings (payload overrides), expressions (list or None), wait (bool).
+              settings (payload overrides), expressions (list or None), wait (bool),
+              method ("inpaint", "instruct" or None for the family's default).
     """
     if not isinstance(data, dict):
         raise ValidationError({"body": "Expected a JSON object."})
@@ -145,6 +152,20 @@ def validate_generate(data, max_pixels: int) -> dict:
     ):
         errors["expressions"] = "must be a list of expression names"
 
+    for key, allowed in CHOICE_FIELDS.items():
+        value = data.get(key)
+        if value in (None, "", "auto"):
+            continue
+        if value not in allowed:
+            errors[key] = f"must be one of {', '.join(allowed)}"
+        else:
+            settings[key] = value
+
+    # None: the model family's default method, picked once the family is known.
+    method = data.get("method") or None
+    if method is not None and method not in METHODS:
+        errors["method"] = f"must be one of {', '.join(METHODS)}"
+
     if errors:
         raise ValidationError(errors)
 
@@ -155,4 +176,5 @@ def validate_generate(data, max_pixels: int) -> dict:
         "settings": settings,
         "expressions": expressions or None,
         "wait": data.get("wait", True) is not False,
+        "method": method,
     }

@@ -41,6 +41,7 @@ document.querySelector('.sd-connect').addEventListener('click', function () {
                 console.log('Connected to ' + (result.name || 'the WebUI'));
                 button.style.backgroundColor = 'grey';  // Set button background to grey
                 loadListings();
+                loadEditMethods();
                 checkCapabilities(result.detected ? result.name : null);
             } else {
                 console.log('Failed to connect', result);
