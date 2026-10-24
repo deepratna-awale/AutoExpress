@@ -348,6 +348,10 @@ def generate():
 
     "remove_background": true saves every expression with a transparent
     background (rembg); see GET /background-removal.
+
+    "pose": true also changes the pose with each expression (a small sprite
+    gesture from the current pose, outfit and background kept). It needs the
+    instruction edit mode on the backend, whichever method is used.
     """
     request_data = validate_generate(request.get_json(silent=True), settings.max_image_pixels)
     backend = current_backend()
@@ -362,6 +366,9 @@ def generate():
         raise ValidationError(
             {"method": f"{backend.label} has no {instruction_edit.METHODS[method]['name']} mode. Use the ComfyUI backend for it."}
         )
+
+    if job_settings.get("pose") and instruction_edit.INSTRUCT not in backend.edit_methods:
+        raise ValidationError({"pose": f"Poses need Qwen-Image-Edit, which {backend.label} doesn't have. Use the ComfyUI backend for them."})
 
     for lora_name, lora_strength in request_data["loras"]:
         job_settings["ad_prompt"] = f"{job_settings.get('ad_prompt', '')} <lora:{lora_name}:{lora_strength}>, "
@@ -391,9 +398,10 @@ def generate():
     # A fresh client per job, so switching WebUI or interrupting never touches another job.
     job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
     # Fail fast instead of waiting behind queued jobs to find out the WebUI is down.
-    ready, message = job_backend.check_ready(method)
-    if not ready:
-        raise job_backend.last_error or BackendNotReady(message)
+    for needed in dict.fromkeys([method] + ([instruction_edit.INSTRUCT] if job_settings.get("pose") else [])):
+        ready, message = job_backend.check_ready(needed)
+        if not ready:
+            raise job_backend.last_error or BackendNotReady(message)
     civitai_api_key = None
     if lora_settings["enabled"] and method == instruction_edit.INPAINT:
         civitai_api_key, source = civitai_key_for(job_backend)

@@ -2,6 +2,11 @@
 
 All notable changes to AutoExpress are listed here, newest first.
 
+## Unreleased
+
+### New
+- **Poses**: change the pose along with each expression, for visual novel and chatbot sprites. Each of the 28 expressions has a small gesture that starts from the character's current pose (arms crossed for anger, a hand on the chin for curiosity), keeping the outfit, framing and background. Made with Qwen-Image-Edit on ComfyUI: in one edit with the instruction edit mode, or as a pose edit before face inpainting. A `pose` input on the Edit Instructions node, **Change pose too** in the standalone app and `"pose": true` on `POST /generate`.
+
 ## 2.1.0 (2026-10-24)
 
 ### New

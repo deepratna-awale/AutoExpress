@@ -79,6 +79,9 @@ export function ParametersPanel() {
     setMethod,
     photoStyle,
     setPhotoStyle,
+    pose,
+    setPose,
+    posesAvailable,
     intensity,
     setIntensity,
     familyDefaults,
@@ -259,6 +262,20 @@ export function ParametersPanel() {
                   </p>
                 </>
               )}
+            </div>
+          )}
+
+          {editMethods && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-sm">
+                <Switch id="pose-toggle" checked={pose && posesAvailable} onCheckedChange={setPose} disabled={!posesAvailable} />
+                <Label htmlFor="pose-toggle">Change pose too</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {posesAvailable
+                  ? "Adds a small sprite gesture to each expression (arms crossed for anger, a hand on the chin for curiosity) from the current pose. The outfit and background stay as they are."
+                  : "Needs Qwen-Image-Edit on a ComfyUI backend."}
+              </p>
             </div>
           )}
 
