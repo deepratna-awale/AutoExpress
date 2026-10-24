@@ -1,11 +1,39 @@
-<h1> <img src="autoexpress\static\ico\favicon-rounded.png" alt="Favicon" width="25px"> AutoExpress</h1>
+<h1><img src="autoexpress/static/ico/favicon-rounded.png" alt="" width="28"> AutoExpress</h1>
 
-# Introduction
-Automatically creates 28 different expressions from a given image using [Automatic1111 Stable Diffusion WebUI API](https://github.com/AUTOMATIC1111/stable-diffusion-webui). The application uses Inpainting with [After Detailer Extension](https://github.com/Bing-su/adetailer) to inpaint the following expressions on the face:
+**One character image in, a full set of 28 facial expressions out.**
 
-### For the latest changes, goto: [Change Log](Changelog.md)
+AutoExpress repaints your character's face with 28 different emotions while keeping everything else (pose, outfit, background, art style) the same. It's made for expression sprites, for example for [SillyTavern](https://github.com/SillyTavern/SillyTavern) character cards and visual novels.
+
+It runs where you already generate images:
+
+- as an **extension** for AUTOMATIC1111, Forge, reForge and SD.Next,
+- as **custom nodes** for ComfyUI (and SwarmUI) and a node for InvokeAI,
+- or as a **standalone app** that drives any of those WebUIs over their API.
+
+It ships expression prompts tuned for each model family (SD1.5 anime, Pony, Illustrious/NoobAI, SDXL, Flux and more) and downloads matching expression LoRAs for you.
 
 <p align="center">
+  <img src=".github/readme/hero.jpg" alt="One input image and the joy, anger, sadness, surprise and embarrassment expressions AutoExpress made from it" width="100%">
+</p>
+
+For the latest changes, see the [Change Log](Changelog.md).
+
+## Contents
+
+- [Expressions](#expressions)
+- [Examples](#examples)
+- [Install](#install)
+  - [AUTOMATIC1111 / Forge / reForge / SD.Next](docs/a1111.md)
+  - [ComfyUI](docs/comfyui.md)
+  - [InvokeAI](docs/invokeai.md)
+  - [Standalone app](docs/standalone.md)
+- [Instruction edit mode](#instruction-edit-mode-comfyui)
+- [Expression intensity](#expression-intensity)
+- [Prompt styles](#prompt-styles)
+- [Expression LoRAs and your Civitai key](#expression-loras)
+- [Using the results with SillyTavern](#using-the-results-with-sillytavern)
+
+# Expressions
 
 | Emotion       | Emotion        | Emotion     | Emotion     |
 | ------------- | -------------- | ----------- | ----------- |
@@ -17,9 +45,81 @@ Automatically creates 28 different expressions from a given image using [Automat
 | Neutral       | Optimism       | Pride       | Realization |
 | Relief        | Remorse        | Sadness     | Surprise    |
 
+You can generate all of them or just the ones you pick.
+
+# Examples
+
+Each sheet is one input image and eight of its expressions, generated at 1024×1024 with the matching [prompt style](#prompt-styles) and [expression LoRA](#expression-loras). Click a sheet for full size.
+
+<table>
+  <tr>
+    <th>NoobAI-XL (Illustrious)</th>
+    <th>Pony V6 XL</th>
+    <th>Animagine XL 4 (Danbooru)</th>
+  </tr>
+  <tr>
+    <td width="33%"><a href=".github/readme/sheet_noobai.jpg"><img src=".github/readme/sheet_noobai.jpg" alt="NoobAI-XL expression sheet"></a></td>
+    <td width="33%"><a href=".github/readme/sheet_pony.jpg"><img src=".github/readme/sheet_pony.jpg" alt="Pony V6 XL expression sheet"></a></td>
+    <td width="33%"><a href=".github/readme/sheet_animagine.jpg"><img src=".github/readme/sheet_animagine.jpg" alt="Animagine XL 4 expression sheet"></a></td>
+  </tr>
+</table>
+
+Every run can save a labelled sprite sheet like these next to the individual images.
+
+---
+
+# Install
+
+Pick the way you already work. All of them share the same expression prompts and generation logic (`autoexpress_core`), and inside a WebUI AutoExpress runs in-process like any other extension, so the WebUI doesn't need `--api`.
+
+| You use | AutoExpress shows up as | Quick install | Guide |
+| --- | --- | --- | --- |
+| AUTOMATIC1111, Forge, reForge, SD.Next | **AutoExpress** tab, faces repainted by [ADetailer](https://github.com/Bing-su/adetailer) | **Extensions → Available**, search **AutoExpress**, or **Install from URL** with this repo's URL | [docs/a1111.md](docs/a1111.md) |
+| ComfyUI (and SwarmUI) | **AutoExpress** nodes around [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) FaceDetailer | ComfyUI Manager, or `comfy node install autoexpress` | [docs/comfyui.md](docs/comfyui.md) |
+| InvokeAI | **AutoExpress Expression Prompts** node | **Nodes → Git Repository URL** with this repo's URL | [docs/invokeai.md](docs/invokeai.md) |
+| Any of the above, from outside | Standalone web app on port 5000 that drives the WebUI over its API, locally or on a remote GPU | [Release zip](https://github.com/deepratna-awale/AutoExpress/releases) or `docker run -p 5000:5000 deepratna/autoexpress` | [docs/standalone.md](docs/standalone.md) |
+
+Fooocus has no extension system, so it isn't supported.
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/a1111.md"><img src=".github/readme/a1111_tab.jpg" alt="The AutoExpress tab in AUTOMATIC1111"></a><br><sub>AutoExpress tab in AUTOMATIC1111</sub></td>
+    <td width="50%"><a href="docs/comfyui.md"><img src=".github/readme/comfyui_graph.jpg" alt="AutoExpress nodes in ComfyUI"></a><br><sub>AutoExpress nodes in ComfyUI</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><a href="docs/standalone.md"><img src=".github/readme/nextjs_ui.jpg" alt="The standalone AutoExpress web interface"></a><br><sub>Standalone web interface</sub></td>
+  </tr>
+</table>
+
+# Instruction edit mode (ComfyUI)
+
+Besides repainting the face with ADetailer or FaceDetailer, AutoExpress can change the expression with [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) from one sentence per expression. It needs no face detector or expression LoRA, gives stronger expressions and keeps the character. It runs on ComfyUI, both with the nodes and from the standalone app.
+
+<p align="center">
+  <img src=".github/readme/method_comparison.jpg" alt="Face inpainting with FaceDetailer and LoRA compared with Qwen-Image-Edit on the same character" width="100%">
 </p>
 
-## Prompt Styles
+It needs about 24 GB of VRAM (16 GB cards work with `--lowvram`, several times slower). See [docs/comfyui.md](docs/comfyui.md#instruction-edit-mode-qwen-image-edit) to set it up.
+
+---
+
+# Expression intensity
+
+One slider, from 0 to 1, sets how far each expression is pushed. 0.5 is the classic AutoExpress strength. Real faces look uncanny well before drawn ones do, so photos need far less.
+
+- **Face inpainting** (ADetailer / FaceDetailer): the slider scales the expression prompt's weight, the [expression LoRA](#expression-loras) strength and the denoising strength. At 0 the LoRA is off.
+- **Instruction edit** (Qwen-Image-Edit): the slider picks subtler or stronger wording and lowers the denoise, so low values keep more of the input.
+
+Each prompt style has its own default, used when you leave the slider on **auto**:
+
+| Images | Recommended |
+| --- | --- |
+| Anime and other drawn styles (Danbooru, Pony, Illustrious) | Face inpainting at 0.5 with the expression LoRA on |
+| Photos (SDXL / realistic, Flux) | Instruction edit at 0.07. Real faces look uncanny even at 0.1, so keep it very low. |
+
+The slider is the **Expression intensity** control in the standalone app and the `intensity` input on the AutoExpress ComfyUI nodes, where -1 means the default.
+
+# Prompt styles
 
 Different checkpoints understand prompts differently, so the expression prompts come in one set per model family. Pick one from the **Prompt Style** dropdown, or leave it on **Auto** to choose from the checkpoint name.
 
@@ -32,9 +132,16 @@ Different checkpoints understand prompts differently, so the expression prompts 
 | SDXL / SD1.5 (CLIP) | General and realistic SDXL/SD1.5 models | none |
 | Natural language | Flux, SD3/3.5, HiDream, Chroma, Qwen-Image, Lumina (for face detailing on Flux, use dev rather than schnell) | none |
 
+<details>
+<summary>The same character rendered with each prompt style</summary>
+
+<img src=".github/readme/prompt_styles.jpg" alt="The same expressions generated with each prompt style: Danbooru, Pony, Illustrious, SDXL and natural language" width="100%">
+
+</details>
+
 Quality and negative tags are only added when your prompt doesn't already contain them. The sets live in `autoexpress_core/resources/expressions/`, one JSON file per family, so adding a new family is just adding a file.
 
-### Expression LoRAs
+# Expression LoRAs
 
 AutoExpress also adds a LoRA that helps faces show emotion, matched to the checkpoint's architecture:
 
@@ -46,319 +153,48 @@ AutoExpress also adds a LoRA that helps faces show emotion, matched to the check
 | SD1.5 | [Facial Expressions (SD1.5)](https://civitai.com/models/541620?modelVersionId=715217) |
 | Flux | [Expression Helper 2.0](https://civitai.com/models/914282) |
 
-If the WebUI runs on the same machine (or you set **WebUI LoRA folder** in settings, or `AUTOEXPRESS_LORA_DIR`), missing LoRAs are downloaded there automatically and checked against their SHA-256. Civitai requires an API key for downloads. AutoExpress uses the one entered in settings, else the key your WebUI already has (Civitai Browser+ or Civitai Helper on A1111/Forge/SD.Next, ComfyUI LoRA Manager on a ComfyUI running on this machine), else `CIVITAI_API_KEY` / `CIVITAI_API_TOKEN`. If the folder isn't reachable, AutoExpress uses the LoRAs only when they're already installed on the server. Turn them off with the **Expression LoRAs** switch. The list lives in `autoexpress_core/resources/expression_loras.json`. Inside a WebUI or ComfyUI the LoRA folder is always known, so missing LoRAs are always fetched there (see below).
+Missing LoRAs are downloaded into the WebUI's LoRA folder and checked against their SHA-256. Inside a WebUI or ComfyUI that folder is always known. The standalone app downloads them when the WebUI runs on the same machine, or when you set **WebUI LoRA folder** in settings or `AUTOEXPRESS_LORA_DIR`; otherwise it uses the LoRAs only if they're already installed. Turn them off with the **Expression LoRAs** switch. The list lives in `autoexpress_core/resources/expression_loras.json`.
 
+<details>
+<summary>Each prompt style with its expression LoRA off and on</summary>
 
-# Examples
+<img src=".github/readme/lora_on_off.jpg" alt="Every prompt style rendered with the expression LoRA off and on" width="100%">
 
-### Anime
+</details>
 
-<div style="text-align:center">
-    <figure>
-        <img src ="autoexpress/resources/images/anime_grid.png" alt="Anime Image Grid" width="100%">
-        <figcaption>Anime Image Emotion Grid</figcaption>
-    </figure>
-</div>
+### Civitai key
 
+Civitai needs an API key for downloads. If you've already set one up, AutoExpress reuses it. It looks in this order and uses the first key it finds:
 
-The above is an example anime expressions on the following image without cherry picking results.
+1. The key typed into AutoExpress, or its own setting (**Settings → AutoExpress** in a WebUI, the LoRA node's `civitai_api_key` input in ComfyUI).
+2. The key saved by a Civitai extension in your WebUI:
+   - A1111 / Forge / reForge / SD.Next: [Civitai Browser+](https://github.com/BlafKing/sd-civitai-browser-plus) or [Civitai Helper](https://github.com/zixaphir/Stable-Diffusion-Webui-Civitai-Helper)
+   - ComfyUI: [ComfyUI LoRA Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)
+3. The `CIVITAI_API_KEY` or `CIVITAI_API_TOKEN` environment variable.
 
-<div style="text-align:center">
-    <figure>
-        <img src="autoexpress\resources\images\anime_input.png" alt="Realistic Input Image" width="100%">
-        <figcaption>Anime input image</figcaption>
-    </figure>
-</div>
-
-
-### Realistic
-
-<div style="text-align:center">
-    <figure>
-        <img src ="autoexpress/resources/images/realistic_grid.png" alt="Realistic Image Grid" width="100%">
-        <figcaption>Realistic Image Emotion Grid</figcaption>
-    </figure>
-</div>
-
-The above is an example realistic expressions on the following image without cherry picking results.
-
-<div style="text-align:center">
-    <figure>
-        <img src="autoexpress\resources\images\realistic_input.png" alt="Realistic Input Image" width="100%">
-        <figcaption>Realistic input image</figcaption>
-    </figure>
-</div>
+The standalone app does the same for a WebUI on the same machine. Logs only say which source the key came from, never the key itself.
 
 ---
 
-# Use AutoExpress inside your WebUI
+# Using the results with SillyTavern
 
-AutoExpress can run inside the WebUI you already use. Inside a WebUI it runs in-process like any other extension, so the `--api` flag is not needed. All integrations share the same expression prompts and generation logic (`autoexpress_core`).
+The files are named after their expression (`joy.png`, `anger.png`, ...), which matches the labels SillyTavern's Character Expressions extension uses. Copy the character's output folder into SillyTavern's `characters/<character name>/` sprite folder, or zip it and use **Upload sprite pack**.
 
-| WebUI | How it shows up | Face inpainting done by |
-| ----- | --------------- | ----------------------- |
-| AUTOMATIC1111, Forge, reForge, SD.Next | **AutoExpress** tab | [ADetailer](https://github.com/Bing-su/adetailer) |
-| ComfyUI (and SwarmUI, which runs ComfyUI) | **AutoExpress** nodes | [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) FaceDetailer |
-| InvokeAI | **AutoExpress Expression Prompts** node | InvokeAI's own inpainting nodes |
-| Standalone (this repo's Flask app) | Web app on port 5000 | Any of the WebUIs above over their HTTP API, see [Supported WebUIs](#supported-webuis) |
+# Future work
 
-Fooocus has no extension system, so it is not supported.
-
-## AUTOMATIC1111 / Forge / reForge / SD.Next
-
-1. Install [ADetailer](https://github.com/Bing-su/adetailer) if you have not already.
-2. Go to **Extensions → Available**, press **Load from**, search for **AutoExpress** and press **Install**. Or use **Extensions → Install from URL** with `https://github.com/deepratna-awale/AutoExpress`, or clone the repository into `extensions/`.
-3. Restart the WebUI and open the **AutoExpress** tab.
-4. Drop in a character image. The prompt, sampler, steps, CFG and seed are filled in from the image's metadata when it has any.
-5. Pick a [prompt style](#prompt-styles) (**auto** picks it from the checkpoint) and the expressions you want, then press **Generate**.
-
-Images are saved to `outputs/autoexpress/<character name>/`. You can change that folder under **Settings → AutoExpress**. A labelled sprite sheet is saved next to them when that option is ticked.
-
-With **Expression LoRAs** ticked, the matching [expression LoRA](#expression-loras) is downloaded into the WebUI's LoRA folder (`--lora-dir`, or `models/Lora`) the first time, then added to the prompt. Civitai needs an API key for downloads. AutoExpress reuses one you already have: it checks the key typed into the tab, then **Settings → AutoExpress**, then the key saved by [Civitai Browser+](https://github.com/BlafKing/sd-civitai-browser-plus) or [Civitai Helper](https://github.com/zixaphir/Stable-Diffusion-Webui-Civitai-Helper), then `CIVITAI_API_KEY` / `CIVITAI_API_TOKEN`.
-
-## ComfyUI
-
-1. Install [ComfyUI Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and [Impact Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack), which provides the face detector.
-2. Install **AutoExpress** from ComfyUI Manager, or run `comfy node install autoexpress`, or clone this repository into `ComfyUI/custom_nodes/`. Then restart ComfyUI.
-3. Build the graph:
-
-```
-Load Checkpoint ─ model / clip ─► AutoExpress Expression LoRAs ─ model / clip ──────────────┐
-                └ vae ──────────────────────────────────────────────────────────────────────┤
-                                  AutoExpress Expression LoRAs ─ lora_trigger ─┐            │
-Load Image ────────────────────────────────────────────────────────────────────┼────────────┤
-UltralyticsDetectorProvider (bbox/face) ───────────────────────────────────────┼────────────┤
-CLIP Text Encode (positive: your character prompt) ────────────────────────────┼────────────┤
-                                                                               ▼            ▼
-AutoExpress Expression Prompts ─ negative ─► CLIP Text Encode ─────────────────────► FaceDetailer
-                               ─ prompts ──────────────────────────────────────────► (wildcard input)
-                               ─ names ─┐                                                   │ image
-                                        ├─► AutoExpress Save Expressions ◄──────────────────┤
-                                        └─► AutoExpress Sprite Sheet ◄──────────────────────┘ ─► Preview Image
-```
-
-`prompts` is a list, so ComfyUI runs FaceDetailer once per expression on its own. Connect `names` to the save and sprite sheet nodes so every file is named after its expression. Set the same checkpoint in the `ckpt_name` input of the AutoExpress nodes so **auto** can pick the prompt style and LoRAs. The LoRA node is optional.
-
-| Node | What it does |
-| ---- | ------------ |
-| AutoExpress Expression Prompts | Every expression (or a comma separated subset) as a prompt list in the right [prompt style](#prompt-styles), plus the matching negative prompt |
-| AutoExpress Expression Prompt | One expression prompt |
-| AutoExpress Expression LoRAs | Applies the matching [expression LoRAs](#expression-loras), downloading them into `models/loras` when missing, and outputs their trigger words. Leave its key empty to reuse the one from [ComfyUI LoRA Manager](https://github.com/willmiao/ComfyUI-Lora-Manager) or `CIVITAI_API_KEY` / `CIVITAI_API_TOKEN` |
-| AutoExpress Save Expressions | Saves to `output/autoexpress/<character>/<expression>.png` |
-| AutoExpress Sprite Sheet | Tiles the results into one labelled image |
-
-## InvokeAI
-
-Open the **Nodes** tab, choose **Git Repository URL**, paste `https://github.com/deepratna-awale/AutoExpress.git` and press **Install**. On InvokeAI versions without the Custom Node Manager, clone the repository into `<INVOKEAI_ROOT>/nodes/` and restart InvokeAI. Either way the whole repository sits in `nodes/`, and its root `__init__.py` loads the node. The **AutoExpress Expression Prompts** node outputs one prompt per expression in the chosen prompt style, plus the matching negative prompt, ready to iterate over in a face inpainting graph.
-
----
-
-# Standalone App
-
-## Requirements
-- [Python3](https://www.python.org/downloads/) Prefer version 10
-- One of the [supported WebUIs](#supported-webuis), running locally or online, with its API reachable.
-    - I'm currently working on integrating my [CivitAI-Model-Downloader](https://github.com/deepratna-awale/CivitAI-Model-Downloader) to automatically download LORAs.
-
-## Supported WebUIs
-
-Paste the WebUI's address and press connect. The WebUI can run anywhere: on this machine, elsewhere on your network, or on a hosted GPU such as RunPod (`https://<pod-id>-7860.proxy.runpod.net`), behind https, a reverse-proxy sub-path or a login. With **Detect automatically** (the default) AutoExpress asks the address which WebUI it is. Pick one in the **WebUI** dropdown to skip detection.
-
-After connecting, AutoExpress checks over the WebUI's API that everything it needs is there, such as ADetailer and its face model, ComfyUI's Impact Pack, checkpoints and samplers. Each missing piece is listed with steps for that WebUI, commands to copy and download links. Fix them, then press **Re-check**. The same report is at `GET /backend/capabilities`.
-
-| WebUI | Usual address | What it needs | How the face is repainted |
-| ----- | --------------- | ------------- | ------------------------- |
-| [AUTOMATIC1111](https://github.com/AUTOMATIC1111/stable-diffusion-webui) | `127.0.0.1:7860` | Started with `--api`, [ADetailer](https://github.com/Bing-su/adetailer) installed | ADetailer |
-| [Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge) / [reForge](https://github.com/Panchovix/stable-diffusion-webui-reForge) | `127.0.0.1:7860` | Started with `--api`, ADetailer installed | ADetailer |
-| [SD.Next](https://github.com/vladmandic/sdnext) | `127.0.0.1:7860` | ADetailer installed | ADetailer |
-| [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | `127.0.0.1:8188` | [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) + [Impact Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack), a face model such as `face_yolov8m.pt` in `models/ultralytics/bbox` | FaceDetailer |
-| [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) | `127.0.0.1:7801` | Nothing extra. A YOLO face model in `Models/yolov8` is used when present, otherwise CLIPSeg | `<segment:face>` refining |
-| [InvokeAI](https://github.com/invoke-ai/InvokeAI) 5+ | `127.0.0.1:9090` | An SD 1.x, SD 2.x or SDXL model | Face mask + inpainting graph |
-
-Notes:
-- The A1111 family only receives the built-in scripts that WebUI actually has, so the same request works on A1111, Forge, reForge and SD.Next.
-- ComfyUI, SwarmUI and InvokeAI have no "use same checkpoint", so pick a model. If none is picked the first one is used and a warning is logged.
-- A1111 sampler and scheduler names read from image metadata (e.g. `DPM++ 2M` + `Karras`) are translated to the selected WebUI's names.
-- `<lora:name:weight>` tags in the prompt are turned into that WebUI's lora loaders.
-- Expression LoRAs are downloaded into the WebUI's LoRA folder only when that folder is on this machine. Otherwise InvokeAI is asked to install them through its Model Manager. For the other WebUIs, each missing LoRA is listed after the run with its download link and the folder it belongs in.
-
-### Protected or remote WebUIs
-
-- **Username and password**: put them in the URL (`https://user:pass@host:7860`) or set `AUTOEXPRESS_BACKEND_USERNAME` / `AUTOEXPRESS_BACKEND_PASSWORD`. A1111/Forge started with `--api-auth` get them as basic auth, SwarmUI logs in with them, and InvokeAI (multi-user mode) trades its email and password for a token and renews it when it expires.
-- **Token**: `AUTOEXPRESS_BACKEND_TOKEN` is sent as `Authorization: Bearer ...` (for proxies such as RunPod or a reverse proxy), or as SwarmUI's `swarm_token` cookie.
-- Connection problems come back as one of these error codes, shown in the UI and returned by the API: `backend_unavailable`, `backend_timeout`, `backend_auth`, `backend_not_ready`, `backend_rejected`, `cancelled`, `invalid_request`.
-
-## Running in production
-
-```bash
-pip install -r requirements.txt
-python -m autoexpress            # waitress on 0.0.0.0:5000
-```
-
-Every setting is an environment variable, listed with defaults in [autoexpress/config.py](autoexpress/config.py). The most useful ones:
-
-| Variable | Default | |
-| --- | --- | --- |
-| `AUTOEXPRESS_BACKEND` / `AUTOEXPRESS_BACKEND_URL` | `auto` / none | WebUI to connect to at startup (`auto` detects it from the URL) |
-| `AUTOEXPRESS_REQUEST_TIMEOUT` / `AUTOEXPRESS_JOB_TIMEOUT` | `30` / `1800` s | Quick calls / one expression |
-| `AUTOEXPRESS_RETRIES` | `2` | Retries with backoff on connection errors and 502/503/504 |
-| `AUTOEXPRESS_OUTPUT_DIR` | `./Output` | Where expressions are saved |
-| `AUTOEXPRESS_MAX_UPLOAD_MB` | `32` | Request size limit |
-| `AUTOEXPRESS_LOG_JSON` / `AUTOEXPRESS_LOG_FILE` | off | JSON log lines, rotated log file |
-| `AUTOEXPRESS_HOST` / `AUTOEXPRESS_PORT` | `0.0.0.0` / `5000` | Listen address |
-
-Generation runs as a queued job on one worker thread, so several clicks or clients never send overlapping requests to the WebUI. Each job keeps its own connection, so switching WebUI in the sidebar doesn't disturb a running job. Every response carries an `X-Request-ID`, which also appears in the log lines.
-
-### HTTP API
-
-| Route | |
-| --- | --- |
-| `GET /health` | AutoExpress is up (does not call the WebUI) |
-| `GET /backend/status` | Selected WebUI: `ready`, `message`, `error`, `latency_ms`, `info` (version etc.) |
-| `GET /backend/capabilities` | What the selected WebUI has for AutoExpress: `ready`, `missing`, and `items` of `{key, label, ok, detail, required, fix: {steps, commands, links}}` |
-| `GET /backends` | WebUIs you can pick (`auto` first), the selected one and its URL |
-| `POST /receive_data` | `{"text": url, "backend": "auto" or an id, "username", "password", "token"}` (all optional). Returns the WebUI it connected to |
-| `GET /get-models`, `/get-samplers`, `/get-schedulers`, `/get-loras` | Lists from the selected WebUI (`[]` when unreachable) |
-| `POST /generate` | Settings from the UI. Waits for the result unless `"wait": false`, which returns `202 {"job_id"}`. Optional `"expressions": [...]` picks a subset |
-| `GET /jobs`, `GET /jobs/<id>` | Status (`queued`, `running`, `completed`, `failed`, `cancelled`), `progress` (`done`, `total`, `fraction`, `current`, and `step` with the sampler's `fraction`, `step`, `steps` and `eta` where the WebUI reports them), `images`, `error`, `notes` (e.g. expression LoRAs to install by hand, with links) |
-| `POST /jobs/<id>/cancel`, `POST /interrupt` | Cancel one job / every queued and running job |
-| `GET /images/<folder>`, `GET /image/<folder>/<file>` | Saved results |
-
-Invalid input gets HTTP 400 with `{"status": "Failed", "message", "error": {"code": "invalid_request", "fields": {...}}}`.
-
-`/generate` checks the WebUI before queueing, so an unreachable or unready WebUI fails at once instead of after the jobs ahead of it. WebUI failures answer with the same body and an HTTP status that matches `error.code`:
-
-| `error.code` | HTTP |
-| --- | --- |
-| `backend_unavailable` | 503 |
-| `backend_timeout` | 504 |
-| `backend_auth` | 401 |
-| `backend_not_ready` | 409 |
-| `backend_rejected`, `backend_error` | 502 |
-
-- ## Additional packages for Linux
-- python3-pip
-- python3-venv
-
-
-## Run With Docker (Requires [Docker](https://www.docker.com/))
-
-> Now AutoExpress is also available as a [Docker Image](https://hub.docker.com/r/deepratna/autoexpress)
-
-Pull image from DockerHub
-```bash
-docker pull deepratna/autoexpress
-```
-Run
-```bash
-docker run -p 5000:5000 deepratna/autoexpress
-```
-
-## Quick Start with Pre-built Releases (Recommended)
-
-Download the latest pre-built release for your platform from the [Releases page](https://github.com/deepratna-awale/AutoExpress/releases):
-
-### Windows
-1. Download `autoexpress-v*.*.* -Windows_Release.zip`
-2. Extract the zip file
-3. Double-click `run.bat` to start AutoExpress
-4. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser
-
-### Linux
-1. Download `autoexpress-v*.*.* -Linux_Release.zip`
-2. Extract the zip file
-3. Run `./run.sh` to start AutoExpress
-4. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser
-
-**Note**: Pre-built releases include all dependencies pre-installed in a virtual environment. No additional setup required!
-
-## Alternative Installation Methods
-
-### Using Installer
-- Clone repository
-```bash
-git clone https://github.com/deepratnaawale/AutoExpress.git
-cd AutoExpress
-```
-- Run installer
-  - Linux
-  ```bash
-  chmod +x install.sh
-  ./install.sh
-  ```
-  - Windows (Simply execute the [install.bat](install.bat) file)
-
-### Manual Installation
-```bash
-git clone https://github.com/deepratnaawale/AutoExpress.git
-cd AutoExpress
-```
-
-- Create and activate virtual enviorenment
-```bash
-python3 -m venv .venv
-```
-- WINDOWS
-```bash
-.venv\Scripts\activate
-```
-- LINUX
-```bash
-source .venv/bin/activate
-```
-
-- Install Requirements
-```bash
-pip install -r requirements.txt
-```
----
-
-## Launch App
-- Linux
-```bash
-chmod +x ./run.sh
-./run.sh
-```
-- Windows (Simply execute the [run.bat](run.bat) file)
-
-> Connect to the AutoExpress UI at
-[http://127.0.0.1:5000](http:127.0.0.1:5000)
-
-### Web interface (Next.js)
-Release zips and the Docker image already include the new interface. When running from source, build it once (needs [Node.js](https://nodejs.org/) 20.9+, 26 recommended, and [pnpm](https://pnpm.io/)):
-```bash
-cd frontend
-pnpm install
-pnpm build
-```
-Flask then serves it at [http://127.0.0.1:5000](http://127.0.0.1:5000). Without a build, the original interface is served instead; it is always available at [http://127.0.0.1:5000/classic](http://127.0.0.1:5000/classic). See [frontend/README.md](frontend/README.md) for development.
-
-
----
-
-## Launch Your WebUI's API (A1111 / Forge example)
-> You can check if the api is active by accessing the docs (if running locally)
-[http://127.0.0.1:7860/docs#/default/](http://127.0.0.1:7860/docs#/default/)
-
-
-# Usage
-![UI Description](autoexpress/resources/images/UI.png)
-
-It's pretty Straight forward. Keep an eye on the logs in the console. Dropping an image will auto populate all attributes in the UI if the image has Stable Diffusion info text. The Generate button shows how many expressions are done while a job runs.
-
-PS: This is a very handy tool to use with [Silly Tavern](https://github.com/SillyTavern/SillyTavern) to **generate character expressions sprites** for any bot.
-
-# Latest UI
-![LatestUI](autoexpress/resources/images/AutoExpressUI_2024_11_13.png)
-
-# Future Work
-- Change pose along with expression keeping consistent clothes and background. (Probably via Controlnets and ADetailer)
-- Better Expressions for Realistic Images.
-- Tests to check each module.
+- Change pose along with expression while keeping clothes and background consistent.
+- Better expressions for realistic images.
 
 # Special Thanks
+
 [SD Parsers by d3x-at](https://github.com/d3x-at/sd-parsers)
 
 [SD API Examples](https://github.com/AUTOMATIC1111/stable-diffusion-webui/discussions/3734)
 
 [Avery Velfaire](https://github.com/AveryVeilfaire) for bug fixes, UI design, and prompt engineering.
+
+The authors of the [Facial Expressions](https://civitai.com/models/541620), [Face Enhancer Illustrious](https://civitai.com/models/1625070) and [Expression Helper](https://civitai.com/models/914282) LoRAs.
+
+# License
+
+[MIT](LICENSE)
