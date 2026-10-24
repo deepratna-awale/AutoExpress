@@ -25,6 +25,7 @@ All notable changes to AutoExpress are listed here, newest first.
 - The Docker image runs as an unprivileged user (uid 1000). A mounted results folder needs to be writable by it. `--build-arg PRELOAD_REMBG_MODELS="..."` bakes background removal models into the image.
 - The frontend, release zips and Docker image build on Node 26 (the Docker image installs pnpm with npm, since corepack is gone).
 - Release notes come from this changelog.
+- Each release publishes the Docker image to `ghcr.io/deepratna-awale/autoexpress`. The Docker Hub image is no longer updated.
 - matplotlib is no longer a dependency.
 - README and docs restructured, with a page per integration under [docs/](docs/).
 
