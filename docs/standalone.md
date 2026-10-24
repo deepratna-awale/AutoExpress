@@ -63,6 +63,8 @@ Flask then serves it at [http://127.0.0.1:5000](http://127.0.0.1:5000). Without 
 
 Results are saved to `Output/<character name>/`.
 
+Tick **Remove background** to save every expression with a transparent background, so only the character is left (for SillyTavern sprites, VN engines and overlays). It runs [rembg](https://github.com/danielgatis/rembg) on the AutoExpress machine, not on the WebUI: `isnet-anime` for drawn characters and `u2net_human_seg` for photos (the **Photo** style or a realistic prompt style). Each model downloads once on first use (about 170 MB) and takes a few seconds per image on a CPU. Set `AUTOEXPRESS_BACKGROUND_MODEL` to use another rembg model, such as `birefnet-portrait` on a machine with a GPU.
+
 With a ComfyUI backend, the **Method** dropdown switches between **Face inpainting** (FaceDetailer) and **Instruction edit** ([Qwen-Image-Edit](comfyui.md#instruction-edit-mode-qwen-image-edit), which needs its models on the ComfyUI side).
 
 ## Supported WebUIs
@@ -104,6 +106,7 @@ Every setting is an environment variable, listed with defaults in [autoexpress/c
 | `AUTOEXPRESS_LORA_DIR` | unset | The WebUI's LoRA folder, for expression LoRA downloads |
 | `AUTOEXPRESS_MAX_UPLOAD_MB` | `32` | Request size limit |
 | `AUTOEXPRESS_LOG_JSON` / `AUTOEXPRESS_LOG_FILE` | off | JSON log lines, rotated log file |
+| `AUTOEXPRESS_BACKGROUND_MODEL` | `isnet-anime` / `u2net_human_seg` | rembg model for **Remove background** (drawn / photo) |
 | `AUTOEXPRESS_HOST` / `AUTOEXPRESS_PORT` | `0.0.0.0` / `5000` | Listen address |
 
 Generation runs as a queued job on one worker thread, so several clicks or clients never send overlapping requests to the WebUI. Each job keeps its own connection, so switching WebUI doesn't disturb a running job. Every response carries an `X-Request-ID`, which also appears in the log lines.

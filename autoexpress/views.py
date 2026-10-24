@@ -16,7 +16,7 @@ from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, JobManager, JobSpec
 from autoexpress.modules import expression_sets, image_parser
 from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
 from autoexpress.validation import ValidationError, resolve_inside, validate_generate
-from autoexpress_core import get_expressions, instruction_edit, resolve_flavor
+from autoexpress_core import background, get_expressions, instruction_edit, resolve_flavor
 from autoexpress_core.backends.base import (
     BackendAuthError,
     BackendError,
@@ -345,6 +345,9 @@ def generate():
 
     "method": "instruct" uses the instruction edit mode (Qwen-Image-Edit, ComfyUI
     only) instead of face inpainting; see GET /edit-methods.
+
+    "remove_background": true saves every expression with a transparent
+    background (rembg); see GET /background-removal.
     """
     request_data = validate_generate(request.get_json(silent=True), settings.max_image_pixels)
     backend = current_backend()
@@ -369,6 +372,15 @@ def generate():
         expressions = list(get_expressions(family, request_data["expressions"]))
     if not expressions:
         raise ValidationError({"expressions": "None of the requested expressions exist."})
+
+    background_model = None
+    if request_data["remove_background"]:
+        if not background.available():
+            raise ValidationError(
+                {"remove_background": f"Background removal needs rembg. Install it with {background.INSTALL_COMMAND}, then restart AutoExpress."}
+            )
+        photo = job_settings.get("edit_style", family_defaults["edit_style"]) == "photo" or is_realistic
+        background_model = background.model_for(photo)
 
     output_path = resolve_inside(settings.output_dir, request_data["output_name"])
     if output_path is None:
@@ -402,6 +414,7 @@ def generate():
             lora_dir=lora_settings["lora_dir"] or None,
             civitai_api_key=civitai_api_key,
             method=method,
+            background_model=background_model,
         )
     )
 
@@ -519,6 +532,18 @@ def get_edit_methods():
                 for method_id, info in instruction_edit.METHODS.items()
             ],
             "vram_note": instruction_edit.VRAM_NOTE,
+        }
+    )
+
+
+@autoexpress.route("/background-removal", methods=["GET"])
+def get_background_removal():
+    """Whether exports can have their background removed, and which rembg models are used."""
+    return jsonify(
+        {
+            "available": background.available(),
+            "models": {"illustration": background.model_for(False), "photo": background.model_for(True)},
+            "install_command": background.INSTALL_COMMAND,
         }
     )
 

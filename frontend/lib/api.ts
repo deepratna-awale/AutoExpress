@@ -103,6 +103,13 @@ export interface EditMethodsResponse {
 
 export const INPAINT_METHOD = "inpaint";
 
+/** Whether exports can be cut out of their background (rembg on the AutoExpress server). */
+export interface BackgroundRemovalInfo {
+  available: boolean;
+  models: { illustration: string; photo: string };
+  install_command: string;
+}
+
 export interface LoraSelection {
   lora_name: string;
   lora_strength: number | string;
@@ -151,6 +158,8 @@ export interface GenerateRequest {
   edit_style?: string;
   /** 0..1 expression strength; omitted means the model family's calibrated default. */
   expression_intensity?: number;
+  /** Save every expression with a transparent background. */
+  remove_background?: boolean;
 }
 
 /** What works best for a model family: method, expression intensity and instruction edit wording. */
@@ -307,6 +316,7 @@ export const api = {
   setExpressionFamily: (family: string) => postJson<unknown>("/expression-family", { family }),
 
   editMethods: () => optional(request<EditMethodsResponse>("/edit-methods")),
+  backgroundRemoval: () => optional(request<BackgroundRemovalInfo>("/background-removal")),
   expressionDefaults: (checkpoint: string, family: string) =>
     optional(
       request<ExpressionDefaultsResponse>(

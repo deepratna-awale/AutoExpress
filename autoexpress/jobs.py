@@ -7,6 +7,7 @@ progress and results are read back with JobManager.get. Each job keeps its own
 backend instance, so switching WebUI in the UI never affects a running job.
 """
 
+import pathlib
 import queue
 import threading
 import time
@@ -38,6 +39,8 @@ class JobSpec:
     lora_dir: str | None = None
     civitai_api_key: str | None = None
     method: str = "inpaint"
+    # rembg model to cut every saved expression out of its background with, or None to keep it.
+    background_model: str | None = None
 
 
 @dataclass
@@ -239,6 +242,36 @@ def run_expression_job(job: Job) -> None:
         method=spec.method,
         notes=job.notes,
     ):
+        if spec.background_model:
+            cut_out_background(job, name)
         job.completed.append(name)
         if job.cancel_requested.is_set():
             break
+
+
+def cut_out_background(job: Job, name: str) -> None:
+    """Replace the saved <name>.png with a transparent background copy. On failure keep it and add a note, once."""
+    from autoexpress_core import background
+    from autoexpress_core.generator import save_png
+    from PIL import Image
+
+    spec = job.spec
+    if any(note.get("kind") == "background_removal_failed" for note in job.notes):
+        return
+    path = pathlib.Path(spec.output_path) / f"{name}.png"
+    try:
+        with Image.open(path) as image:
+            image.load()
+        cut_out = background.remove_background(image, spec.background_model)
+        if image.info.get("parameters"):
+            cut_out.info["parameters"] = image.info["parameters"]
+        save_png(cut_out, path)
+    except Exception as e:  # a missing model download or a bad runtime must not lose the expressions
+        log.exception(f"Background removal failed for {name}")
+        job.notes.append(
+            {
+                "kind": "background_removal_failed",
+                "title": "Background removal",
+                "message": f"Could not remove the background ({e}). The rest of the expressions keep theirs.",
+            }
+        )
