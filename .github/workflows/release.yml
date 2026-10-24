@@ -70,7 +70,7 @@ jobs:
             echo "- **AUTOMATIC1111 / Forge / reForge / SD.Next**: Extensions > Install from URL, paste \`https://github.com/deepratna-awale/AutoExpress\`."
             echo "- **Standalone app, Windows**: download \`autoexpress-$TAG-Windows_Release.zip\`, extract it and run \`run.bat\`."
             echo "- **Standalone app, Linux**: download \`autoexpress-$TAG-Linux_Release.zip\`, extract it and run \`./run.sh\`."
-            echo "- **Standalone app, macOS (Apple silicon)**: download \`autoexpress-$TAG-macOS_Release.zip\`, extract it and run \`./run.sh\` in Terminal."
+            echo "- **Standalone app, macOS**: download \`autoexpress-$TAG-macOS_Release.zip\` (Apple silicon, macOS 14+) or \`autoexpress-$TAG-macOS-Intel_Release.zip\` (no Remove background), extract it and run \`./run.sh\` in Terminal."
             echo "- **Standalone app, Docker**: \`docker run -p 5000:5000 ghcr.io/deepratna-awale/autoexpress:$VERSION\`"
             echo "- **From source**: see the [README](https://github.com/deepratna-awale/AutoExpress#readme)."
             if [ -n "$PREV_TAG" ]; then

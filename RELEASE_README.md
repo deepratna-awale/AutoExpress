@@ -13,7 +13,8 @@ This is a pre-built release of AutoExpress with all dependencies included.
 2. Run: `./run.sh`
 3. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser
 
-### macOS (Apple silicon)
+### macOS
+The Apple silicon zip needs macOS 14 or newer. The Intel zip has no Remove background option, since its ONNX runtime isn't built for Intel Macs.
 1. Open Terminal in the extracted folder
 2. Run: `./run.sh` (it clears the download quarantine on the bundled Python, so macOS lets it start)
 3. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser

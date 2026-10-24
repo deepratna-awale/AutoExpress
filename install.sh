@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Sets up the standalone app: a Python virtual environment in .venv with
-# requirements.txt, and the Next.js web interface in frontend/out.
+# Sets up the standalone app: a Python virtual environment in .venv with the
+# "standalone" dependencies from pyproject.toml (the versions pinned in uv.lock
+# when uv is installed), and the Next.js web interface in frontend/out.
 #
 #   ./install.sh                  install, reusing an existing .venv
 #   ./install.sh --clean          delete .venv first and start over
@@ -77,10 +78,17 @@ VENV_PYTHON=".venv/bin/python"
 log "Upgrading pip..."
 "$VENV_PYTHON" -m pip install --upgrade pip >> "$LOGFILE" 2>&1 || fail "Could not upgrade pip."
 
-[ -f "requirements.txt" ] || fail "requirements.txt not found."
-log "Installing requirements..."
-"$VENV_PYTHON" -m pip install -r requirements.txt >> "$LOGFILE" 2>&1 || fail "Could not install the requirements."
-log "Python requirements installed."
+[ -f "pyproject.toml" ] || fail "pyproject.toml not found."
+if command -v uv >/dev/null 2>&1 && [ -f "uv.lock" ]; then
+    log "Installing the dependencies pinned in uv.lock..."
+    uv export --frozen --extra standalone --no-dev --no-emit-project -o .venv/requirements.lock.txt >> "$LOGFILE" 2>&1 &&
+        uv pip install --python "$VENV_PYTHON" --require-hashes -r .venv/requirements.lock.txt >> "$LOGFILE" 2>&1 ||
+        fail "Could not install the dependencies."
+else
+    log "Installing the dependencies (install uv to get the exact versions in uv.lock)..."
+    "$VENV_PYTHON" -m pip install -e ".[standalone]" >> "$LOGFILE" 2>&1 || fail "Could not install the dependencies."
+fi
+log "Python dependencies installed."
 
 # Web interface
 build_frontend() {

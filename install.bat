@@ -1,6 +1,7 @@
 @echo off
 :: Sets up the standalone app: a Python virtual environment in .venv with
-:: requirements.txt, and the Next.js web interface in frontend\out.
+:: the "standalone" dependencies from pyproject.toml (the versions pinned in
+:: uv.lock when uv is installed), and the Next.js web interface in frontend\out.
 ::
 ::   install.bat                  install, reusing an existing .venv
 ::   install.bat --clean          delete .venv first and start over
@@ -79,17 +80,30 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist requirements.txt (
-    call :fail "requirements.txt not found."
+if not exist pyproject.toml (
+    call :fail "pyproject.toml not found."
     exit /b 1
 )
-call :log "Installing requirements..."
-"%VENV_PYTHON%" -m pip install -r requirements.txt >> "%LOGFILE%" 2>&1
+where uv >nul 2>&1
+if errorlevel 1 goto pip_install
+if not exist uv.lock goto pip_install
+call :log "Installing the dependencies pinned in uv.lock..."
+uv export --frozen --extra standalone --no-dev --no-emit-project -o .venv\requirements.lock.txt >> "%LOGFILE%" 2>&1
+if not errorlevel 1 uv pip install --python "%VENV_PYTHON%" --require-hashes -r .venv\requirements.lock.txt >> "%LOGFILE%" 2>&1
 if errorlevel 1 (
-    call :fail "Could not install the requirements."
+    call :fail "Could not install the dependencies."
     exit /b 1
 )
-call :log "Python requirements installed."
+goto deps_ready
+:pip_install
+call :log "Installing the dependencies (install uv to get the exact versions in uv.lock)..."
+"%VENV_PYTHON%" -m pip install -e ".[standalone]" >> "%LOGFILE%" 2>&1
+if errorlevel 1 (
+    call :fail "Could not install the dependencies."
+    exit /b 1
+)
+:deps_ready
+call :log "Python dependencies installed."
 
 :: Web interface
 if "%SKIP_FRONTEND%"=="1" (

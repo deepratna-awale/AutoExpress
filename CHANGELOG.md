@@ -4,11 +4,15 @@ All notable changes to AutoExpress are listed here, newest first.
 
 ## 2.1.1 (2026-10-24)
 
-- **macOS release** (Apple silicon): `autoexpress-<version>-macOS_Release.zip`, started with `./run.sh`.
-- Release zips now bundle their own Python (3.13, in `runtime/`) with the requirements built on and for each platform with uv. Before, the zips carried a virtual environment that pointed at the build machine's Python and didn't start elsewhere.
+- **macOS releases**: `autoexpress-<version>-macOS_Release.zip` for Apple silicon (macOS 14+) and `autoexpress-<version>-macOS-Intel_Release.zip` for Intel Macs, started with `./run.sh`. The Intel build has no Remove background, since onnxruntime isn't built for Intel Macs.
+- Dependencies live in `pyproject.toml` and `requirements.txt` is gone: `dependencies` for the WebUI extension and nodes, a `standalone` extra for the app and a `dev` group for tests. `uv.lock` pins every package with hashes and platform markers.
+  - The release zips, the Docker image and `install` (when [uv](https://docs.astral.sh/uv/) is installed) install exactly the versions in `uv.lock`, picking the right wheels for each OS and CPU. Without uv, `install` uses `pip install -e ".[standalone]"`.
+  - Installing AutoExpress into ComfyUI from git no longer pulls the standalone app's dependencies (Flask, rembg, ...) into ComfyUI.
+- Release zips bundle their own Python (3.13, in `runtime/`), each built on its own platform from prebuilt wheels only, so a missing wheel fails the build instead of shipping a zip that doesn't start. Before, the zips carried a virtual environment that pointed at the build machine's Python.
 - `run` and `run_debug` use the bundled Python when it's there, and `.venv` otherwise. On macOS they clear the download quarantine on the bundled Python.
-- Each release zip is smoke tested (the app starts and serves the web interface) before it's published.
+- Each release zip is smoke tested (the app starts, serves the web interface, and Remove background is available where it should be) before it's published.
 - Zip names keep the version as tagged, e.g. `autoexpress-v2.1.1-Linux_Release.zip`.
+- The dependency audit checks the versions pinned in `uv.lock`, and Dependabot updates `uv.lock`.
 
 ## 2.1.0 (2026-10-24)
 

@@ -14,7 +14,7 @@ It gives matching results whichever WebUI does the work:
 
 ## Pre-built releases (recommended)
 
-Download the latest release for your platform from the [Releases page](https://github.com/deepratna-awale/AutoExpress/releases), extract it and run `run.bat` (Windows) or `./run.sh` (Linux, macOS on Apple silicon). Then open [http://127.0.0.1:5000](http://127.0.0.1:5000). Releases include their own Python with every dependency built for that platform, and the web interface, so nothing else needs installing.
+Download the latest release for your platform from the [Releases page](https://github.com/deepratna-awale/AutoExpress/releases), extract it and run `run.bat` (Windows) or `./run.sh` (Linux, macOS). Then open [http://127.0.0.1:5000](http://127.0.0.1:5000). Releases include their own Python with every dependency built for that platform, and the web interface, so nothing else needs installing.
 
 ## Docker
 
@@ -38,14 +38,14 @@ cd AutoExpress
 ./run.sh                # Windows: run.bat
 ```
 
-`install` creates `.venv`, installs the Python requirements and builds the web interface into `frontend/out`. Run it again after pulling updates. It reuses `.venv`; `--clean` starts over and `--skip-frontend` installs only the Python side. Without Node.js it skips the build and the original interface is served. `run` starts the production server; set `AUTOEXPRESS_PORT`, `AUTOEXPRESS_BACKEND_URL` and the other [settings](../autoexpress/config.py) as environment variables. `run_debug` starts Flask's debug server on 127.0.0.1 for development.
+`install` creates `.venv`, installs the Python dependencies (the exact versions in `uv.lock` when [uv](https://docs.astral.sh/uv/) is installed) and builds the web interface into `frontend/out`. Run it again after pulling updates. It reuses `.venv`; `--clean` starts over and `--skip-frontend` installs only the Python side. Without Node.js it skips the build and the original interface is served. `run` starts the production server; set `AUTOEXPRESS_PORT`, `AUTOEXPRESS_BACKEND_URL` and the other [settings](../autoexpress/config.py) as environment variables. `run_debug` starts Flask's debug server on 127.0.0.1 for development.
 
 Or by hand:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -e ".[standalone]"
 python -m autoexpress              # production server on 0.0.0.0:5000
 ```
 
