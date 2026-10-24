@@ -23,7 +23,7 @@ All notable changes to AutoExpress are listed here, newest first.
 - `install.sh` / `install.bat` build the web interface too (Node.js 20.9+, pnpm or corepack), check for Python 3.10+, reuse `.venv` unless `--clean` is given and accept `--skip-frontend`. `install.sh` no longer runs `apt update/upgrade`, so it works on macOS.
 - `run` / `run_debug` check that the app is installed and start from their own folder. `run_debug` listens on 127.0.0.1 by default, since the Werkzeug debugger can run code.
 - The Docker image runs as an unprivileged user (uid 1000). A mounted results folder needs to be writable by it. `--build-arg PRELOAD_REMBG_MODELS="..."` bakes background removal models into the image.
-- The frontend, release zips and Docker image build on Node 26.
+- The frontend, release zips and Docker image build on Node 26 (the Docker image installs pnpm with npm, since corepack is gone).
 - Release notes come from this changelog.
 - matplotlib is no longer a dependency.
 - README and docs restructured, with a page per integration under [docs/](docs/).
