@@ -1,7 +1,8 @@
 # Build the Next.js frontend into static files
 FROM node:26-slim AS frontend
 WORKDIR /frontend
-RUN corepack enable
+# Node 25+ no longer ships corepack, so install the pnpm version package.json pins
+RUN npm install -g pnpm@10.28.0
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY frontend/ .
