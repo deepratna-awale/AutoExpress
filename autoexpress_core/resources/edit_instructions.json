@@ -82,7 +82,11 @@
     "_comment": "Photos get just the expression's name: on real faces the bare name matched every label, while descriptions of brows and mouths were over-acted and plain sentences barely moved the face. The intensity sets only the denoise. 'Joy' came out weak, 'embarrassment' painted pink cheeks and 'surprise' blew the eyes up into an uncanny stare, so they are reworded; the skin-color note stops disgust, pride and embarrassment from tinting the skin.",
     "template": "{word}. Keep it a realistic photo with natural skin color.",
     "words": {
+      "desire": "wistful",
       "joy": "smiling",
+      "love": "loving and warm",
+      "neutral": "neutral expression",
+      "realization": "realizing something",
       "embarrassment": "shy, with a small awkward smile and the eyes glancing away",
       "surprise": "mild surprise, with the eyebrows raised and the eyes their normal size"
     }
