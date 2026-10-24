@@ -56,7 +56,7 @@ Pick the setup you already use. They all share the same expression prompts and g
 | AUTOMATIC1111, Forge, reForge, SD.Next | **Extensions → Available**, search for **AutoExpress**. Needs [ADetailer](https://github.com/Bing-su/adetailer). | [docs/a1111.md](docs/a1111.md) |
 | ComfyUI (and SwarmUI) | ComfyUI Manager, or `comfy node install autoexpress`. Needs [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and Subpack. | [docs/comfyui.md](docs/comfyui.md) |
 | InvokeAI | **Nodes → Git Repository URL** with this repo's URL | [docs/invokeai.md](docs/invokeai.md) |
-| Standalone app (drives any of the above) | [Hugging Face Space](https://huggingface.co/spaces/damientheodore/AutoExpress), [release zip](https://github.com/deepratna-awale/AutoExpress/releases) or `docker run -p 5000:5000 deepratna/autoexpress` | [docs/standalone.md](docs/standalone.md) |
+| Standalone app (drives any of the above) | [Release zip](https://github.com/deepratna-awale/AutoExpress/releases) or `docker run -p 5000:5000 deepratna/autoexpress` | [docs/standalone.md](docs/standalone.md) |
 
 Fooocus has no extension system, so it isn't supported.
 
