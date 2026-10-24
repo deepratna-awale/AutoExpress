@@ -1,144 +1,123 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Sets up the standalone app: a Python virtual environment in .venv with
+# requirements.txt, and the Next.js web interface in frontend/out.
+#
+#   ./install.sh                  install, reusing an existing .venv
+#   ./install.sh --clean          delete .venv first and start over
+#   ./install.sh --skip-frontend  Python only (the classic interface is served)
+#
+# Works on Linux and macOS. Needs Python 3.10+; the web interface also needs
+# Node.js 20.9+ (26 recommended) with pnpm or corepack.
 
-echo "  ___          _          _____                                    _____             _          _  _             ";
-echo " / _ \        | |        |  ___|                                  |_   _|           | |        | || |            ";
-echo "/ /_\ \ _   _ | |_  ___  | |__ __  __ _ __   _ __  ___  ___  ___    | |  _ __   ___ | |_  __ _ | || |  ___  _ __ ";
-echo "|  _  || | | || __|/ _ \ |  __|\ \/ /| '_ \ | '__|/ _ \/ __|/ __|   | | | '_ \ / __|| __|/ _\`|| || | / _ \| '__|";
-echo "| | | || |_| || |_| (_) || |___ >  < | |_) || |  |  __/\__ \\__ \  _| |_| | | |\__ \| |_| (_| || || ||  __/| |   ";
-echo "\_| |_/ \__,_| \__|\___/ \____//_/\_\| .__/ |_|   \___||___/|___/  \___/|_| |_||___/ \__|\__,_||_||_| \___||_|   ";
-echo "                                     | |                                                                         ";
-echo "                                     |_|                                                                         ";
+cd "$(dirname "$0")" || exit 1
 
-#!/bin/bash
-
+echo "  ___          _          _____                                    _____             _          _  _             "
+echo " / _ \        | |        |  ___|                                  |_   _|           | |        | || |            "
+echo "/ /_\ \ _   _ | |_  ___  | |__ __  __ _ __   _ __  ___  ___  ___    | |  _ __   ___ | |_  __ _ | || |  ___  _ __ "
+echo "|  _  || | | || __|/ _ \ |  __|\ \/ /| '_ \ | '__|/ _ \/ __|/ __|   | | | '_ \ / __|| __|/ _\`|| || | / _ \| '__|"
+echo "| | | || |_| || |_| (_) || |___ >  < | |_) || |  |  __/\__ \\\\__ \  _| |_| | | |\__ \| |_| (_| || || ||  __/| |   "
+echo "\_| |_/ \__,_| \__|\___/ \____//_/\_\| .__/ |_|   \___||___/|___/  \___/|_| |_||___/ \__|\__,_||_||_| \___||_|   "
+echo "                                     | |                                                                         "
+echo "                                     |_|                                                                         "
 echo "================================================"
-# Define log file
+
+CLEAN=0
+SKIP_FRONTEND=0
+for arg in "$@"; do
+    case "$arg" in
+        --clean) CLEAN=1 ;;
+        --skip-frontend) SKIP_FRONTEND=1 ;;
+        -h|--help)
+            sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0 ;;
+        *) echo "Unknown option: $arg (see ./install.sh --help)"; exit 1 ;;
+    esac
+done
+
 LOGFILE="install_logs.txt"
-
 echo "Installation log - $(date)" > "$LOGFILE"
-echo "================================================"
 
-# Update and upgrade system packages
-echo "Updating and upgrading system packages..."
-echo "Updating and upgrading system packages..." >> "$LOGFILE"
-sudo apt update -y && sudo apt upgrade -y >> "$LOGFILE" 2>&1
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to update and upgrade system packages." | tee -a "$LOGFILE"
+log() { echo "$1" | tee -a "$LOGFILE"; }
+fail() {
+    echo "ERROR: $1" | tee -a "$LOGFILE"
+    echo "See $LOGFILE for details."
     exit 1
-fi
-echo "System packages updated and upgraded successfully." | tee -a "$LOGFILE"
+}
 
-# Check if Python is installed
-echo "Checking if Python is installed..."
-echo "Checking if Python is installed..." >> "$LOGFILE"
-if ! command -v python3 &> /dev/null; then
-    echo "Python is not installed. Installing Python..."
-    echo "Python is not installed. Installing Python..." >> "$LOGFILE"
-    sudo apt install -y python3 >> "$LOGFILE" 2>&1
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Failed to install Python." | tee -a "$LOGFILE"
-        exit 1
+# Python 3.10 or newer
+PYTHON=""
+for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 &&
+        "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
+        PYTHON="$candidate"
+        break
     fi
-    echo "Python installed successfully." | tee -a "$LOGFILE"
-else
-    echo "Python is already installed." | tee -a "$LOGFILE"
+done
+if [ -z "$PYTHON" ]; then
+    fail "Python 3.10 or newer was not found. Install it from https://www.python.org/downloads/ (Debian/Ubuntu: sudo apt install python3 python3-venv python3-pip)."
 fi
+log "Using $("$PYTHON" --version 2>&1) ($(command -v "$PYTHON"))."
 
-# Check and install python3-venv package
-echo "Checking if python3-venv package is installed..."
-echo "Checking if python3-venv package is installed..." >> "$LOGFILE"
-if ! dpkg -l | grep -q python3-venv; then
-    echo "python3-venv is not installed. Installing it..."
-    sudo apt install -y python3-venv >> "$LOGFILE" 2>&1
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Failed to install python3-venv." | tee -a "$LOGFILE"
-        exit 1
-    fi
-    echo "python3-venv installed successfully." | tee -a "$LOGFILE"
-else
-    echo "python3-venv is already installed." | tee -a "$LOGFILE"
+# Virtual environment
+if [ "$CLEAN" -eq 1 ] && [ -d ".venv" ]; then
+    log "Deleting the existing virtual environment..."
+    rm -rf ".venv" >> "$LOGFILE" 2>&1 || fail "Could not delete .venv."
 fi
-
-# Check and install python3-pip package
-echo "Checking if python3-pip package is installed..."
-echo "Checking if python3-pip package is installed..." >> "$LOGFILE"
-if ! dpkg -l | grep -q python3-pip; then
-    echo "python3-pip is not installed. Installing it..."
-    sudo apt install -y python3-pip >> "$LOGFILE" 2>&1
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Failed to install python3-pip." | tee -a "$LOGFILE"
-        exit 1
-    fi
-    echo "python3-pip installed successfully." | tee -a "$LOGFILE"
-else
-    echo "python3-pip is already installed." | tee -a "$LOGFILE"
-fi
-
-# Check if .venv folder exists and delete it
-if [ -d ".venv" ]; then
-    echo "Virtual environment found. Deleting it..."
-    echo "Virtual environment found. Deleting it..." >> "$LOGFILE"
+if [ ! -x ".venv/bin/python" ]; then
+    log "Creating the virtual environment in .venv..."
     rm -rf ".venv" >> "$LOGFILE" 2>&1
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Failed to delete the existing virtual environment." | tee -a "$LOGFILE"
-        exit 1
+    if ! "$PYTHON" -m venv .venv >> "$LOGFILE" 2>&1; then
+        fail "Could not create the virtual environment. On Debian/Ubuntu install the venv module first: sudo apt install python3-venv"
     fi
-    echo "Existing virtual environment deleted." | tee -a "$LOGFILE"
+else
+    log "Reusing the existing virtual environment (./install.sh --clean starts over)."
+fi
+VENV_PYTHON=".venv/bin/python"
+
+log "Upgrading pip..."
+"$VENV_PYTHON" -m pip install --upgrade pip >> "$LOGFILE" 2>&1 || fail "Could not upgrade pip."
+
+[ -f "requirements.txt" ] || fail "requirements.txt not found."
+log "Installing requirements..."
+"$VENV_PYTHON" -m pip install -r requirements.txt >> "$LOGFILE" 2>&1 || fail "Could not install the requirements."
+log "Python requirements installed."
+
+# Web interface
+build_frontend() {
+    if ! command -v node >/dev/null 2>&1; then
+        log "WARNING: Node.js was not found, so the web interface was not built. Install Node.js 26 from https://nodejs.org/ and run ./install.sh again. Until then the classic interface is served."
+        return
+    fi
+    local major
+    major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)"
+    if [ -z "$major" ] || [ "$major" -lt 20 ]; then
+        log "WARNING: Node.js $(node --version 2>/dev/null) is too old for the web interface (needs 20.9+, 26 recommended). The classic interface is served until it's built."
+        return
+    fi
+
+    local pnpm
+    if command -v pnpm >/dev/null 2>&1; then
+        pnpm="pnpm"
+    elif command -v corepack >/dev/null 2>&1; then
+        pnpm="corepack pnpm"
+    else
+        log "WARNING: pnpm was not found (npm install -g pnpm, or corepack enable). The classic interface is served until the web interface is built."
+        return
+    fi
+
+    log "Building the web interface with Node.js $(node --version)..."
+    if (cd frontend && $pnpm install --frozen-lockfile && $pnpm build) >> "$LOGFILE" 2>&1; then
+        log "Web interface built in frontend/out."
+    else
+        log "WARNING: The web interface failed to build (see $LOGFILE). The classic interface is served until it's built."
+    fi
+}
+
+if [ "$SKIP_FRONTEND" -eq 1 ]; then
+    log "Skipping the web interface (--skip-frontend)."
+else
+    build_frontend
 fi
 
-# Create a new virtual environment
-echo "Creating new virtual environment..."
-echo "Creating new virtual environment..." >> "$LOGFILE"
-python3 -m venv .venv >> "$LOGFILE" 2>&1
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to create the virtual environment." | tee -a "$LOGFILE"
-    exit 1
-fi
-echo "Virtual environment created successfully." | tee -a "$LOGFILE"
-
-# Activate the virtual environment
-echo "Activating virtual environment..."
-echo "Activating virtual environment..." >> "$LOGFILE"
-source .venv/bin/activate >> "$LOGFILE" 2>&1
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to activate the virtual environment." | tee -a "$LOGFILE"
-    exit 1
-fi
-
-# Upgrade pip to the latest version
-echo "Upgrading pip..."
-echo "Upgrading pip..." >> "$LOGFILE"
-python3 -m pip install --upgrade pip >> "$LOGFILE" 2>&1
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to upgrade pip." | tee -a "$LOGFILE"
-    deactivate
-    exit 1
-fi
-echo "Pip upgraded successfully." | tee -a "$LOGFILE"
-
-# Check if requirements.txt exists
-if [ ! -f "requirements.txt" ]; then
-    echo "ERROR: requirements.txt not found." | tee -a "$LOGFILE"
-    deactivate
-    exit 1
-fi
-
-# Install requirements
-echo "Installing requirements..."
-echo "Installing requirements..." >> "$LOGFILE"
-pip install -r requirements.txt >> "$LOGFILE" 2>&1
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to install requirements." | tee -a "$LOGFILE"
-    deactivate
-    exit 1
-fi
-echo "Requirements installed successfully." | tee -a "$LOGFILE"
-
-# Deactivate the virtual environment
-echo "Deactivating virtual environment..."
-echo "Deactivating virtual environment..." >> "$LOGFILE"
-deactivate >> "$LOGFILE" 2>&1
-
-echo "All requirements installed successfully." | tee -a "$LOGFILE"
-
-
+echo "================================================"
+log "AutoExpress is installed. Start it with ./run.sh and open http://127.0.0.1:5000"

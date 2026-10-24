@@ -25,7 +25,7 @@ docker run -p 5000:5000 deepratna/autoexpress
 
 ## From source
 
-Needs [Python](https://www.python.org/downloads/) 3.10+ (on Linux also `python3-pip` and `python3-venv`).
+Needs [Python](https://www.python.org/downloads/) 3.10+ (on Debian/Ubuntu also `python3-venv`) and, for the web interface, [Node.js](https://nodejs.org/) 20.9+ (26 recommended) with [pnpm](https://pnpm.io/) or corepack.
 
 ```bash
 git clone https://github.com/deepratna-awale/AutoExpress.git
@@ -33,6 +33,8 @@ cd AutoExpress
 ./install.sh            # Windows: install.bat
 ./run.sh                # Windows: run.bat
 ```
+
+`install` creates `.venv`, installs the Python requirements and builds the web interface into `frontend/out`. Run it again after pulling updates. It reuses `.venv`; `--clean` starts over and `--skip-frontend` installs only the Python side. Without Node.js it skips the build and the original interface is served. `run` starts the production server; set `AUTOEXPRESS_PORT`, `AUTOEXPRESS_BACKEND_URL` and the other [settings](../autoexpress/config.py) as environment variables. `run_debug` starts Flask's debug server on 127.0.0.1 for development.
 
 Or by hand:
 
@@ -43,7 +45,7 @@ pip install -r requirements.txt
 python -m autoexpress              # production server on 0.0.0.0:5000
 ```
 
-The web interface is built with Next.js. Release zips and the Docker image already include it. From source, build it once (needs [Node.js](https://nodejs.org/) 20.9+, 26 recommended, and [pnpm](https://pnpm.io/)):
+The web interface is built with Next.js. Release zips and the Docker image already include it, and `install` builds it from source. To build it by hand:
 
 ```bash
 cd frontend
