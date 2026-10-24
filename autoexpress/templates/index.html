@@ -169,6 +169,15 @@
 
         <div class="sidebar-add-space"></div>
 
+        <!-- How the expression is changed -->
+        <div class="input-container select-container">
+          <label for="edit-method-input"
+            title="Face inpainting works on every WebUI. Instruction edit uses Qwen-Image-Edit on ComfyUI (about 24 GB of VRAM).">Method</label>
+          <select id="edit-method-input" name="edit-method">
+            <option value="inpaint">Face inpainting</option>
+          </select>
+        </div>
+
         <!-- Expression Prompt Style -->
         <div class="input-container select-container">
           <label for="expression-family-input">Prompt Style</label>

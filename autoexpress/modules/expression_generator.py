@@ -1,4 +1,5 @@
 from autoexpress_core import ExpressionGenerator, build_expression_payload, expression_loras
+from autoexpress_core.instruction_edit import INPAINT
 from autoexpress_core.images import b64_to_pil
 from . import utils
 from . import a1111_client
@@ -49,6 +50,7 @@ def iter_expressions(
     civitai_api_key: str = None,
     generator: ExpressionGenerator = None,
     only: list[str] = None,
+    method: str = INPAINT,
     notes: list = None,
 ):
     """
@@ -65,7 +67,8 @@ def iter_expressions(
     family = model_family or "auto"
 
     lora_prompt = ""
-    if use_expression_loras:
+    # The instruction edit mode changes the expression from a sentence, expression LoRAs play no part in it.
+    if use_expression_loras and method == INPAINT:
         lora_prompt = get_expression_lora_prompt(
             sd, settings.get("ad_checkpoint"), family, is_realistic, lora_dir, civitai_api_key, notes
         )
@@ -78,6 +81,7 @@ def iter_expressions(
         output_dir=output_path,
         lora_prompt=lora_prompt,
         is_realistic=is_realistic,
+        method=method,
     )
 
 

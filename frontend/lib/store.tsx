@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { toast } from "sonner";
 import {
   api,
+  INPAINT_METHOD,
   ApiError,
   AUTO_BACKEND,
   connectionReport,
@@ -11,6 +12,8 @@ import {
   resolveOutputDir,
   type Job,
   type BackendInfo,
+  type EditMethod,
+  type FamilyDefaults,
   type Capabilities,
   type ExpressionFamily,
   type LoraSelection,
@@ -87,6 +90,20 @@ interface AutoExpressState {
   capabilities: Capabilities | null;
   checkingCapabilities: boolean;
   checkCapabilities: () => Promise<void>;
+
+  // How the expression is changed; null when the backend has no /edit-methods
+  editMethods: EditMethod[] | null;
+  vramNote: string;
+  method: string;
+  setMethod: (id: string) => void;
+  /** Instruction edit wording for drawn images or for photos. */
+  photoStyle: boolean;
+  setPhotoStyle: (value: boolean) => void;
+  /** 0..1 expression strength the user picked, or null to use the model family's default. */
+  intensity: number | null;
+  setIntensity: (value: number | null) => void;
+  /** Defaults of the family the selected model and prompt style resolve to. */
+  familyDefaults: (FamilyDefaults & { family: string }) | null;
 
   // Prompt style
   families: ExpressionFamily[] | null;
@@ -195,6 +212,23 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [checkingCapabilities, setCheckingCapabilities] = useState(false);
   const [options, setOptions] = useState<Options>({ models: [], samplers: [], schedulers: [], loras: [] });
 
+  const [editMethods, setEditMethods] = useState<EditMethod[] | null>(null);
+  const [vramNote, setVramNote] = useState("");
+  const [method, setMethodState] = useState(INPAINT_METHOD);
+  const [photoStyle, setPhotoStyleState] = useState(false);
+  const [intensity, setIntensity] = useState<number | null>(null);
+  const [familyDefaults, setFamilyDefaults] = useState<(FamilyDefaults & { family: string }) | null>(null);
+  // Family defaults only fill in what the user hasn't chosen themselves.
+  const touchedRef = useRef({ method: false, photoStyle: false });
+  const setMethod = useCallback((id: string) => {
+    touchedRef.current.method = true;
+    setMethodState(id);
+  }, []);
+  const setPhotoStyle = useCallback((value: boolean) => {
+    touchedRef.current.photoStyle = true;
+    setPhotoStyleState(value);
+  }, []);
+
   const [families, setFamilies] = useState<ExpressionFamily[] | null>(null);
   const [family, setFamilyState] = useState(AUTO_FAMILY);
   const [isRealistic, setRealisticState] = useState(false);
@@ -261,10 +295,25 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     toast.success(`Applied ${family.label} defaults`);
   }, []);
 
+  /** Which methods the selected WebUI supports; falls back to inpainting when the chosen one isn't. */
+  const loadEditMethods = useCallback(() => {
+    api
+      .editMethods()
+      .then((data) => {
+        setEditMethods(data?.methods ?? null);
+        setVramNote(data?.vram_note ?? "");
+        setMethodState((current) =>
+          data?.methods.some((m) => m.id === current && m.available) ? current : INPAINT_METHOD
+        );
+      })
+      .catch(() => setEditMethods(null));
+  }, []);
+
   // Restore the last used connection. Unless the user picked a WebUI, prefer
   // detecting it, then whatever the server is set to.
   const backendChosenRef = useRef(false);
   useEffect(() => {
+    loadEditMethods();
     let savedBackend: string | undefined;
     try {
       const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
@@ -299,7 +348,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         setFamilyState(data.selected || AUTO_FAMILY);
       })
       .catch(() => setFamilies(null));
-  }, []);
+  }, [loadEditMethods]);
 
   useEffect(() => {
     try {
@@ -352,6 +401,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         api.loras(),
       ]);
       setOptions({ models, samplers, schedulers, loras });
+      loadEditMethods();
       reconcile(paramsRef.current, { models, samplers, schedulers, loras });
       if (models.length === 0) {
         setConnection("error");
@@ -369,7 +419,28 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       if (error instanceof ApiError && error.status !== 400) setCapabilities(connectionReport(message, error.fix));
       toast.error(`Could not connect: ${message}`);
     }
-  }, [apiUrl, backend, backends, reconcile, checkCapabilities]);
+  }, [apiUrl, backend, backends, reconcile, checkCapabilities, loadEditMethods]);
+
+  // Each model family has calibrated defaults: realistic models get much gentler expressions.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .expressionDefaults(params.model, family)
+      .then((data) => {
+        if (cancelled || !data) return;
+        setFamilyDefaults({ family: data.family, ...data.defaults });
+        if (!touchedRef.current.photoStyle) setPhotoStyleState(data.defaults.edit_style === "photo");
+        if (!touchedRef.current.method && editMethods?.some((m) => m.id === data.defaults.method && m.available)) {
+          setMethodState(data.defaults.method);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFamilyDefaults(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.model, family, editMethods]);
 
   const setFamily = useCallback((id: string) => {
     const previous = family;
@@ -560,6 +631,9 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ad_clip_skip: params.clipSkip,
         ad_cfg_scale: params.cfgScale,
         ad_denoising_strength: params.denoisingStrength,
+        ...(editMethods ? { method } : {}),
+        ...(method !== INPAINT_METHOD ? { edit_style: photoStyle ? "photo" : "illustration" } : {}),
+        ...(intensity !== null ? { expression_intensity: intensity } : {}),
       });
       if (result.job_id && result.job && isActiveJob(result.job)) {
         tracking = true;
@@ -585,7 +659,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -611,6 +685,15 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       connect,
       connectedBackend,
       options,
+      editMethods,
+      vramNote,
+      method,
+      setMethod,
+      photoStyle,
+      setPhotoStyle,
+      intensity,
+      setIntensity,
+      familyDefaults,
       capabilities,
       checkingCapabilities,
       checkCapabilities,
@@ -641,7 +724,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     }),
     [
       backends, backend, setBackend, apiUrl, connection, connect, connectedBackend, options,
-      capabilities, checkingCapabilities, checkCapabilities, families, family, setFamily,
+      capabilities, checkingCapabilities, checkCapabilities, editMethods, vramNote, method, setMethod, photoStyle, setPhotoStyle, intensity, familyDefaults,
+      families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]

@@ -16,6 +16,7 @@ import { SliderField } from "@/components/slider-field";
 import { WebUISetup } from "@/components/webui-setup";
 import { AUTO_BACKEND } from "@/lib/api";
 import { FAMILY_DEFAULTS, detectFamily, type Adjustment } from "@/lib/model-defaults";
+import { INPAINT_METHOD } from "@/lib/api";
 
 function AdjustmentNote({ adjustment }: { adjustment?: Adjustment }) {
   if (!adjustment) return null;
@@ -72,6 +73,15 @@ export function ParametersPanel() {
     connect,
     connectedBackend,
     options,
+    editMethods,
+    vramNote,
+    method,
+    setMethod,
+    photoStyle,
+    setPhotoStyle,
+    intensity,
+    setIntensity,
+    familyDefaults,
     families,
     family,
     setFamily,
@@ -216,7 +226,65 @@ export function ParametersPanel() {
             <LoraSelect available={options.loras} value={params.loras} onChange={(value) => setParam("loras", value)} />
           </div>
 
-          {families ? (
+          {editMethods && (
+            <div className="space-y-2">
+              <Label htmlFor="edit-method" className="text-sm font-medium">
+                Method
+              </Label>
+              <Select value={method} onValueChange={setMethod}>
+                <SelectTrigger id="edit-method" className="w-full">
+                  <SelectValue placeholder="Face inpainting" />
+                </SelectTrigger>
+                <SelectContent>
+                  {editMethods.map((m) => (
+                    <SelectItem key={m.id} value={m.id} disabled={!m.available} title={m.description}>
+                      {m.available ? m.name : `${m.name} (ComfyUI only)`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {method !== INPAINT_METHOD && (
+                <>
+                  <div className="flex items-center justify-center gap-3 text-sm">
+                    <Label htmlFor="edit-style-toggle" className={cn(!photoStyle && "font-semibold")}>
+                      Illustration
+                    </Label>
+                    <Switch id="edit-style-toggle" checked={photoStyle} onCheckedChange={setPhotoStyle} />
+                    <Label htmlFor="edit-style-toggle" className={cn(photoStyle && "font-semibold")}>
+                      Photo
+                    </Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {editMethods.find((m) => m.id === method)?.description} {vramNote}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <SliderField
+              id="expression-intensity"
+              label="Expression intensity"
+              value={intensity ?? familyDefaults?.intensity ?? 0.5}
+              onChange={(v) => setIntensity(Math.min(Math.max(Math.round(v * 100) / 100, 0), 1))}
+              min={0}
+              max={1}
+              step={0.05}
+            />
+            <p className="text-xs text-muted-foreground">
+              {intensity === null
+                ? `Default for ${familyDefaults?.family ?? "this model"}. Realistic models start low; strong expressions look uncanny on real faces.`
+                : "Custom. "}
+              {intensity !== null && (
+                <button type="button" className="underline" onClick={() => setIntensity(null)}>
+                  Use the model default ({familyDefaults?.intensity ?? 0.5})
+                </button>
+              )}
+            </p>
+          </div>
+
+          {method !== INPAINT_METHOD ? null : families ? (
             <div className="space-y-2">
               <Label htmlFor="prompt-style" className="text-sm font-medium">
                 Prompt Style

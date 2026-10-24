@@ -11,6 +11,10 @@ added by newer Impact Pack versions get their defaults instead of failing
 validation. Step progress is read from ComfyUI's websocket when the optional
 websocket-client package is installed; completion is always confirmed through
 /history, so the websocket is never required.
+
+The instruction edit mode (see instruction_edit) runs a Qwen-Image-Edit-2509
+workflow instead, built only from nodes that ship with ComfyUI, so it does not
+need Impact Pack.
 """
 
 import dataclasses
@@ -25,6 +29,7 @@ import uuid
 
 from PIL import Image
 
+from .. import instruction_edit
 from ..civitai_key import comfyui_sources
 from ..images import b64_to_pil
 from ..log import log
@@ -43,6 +48,10 @@ from .base import (
 )
 
 REQUIRED_NODES = ("CheckpointLoaderSimple", "FaceDetailer", "UltralyticsDetectorProvider")
+# Core ComfyUI nodes of the Qwen-Image-Edit workflow. TextEncodeQwenImageEditPlus came with ComfyUI 0.3.60.
+EDIT_NODES = ("UNETLoader", "CLIPLoader", "VAELoader", "ModelSamplingAuraFlow", "KSampler", "VAEEncode", "VAEDecode", "ImageScaleToTotalPixels")
+EDIT_ENCODERS = ("TextEncodeQwenImageEditPlus", "TextEncodeQwenImageEdit")
+
 IMPACT_PACK = "https://github.com/ltdrdata/ComfyUI-Impact-Pack"
 IMPACT_SUBPACK = "https://github.com/ltdrdata/ComfyUI-Impact-Subpack"
 FACE_MODEL_URL = "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt"
@@ -134,6 +143,7 @@ class ComfyUIClient(RemoteBackend):
     kind = "comfyui"
     label = "ComfyUI"
     default_url = "http://127.0.0.1:8188"
+    edit_methods = (instruction_edit.INPAINT, instruction_edit.INSTRUCT)
 
     def __init__(self, url: str | None = None, timeout: float | None = None, poll_interval: float = 0.5, **options) -> None:
         self._object_info: dict[str, dict] = {}
@@ -203,6 +213,123 @@ class ComfyUIClient(RemoteBackend):
             raise BackendNotReady("ComfyUI has no checkpoints in models/checkpoints.")
         if not self.options("UltralyticsDetectorProvider", "model_name"):
             raise BackendNotReady("ComfyUI has no face detection model. Put face_yolov8m.pt in models/ultralytics/bbox.")
+
+    def ensure_edit_ready(self) -> None:
+        """What the Qwen-Image-Edit workflow needs: recent core nodes and the three model files."""
+        self._object_info.clear()
+        missing = [node for node in EDIT_NODES if not self.object_info(node)]
+        if not any(self.object_info(node) for node in EDIT_ENCODERS):
+            missing.append(EDIT_ENCODERS[0])
+        if missing:
+            raise BackendNotReady(f"ComfyUI is missing {', '.join(missing)}. Update ComfyUI to 0.3.60 or newer for Qwen-Image-Edit-2509.")
+        if "qwen_image" not in self.options("CLIPLoader", "type"):
+            raise BackendNotReady("This ComfyUI's CLIPLoader has no qwen_image type. Update ComfyUI for Qwen-Image-Edit.")
+        lists = {
+            "diffusion_model": self.options("UNETLoader", "unet_name"),
+            "text_encoder": self.options("CLIPLoader", "clip_name"),
+            "vae": self.options("VAELoader", "vae_name"),
+        }
+        missing_files = [
+            f"models/{instruction_edit.MODEL_BY_ROLE[role].folder}/{instruction_edit.MODEL_BY_ROLE[role].name}"
+            for role, choices in lists.items()
+            if not instruction_edit.find_model(role, choices)
+        ]
+        if missing_files:
+            raise BackendNotReady(
+                f"ComfyUI is missing the Qwen-Image-Edit files {', '.join(missing_files)}. "
+                "Run: python -m autoexpress_core.instruction_edit download <ComfyUI folder>. " + instruction_edit.VRAM_NOTE
+            )
+
+    def edit_requirements(self, selected: bool = False) -> list[dict]:
+        """
+        Everything the instruction edit mode needs, checked over ComfyUI's API, each with how to fix it.
+
+        Each item is {"key", "label", "ok", "detail", "required", "fix": {"steps", "commands", "links"} or None}.
+        required is True only when the mode is selected, so the report doesn't block face inpainting.
+        """
+        self._object_info.clear()
+        update_fix = {
+            "steps": ["Update ComfyUI to 0.3.60 or newer (ComfyUI Manager > Update ComfyUI, or git pull in the ComfyUI folder).", "Restart ComfyUI."],
+            "commands": ["cd ComfyUI && git pull && pip install -r requirements.txt"],
+            "links": [{"label": "ComfyUI releases", "url": "https://github.com/comfyanonymous/ComfyUI/releases"}],
+        }
+        missing_nodes = [node for node in EDIT_NODES if not self.object_info(node)]
+        encoder = next((node for node in EDIT_ENCODERS if self.object_info(node)), None)
+        if not encoder:
+            missing_nodes.append(EDIT_ENCODERS[0])
+        items = [
+            {
+                "key": "qwen_edit_nodes",
+                "label": "Qwen-Image-Edit nodes",
+                "ok": not missing_nodes,
+                "detail": f"Missing: {', '.join(missing_nodes)}" if missing_nodes else f"Core nodes present ({encoder})",
+                "required": selected,
+                "fix": None if not missing_nodes else update_fix,
+            }
+        ]
+        if not missing_nodes:
+            has_type = "qwen_image" in self.options("CLIPLoader", "type")
+            items.append(
+                {
+                    "key": "qwen_edit_clip_type",
+                    "label": "CLIPLoader qwen_image type",
+                    "ok": has_type,
+                    "detail": "Available" if has_type else "This ComfyUI's CLIPLoader can't load the Qwen text encoder.",
+                    "required": selected,
+                    "fix": None if has_type else update_fix,
+                }
+            )
+
+        lists = {
+            "diffusion_model": lambda: self.options("UNETLoader", "unet_name"),
+            "text_encoder": lambda: self.options("CLIPLoader", "clip_name"),
+            "vae": lambda: self.options("VAELoader", "vae_name"),
+            "lightning_lora": lambda: self.options("LoraLoaderModelOnly", "lora_name") or self.options("LoraLoader", "lora_name"),
+        }
+        labels = {
+            "diffusion_model": "Qwen-Image-Edit-2509 model",
+            "text_encoder": "Qwen2.5-VL text encoder",
+            "vae": "Qwen-Image VAE",
+            "lightning_lora": "Lightning 8-step LoRA (optional, 5x faster)",
+        }
+        for role, listing in lists.items():
+            model = instruction_edit.MODEL_BY_ROLE[role]
+            found = instruction_edit.find_model(role, listing())
+            items.append(
+                {
+                    "key": f"qwen_edit_{role}",
+                    "label": labels[role],
+                    "ok": bool(found),
+                    "detail": found or f"Not in ComfyUI/models/{model.folder}",
+                    "required": selected and model.required,
+                    "fix": None
+                    if found
+                    else {
+                        "steps": [
+                            f"Download {model.name} (~{model.size_gb:g} GB) into ComfyUI/models/{model.folder}/.",
+                            "Or fetch every missing file at once with the AutoExpress helper, run where ComfyUI is installed.",
+                            "Refresh ComfyUI (or restart it) so the loader lists the file.",
+                        ],
+                        "commands": [
+                            f"wget -c -P ComfyUI/models/{model.folder} {model.urls[0]}",
+                            "python -m autoexpress_core.instruction_edit download /path/to/ComfyUI",
+                        ],
+                        "links": [{"label": model.name, "url": model.urls[0].replace("/resolve/", "/blob/")}],
+                    },
+                }
+            )
+        items.append(
+            {
+                "key": "qwen_edit_vram",
+                "label": "GPU memory",
+                "ok": True,
+                "detail": instruction_edit.VRAM_NOTE,
+                "required": False,
+                "fix": None,
+            }
+        )
+        return items
+
 
     def capabilities(self) -> list[Capability]:
         self._object_info.clear()
@@ -280,7 +407,19 @@ class ComfyUIClient(RemoteBackend):
                 fix=Fix(["Optional. Install it where AutoExpress runs, then restart AutoExpress:"], ["pip install websocket-client"]),
             )
         )
+        # The instruction edit mode is optional at connect time; the pre-generation check marks it required.
+        items.extend(self.edit_capabilities(selected=False))
         return items
+
+    def edit_capabilities(self, selected: bool = False) -> list[Capability]:
+        """edit_requirements() as Capability items for the readiness report."""
+        return [
+            Capability(
+                item["key"], item["label"], item["ok"], item["detail"], item["required"],
+                Fix(item["fix"]["steps"], item["fix"]["commands"], item["fix"]["links"]) if item["fix"] else None,
+            )
+            for item in self.edit_requirements(selected)
+        ]
 
     def _install_dir(self) -> pathlib.Path | None:
         """ComfyUI's folder when it runs on this machine (from the command line it reports), else None."""
@@ -416,6 +555,66 @@ class ComfyUIClient(RemoteBackend):
             },
         )
         workflow["output"] = {"class_type": "PreviewImage", "inputs": {"images": ["face_detailer", 0]}}
+        return workflow
+
+    def build_edit_workflow(self, instruction: str, image_name: str, settings: instruction_edit.EditSettings) -> dict:
+        """A Qwen-Image-Edit-2509 workflow that applies one edit instruction to the uploaded image."""
+        unet = instruction_edit.find_model("diffusion_model", self.options("UNETLoader", "unet_name"), settings.model)
+        text_encoder = instruction_edit.find_model("text_encoder", self.options("CLIPLoader", "clip_name"))
+        vae_name = instruction_edit.find_model("vae", self.options("VAELoader", "vae_name"))
+        if not (unet and text_encoder and vae_name):
+            self.ensure_edit_ready()  # raises with the list of missing files
+        lightning = None
+        if settings.lightning:
+            lightning = instruction_edit.find_model("lightning_lora", self.options("LoraLoaderModelOnly", "lora_name"))
+            if not lightning:
+                log.warning("Qwen-Image-Edit Lightning LoRA not found, sampling 40 steps at CFG 4 instead of 8 at CFG 1.")
+
+        workflow = {"unet": self._node("UNETLoader", {"unet_name": unet, "weight_dtype": "default"})}
+        model = ["unet", 0]
+        if lightning:
+            workflow["lightning"] = self._node("LoraLoaderModelOnly", {"model": model, "lora_name": lightning, "strength_model": 1.0})
+            model = ["lightning", 0]
+        workflow["shift"] = self._node("ModelSamplingAuraFlow", {"model": model, "shift": settings.shift})
+        model = ["shift", 0]
+        if self.object_info("CFGNorm"):
+            workflow["cfg_norm"] = self._node("CFGNorm", {"model": model, "strength": 1.0})
+            model = ["cfg_norm", 0]
+
+        workflow["clip"] = self._node("CLIPLoader", {"clip_name": text_encoder, "type": "qwen_image", "device": "default"})
+        workflow["vae"] = self._node("VAELoader", {"vae_name": vae_name})
+        workflow["image"] = self._node("LoadImage", {"image": image_name})
+        # Qwen-Image-Edit works at about one megapixel; the result is scaled back to the input size afterwards.
+        workflow["scaled"] = self._node(
+            "ImageScaleToTotalPixels", {"image": ["image", 0], "upscale_method": "lanczos", "megapixels": settings.megapixels}
+        )
+
+        if self.object_info("TextEncodeQwenImageEditPlus"):
+            encoder, image_input = "TextEncodeQwenImageEditPlus", "image1"
+        else:
+            encoder, image_input = "TextEncodeQwenImageEdit", "image"
+        for node_id, text in (("positive", instruction), ("negative", "")):
+            workflow[node_id] = self._node(encoder, {"clip": ["clip", 0], "prompt": text, "vae": ["vae", 0], image_input: ["scaled", 0]})
+
+        workflow["latent"] = self._node("VAEEncode", {"pixels": ["scaled", 0], "vae": ["vae", 0]})
+        seed = settings.seed if settings.seed >= 0 else random.randint(0, 2**32 - 1)
+        workflow["sampler"] = self._node(
+            "KSampler",
+            {
+                "model": model,
+                "seed": seed,
+                "steps": settings.resolved_steps(bool(lightning)),
+                "cfg": settings.resolved_cfg(bool(lightning)),
+                "sampler_name": pick(settings.sampler, self.options("KSampler", "sampler_name"), SAMPLERS, "euler"),
+                "scheduler": pick(settings.scheduler, self.options("KSampler", "scheduler"), SCHEDULERS, "simple"),
+                "positive": ["positive", 0],
+                "negative": ["negative", 0],
+                "latent_image": ["latent", 0],
+                "denoise": settings.resolved_denoise(),
+            },
+        )
+        workflow["decode"] = self._node("VAEDecode", {"samples": ["sampler", 0], "vae": ["vae", 0]})
+        workflow["output"] = {"class_type": "PreviewImage", "inputs": {"images": ["decode", 0]}}
         return workflow
 
     # Running --------------------------------------------------------------
@@ -563,6 +762,52 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e)
         except (KeyError, ValueError, TypeError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"))
+        finally:
+            if stop_listening:
+                stop_listening.set()
+            self._prompt_id = None
+            self._progress = None
+
+    def instruction_edit(self, image: str, instruction: str, settings: instruction_edit.EditSettings) -> Image.Image | None:
+        """
+        Apply one edit instruction to a base64 image with Qwen-Image-Edit.
+
+        Returns the edited image at the input's size, or None on failure (the reason is in last_error).
+        """
+        self._interrupted.clear()
+        self.last_error = None
+        self._progress = None
+        stop_listening = None
+        try:
+            if settings.seed < 0:
+                settings = dataclasses.replace(settings, seed=random.randint(0, 2**32 - 1))
+            workflow = self.build_edit_workflow(instruction, self.upload_image(image), settings)
+            stop_listening = self._listen_for_progress()
+            self._prompt_id = self.queue_prompt(workflow)
+            result = self.fetch_image(self.wait_for(self._prompt_id))
+            source_size = b64_to_pil(image).size
+            if settings.keep_size and result.size != source_size:
+                result = result.convert("RGB").resize(source_size, Image.LANCZOS)
+            sampler = workflow["sampler"]["inputs"]
+            fields = {
+                "Steps": sampler["steps"],
+                "Sampler": sampler["sampler_name"],
+                "Schedule type": sampler["scheduler"],
+                "CFG scale": f"{sampler['cfg']:g}",
+                "Seed": sampler["seed"],
+                "Size": f"{result.size[0]}x{result.size[1]}",
+                "Model": workflow["unet"]["inputs"]["unet_name"],
+                "Lora": workflow.get("lightning", {}).get("inputs", {}).get("lora_name"),
+                "Denoising strength": f"{sampler['denoise']:g}",
+                "Version": "ComfyUI",
+            }
+            params = ", ".join(f"{key}: {value}" for key, value in fields.items() if value not in (None, ""))
+            result.info["parameters"] = f"{instruction}\nNegative prompt: \n{params}"
+            return result
+        except BackendError as e:
+            return self._fail(e, "instruction edit")
+        except (KeyError, ValueError, TypeError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "instruction edit")
         finally:
             if stop_listening:
                 stop_listening.set()

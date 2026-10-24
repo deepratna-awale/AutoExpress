@@ -331,18 +331,20 @@ def missing_loras(checkpoint_name, family_id=None, installed_names=None, lora_di
     ]
 
 
-def apply_expression_weights(prompt, expression):
+def apply_expression_weights(prompt, expression, scale=1.0):
     """
     Adjust expression LoRA tags in a prompt for one expression.
 
     An entry's "expression_weights" maps an expression to the weight to use for
     it instead of the default; 0 drops that LoRA (and its trigger) entirely.
+    scale multiplies that weight, for the expression intensity slider.
     """
     for entries in _load().values():
         for entry in entries:
             weight = (entry.get("expression_weights") or {}).get(expression)
             if weight is None:
                 continue
+            weight = round(weight * scale, 3)
             names = [entry["name"], pathlib.Path(entry.get("original_file") or "").stem, _RENAMED.get(entry["name"])]
             for name in filter(None, names):
                 tag = re.compile(r"<lora:\s*" + re.escape(name) + r"\s*:[^>]*>")

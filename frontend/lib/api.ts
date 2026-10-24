@@ -86,6 +86,23 @@ export interface ExpressionFamiliesResponse {
   families: ExpressionFamily[];
 }
 
+/** A way to change the expression: face inpainting, or the instruction edit mode (Qwen-Image-Edit). */
+export interface EditMethod {
+  id: string;
+  name: string;
+  description: string;
+  /** Whether the connected WebUI can do it. */
+  available: boolean;
+}
+
+export interface EditMethodsResponse {
+  backend: string;
+  methods: EditMethod[];
+  vram_note: string;
+}
+
+export const INPAINT_METHOD = "inpaint";
+
 export interface LoraSelection {
   lora_name: string;
   lora_strength: number | string;
@@ -129,6 +146,23 @@ export interface GenerateRequest {
   ad_clip_skip: number;
   ad_cfg_scale: number;
   ad_denoising_strength: number;
+  method?: string;
+  /** Instruction edit wording: "illustration" keeps the art style, "photo" keeps a photo realistic. */
+  edit_style?: string;
+  /** 0..1 expression strength; omitted means the model family's calibrated default. */
+  expression_intensity?: number;
+}
+
+/** What works best for a model family: method, expression intensity and instruction edit wording. */
+export interface FamilyDefaults {
+  method: string;
+  intensity: number;
+  edit_style: string;
+}
+
+export interface ExpressionDefaultsResponse {
+  family: string;
+  defaults: FamilyDefaults;
 }
 
 export interface JobProgress {
@@ -271,6 +305,14 @@ export const api = {
 
   expressionFamilies: () => optional(request<ExpressionFamiliesResponse>("/expression-families")),
   setExpressionFamily: (family: string) => postJson<unknown>("/expression-family", { family }),
+
+  editMethods: () => optional(request<EditMethodsResponse>("/edit-methods")),
+  expressionDefaults: (checkpoint: string, family: string) =>
+    optional(
+      request<ExpressionDefaultsResponse>(
+        `/expression-defaults?checkpoint=${encodeURIComponent(checkpoint)}&family=${encodeURIComponent(family)}`
+      )
+    ),
 
   setRealistic: (isRealistic: boolean) => postJson<unknown>("/toggle", { isRealistic }),
 

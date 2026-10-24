@@ -596,3 +596,8 @@ def test_a1111_payload_takes_the_input_image_size():
     backend.img2img(payload)
     sent = backend.session.calls[-1][2]["json"]
     assert (sent["width"], sent["height"]) == (1024, 1216)
+
+
+def test_a1111_takes_a_url_as_first_argument():
+    assert A1111Client("http://host:7860").get_url() == "http://host:7860"
+    assert A1111Client("host", "7861").get_url() == "http://host:7861"

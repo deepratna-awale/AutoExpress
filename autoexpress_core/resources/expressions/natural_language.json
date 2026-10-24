@@ -9,6 +9,12 @@
     "Qwen-Image",
     "Lumina"
   ],
+  "defaults": {
+    "method": "instruct",
+    "intensity": 0.07,
+    "edit_style": "photo",
+    "expression_loras": false
+  },
   "quality_tags": "",
   "negative": "",
   "expressions": {
