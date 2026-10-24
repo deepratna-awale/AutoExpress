@@ -66,6 +66,12 @@ Each sheet is one input image and eight of its expressions, generated at 1024×1
 
 Every run can save a labelled sprite sheet like these next to the individual images.
 
+Photos work too. On a real face AutoExpress keeps the change deliberately small, so it still looks like the same person. This set was made from a selfie with the [instruction edit mode](#instruction-edit-mode-comfyui) at the photo default [expression intensity](#expression-intensity) of 0.07:
+
+<p align="center">
+  <a href=".github/readme/sheet_photo.jpg"><img src=".github/readme/sheet_photo.jpg" alt="A selfie and its subtle joy, anger, fear and disgust expressions" width="100%"></a>
+</p>
+
 ---
 
 # Install
