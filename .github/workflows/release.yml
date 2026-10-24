@@ -10,23 +10,16 @@ permissions:
   contents: read
 
 jobs:
-  # Build platform-specific releases
-  build-windows:
-    uses: ./.github/workflows/windows-release.yml
+  # Ready-to-run zips, each built on its own platform
+  build:
+    uses: ./.github/workflows/build-release.yml
     permissions:
       contents: read
     with:
       tag_name: ${{ github.ref_name }}
-  
-  build-linux:
-    uses: ./.github/workflows/linux-release.yml
-    permissions:
-      contents: read
-    with:
-      tag_name: ${{ github.ref_name }}
-  
+
   create-release:
-    needs: [build-windows, build-linux]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write  # Required to create releases
@@ -77,6 +70,7 @@ jobs:
             echo "- **AUTOMATIC1111 / Forge / reForge / SD.Next**: Extensions > Install from URL, paste \`https://github.com/deepratna-awale/AutoExpress\`."
             echo "- **Standalone app, Windows**: download \`autoexpress-$TAG-Windows_Release.zip\`, extract it and run \`run.bat\`."
             echo "- **Standalone app, Linux**: download \`autoexpress-$TAG-Linux_Release.zip\`, extract it and run \`./run.sh\`."
+            echo "- **Standalone app, macOS (Apple silicon)**: download \`autoexpress-$TAG-macOS_Release.zip\`, extract it and run \`./run.sh\` in Terminal."
             echo "- **Standalone app, Docker**: \`docker run -p 5000:5000 ghcr.io/deepratna-awale/autoexpress:$VERSION\`"
             echo "- **From source**: see the [README](https://github.com/deepratna-awale/AutoExpress#readme)."
             if [ -n "$PREV_TAG" ]; then
@@ -94,18 +88,13 @@ jobs:
           git archive --format=zip --prefix=autoexpress-${{ steps.tag.outputs.tag }}/ HEAD > artifacts/autoexpress-${{ steps.tag.outputs.tag }}-source.zip
           git archive --format=tar.gz --prefix=autoexpress-${{ steps.tag.outputs.tag }}/ HEAD > artifacts/autoexpress-${{ steps.tag.outputs.tag }}-source.tar.gz
       
-      - name: Download Windows Release
+      - name: Download the release zips
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: windows-release
+          pattern: release-*
           path: artifacts/
-      
-      - name: Download Linux Release
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: linux-release
-          path: artifacts/
-      
+          merge-multiple: true
+
       - name: Create Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:

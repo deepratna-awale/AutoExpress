@@ -2,6 +2,14 @@
 
 All notable changes to AutoExpress are listed here, newest first.
 
+## 2.1.1 (2026-10-24)
+
+- **macOS release** (Apple silicon): `autoexpress-<version>-macOS_Release.zip`, started with `./run.sh`.
+- Release zips now bundle their own Python (3.13, in `runtime/`) with the requirements built on and for each platform with uv. Before, the zips carried a virtual environment that pointed at the build machine's Python and didn't start elsewhere.
+- `run` and `run_debug` use the bundled Python when it's there, and `.venv` otherwise. On macOS they clear the download quarantine on the bundled Python.
+- Each release zip is smoke tested (the app starts and serves the web interface) before it's published.
+- Zip names keep the version as tagged, e.g. `autoexpress-v2.1.1-Linux_Release.zip`.
+
 ## 2.1.0 (2026-10-24)
 
 ### New

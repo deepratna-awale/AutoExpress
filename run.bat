@@ -15,7 +15,10 @@ echo "                                     | |                         "
 echo "                                     |_|                         "
 echo.
 
-if not exist ".venv\Scripts\python.exe" (
+:: Release zips bundle their own Python in runtime\; a source checkout uses .venv.
+set "PYTHON=.venv\Scripts\python.exe"
+if exist "runtime\python.exe" set "PYTHON=runtime\python.exe"
+if not exist "%PYTHON%" (
     echo AutoExpress isn't installed yet. Run install.bat first.
     pause
     exit /b 1
@@ -33,5 +36,5 @@ echo Your WebUI can run on this machine or anywhere else (RunPod etc.): paste it
 echo address in the page and press connect. A1111 and Forge need the --api flag.
 echo.
 
-".venv\Scripts\python.exe" -m autoexpress
+"%PYTHON%" -m autoexpress
 if errorlevel 1 pause
