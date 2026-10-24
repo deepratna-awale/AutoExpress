@@ -66,6 +66,12 @@ STYLES = (ILLUSTRATION, PHOTO)
 
 
 INSTRUCTIONS_FILE = pathlib.Path(__file__).resolve().parent / "resources" / "edit_instructions.json"
+POSES_FILE = pathlib.Path(__file__).resolve().parent / "resources" / "poses.json"
+
+# Moving the arms needs the sampler to start from noise; below this the body barely moves.
+POSE_MIN_DENOISE = 0.9
+# Expression sentences that pin the head clash with poses that lower or turn it.
+HEAD_LOCK = re.compile(r"\s*The head does not move( or tilt)?\.")
 
 VRAM_NOTE = (
     "Qwen-Image-Edit-2511 fp8 needs about 24 GB of VRAM (20 GB model + 9 GB text encoder, "
@@ -78,6 +84,53 @@ VRAM_NOTE = (
 def _load() -> dict:
     with open(INSTRUCTIONS_FILE, "r", encoding="utf-8") as instructions_file:
         return json.load(instructions_file)
+
+
+@lru_cache(maxsize=None)
+def _load_poses() -> dict:
+    with open(POSES_FILE, "r", encoding="utf-8") as poses_file:
+        return json.load(poses_file)
+
+
+def get_poses(only: list[str] | None = None) -> dict[str, str]:
+    """Expression name -> its sprite pose sentence ("The arms are crossed over the chest."), optionally limited to some names."""
+    poses = dict(_load_poses()["poses"])
+    if only:
+        wanted = {name.strip().lower() for name in only if name and name.strip()}
+        poses = {name: text for name, text in poses.items() if name in wanted}
+    return poses
+
+
+def pose_sentence(expression: str, pose: bool | str | None) -> str:
+    """The pose to ask for: "" for none, the expression's preset for True, or a custom sentence."""
+    if not pose:
+        return ""
+    if isinstance(pose, str) and pose.strip().lower() not in ("on", "true", "auto", "preset"):
+        return pose.strip()
+    return _load_poses()["poses"].get(expression, "")
+
+
+def build_pose_instruction(expression: str, pose: bool | str = True, extra: str = "", style: str = ILLUSTRATION) -> str:
+    """
+    An instruction that changes only the pose, for face inpainting runs: the face inpainting adds the expression afterwards.
+
+    Args:
+        expression (str): The expression the pose goes with, see get_poses().
+        pose (bool | str): True for the expression's preset pose, or a custom pose sentence.
+        extra (str): Optional extra text, e.g. "Keep the glasses on."
+        style (str): ILLUSTRATION or PHOTO.
+    """
+    data = _load_poses()
+    parts = [
+        "Change only the pose.",
+        pose_sentence(expression, pose),
+        data["keep"],
+        data["outfit"],
+        "Keep the same facial expression.",
+        (extra or "").strip(),
+        data["photo_suffix" if style == PHOTO else "suffix"],
+    ]
+    return " ".join(part for part in parts if part)
 
 
 def instruction_names() -> list[str]:
@@ -94,7 +147,9 @@ def get_instructions(only: list[str] | None = None) -> dict[str, str]:
     return expressions
 
 
-def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATION, intensity: float | None = None) -> str:
+def build_instruction(
+    expression: str, extra: str = "", style: str = ILLUSTRATION, intensity: float | None = None, pose: bool | str | None = None
+) -> str:
     """
     The full edit instruction for one expression.
 
@@ -104,6 +159,8 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
         style (str): ILLUSTRATION (anime, cartoon, furry art) or PHOTO (realistic photos).
         intensity (float | None): 0..1, see intensity.edit_tier; None uses the default for the style
             (low for photos, where full-strength expressions look like a cartoon).
+        pose (bool | str | None): Also change the pose: True for the expression's sprite pose (see get_poses()),
+            or a custom pose sentence. The pose starts from the character's current one and keeps the outfit.
     """
     data = _load()
     if expression not in data["expressions"]:
@@ -111,6 +168,9 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
     if style not in data["styles"]:
         raise KeyError(f"Unknown instruction style '{style}'. Choose from: {', '.join(data['styles'])}")
     tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO))
+    gesture = pose_sentence(expression, pose)
+    if gesture:
+        return _posed_instruction(expression, extra, style, tier, gesture)
     if style == PHOTO:
         sentence, clause = photo_sentence(expression), ""
     else:
@@ -123,6 +183,18 @@ def build_instruction(expression: str, extra: str = "", style: str = ILLUSTRATIO
         (extra or "").strip(),
         data["styles"][style]["suffix"],
     ]
+    return " ".join(part for part in parts if part)
+
+
+def _posed_instruction(expression: str, extra: str, style: str, tier: str, gesture: str) -> str:
+    """Expression plus pose: the "change only the face" prefix and suffix make way for the pose's own."""
+    data, poses = _load(), _load_poses()
+    if style == PHOTO:
+        word = data["photo"]["words"].get(expression, expression)
+        parts = [f"Facial expression: {word}.", gesture, poses["keep"], poses["outfit"], (extra or "").strip(), poses["photo_suffix"]]
+    else:
+        sentence = HEAD_LOCK.sub("", data["subtle" if tier == "subtle" else "expressions"][expression])
+        parts = [poses["prefix"], sentence, data["intensity"][tier], gesture, poses["keep"], poses["outfit"], (extra or "").strip(), poses["suffix"]]
     return " ".join(part for part in parts if part)
 
 
@@ -167,11 +239,14 @@ class EditSettings:
     intensity: float | None = None
     denoise: float | None = None
     photo: bool = False
+    # The body moves, so the edit needs a high denoise and the original face can't be pasted back.
+    pose: bool = False
 
     def resolved_denoise(self) -> float:
         if self.denoise is not None:
             return self.denoise
-        return 1.0 if self.intensity is None else expression_intensity.edit_denoise(self.intensity, self.photo)
+        denoise = 1.0 if self.intensity is None else expression_intensity.edit_denoise(self.intensity, self.photo)
+        return max(denoise, POSE_MIN_DENOISE) if self.pose else denoise
 
     def resolved_lightning(self) -> bool:
         """Lightning's 8 steps make real skin look plastic, so photos take the full 40."""
@@ -179,6 +254,8 @@ class EditSettings:
 
     def resolved_paste_face(self) -> bool:
         """Photos keep the original pixels outside the face; drawn images keep the whole edit."""
+        if self.pose:
+            return False
         return self.photo if self.paste_face is None else self.paste_face
 
     def resolved_steps(self, lightning: bool) -> int:
