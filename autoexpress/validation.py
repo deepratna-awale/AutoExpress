@@ -86,7 +86,7 @@ def validate_generate(data, max_pixels: int) -> dict:
         dict: image (base64 str), output_name, loras (list of (name, weight)),
               settings (payload overrides), expressions (list or None), wait (bool),
               method ("inpaint", "instruct" or None for the family's default),
-              remove_background (bool).
+              remove_background (bool). settings["pose"] is True when sprite poses were asked for.
     """
     if not isinstance(data, dict):
         raise ValidationError({"body": "Expected a JSON object."})
@@ -170,6 +170,12 @@ def validate_generate(data, max_pixels: int) -> dict:
     remove_background = data.get("remove_background", False)
     if not isinstance(remove_background, bool):
         errors["remove_background"] = "must be true or false"
+
+    pose = data.get("pose", False)
+    if not isinstance(pose, bool):
+        errors["pose"] = "must be true or false"
+    elif pose:
+        settings["pose"] = True
 
     if errors:
         raise ValidationError(errors)

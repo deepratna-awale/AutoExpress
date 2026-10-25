@@ -102,6 +102,7 @@ export interface EditMethodsResponse {
 }
 
 export const INPAINT_METHOD = "inpaint";
+export const INSTRUCT_METHOD = "instruct";
 
 /** Whether exports can be cut out of their background (rembg on the AutoExpress server). */
 export interface BackgroundRemovalInfo {
@@ -160,6 +161,8 @@ export interface GenerateRequest {
   expression_intensity?: number;
   /** Save every expression with a transparent background. */
   remove_background?: boolean;
+  /** Also change the pose: a small sprite gesture per expression (needs Qwen-Image-Edit on ComfyUI). */
+  pose?: boolean;
 }
 
 /** What works best for a model family: method, expression intensity and instruction edit wording. */

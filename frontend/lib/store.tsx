@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   api,
   INPAINT_METHOD,
+  INSTRUCT_METHOD,
   ApiError,
   AUTO_BACKEND,
   connectionReport,
@@ -66,6 +67,7 @@ const POLL_INTERVAL_MS = 2500;
 const JOB_POLL_INTERVAL_MS = 1500;
 const SETTINGS_KEY = "autoexpress-connection";
 const REMOVE_BACKGROUND_KEY = "autoexpress-remove-background";
+const POSE_KEY = "autoexpress-pose";
 
 type Adjustments = Partial<Record<"model" | "sampler" | "scheduler", Adjustment>>;
 
@@ -101,6 +103,10 @@ interface AutoExpressState {
   /** Instruction edit wording for drawn images or for photos. */
   photoStyle: boolean;
   setPhotoStyle: (value: boolean) => void;
+  /** Change the pose along with each expression; only sent when the backend has the instruction edit mode. */
+  pose: boolean;
+  setPose: (value: boolean) => void;
+  posesAvailable: boolean;
   /** 0..1 expression strength the user picked, or null to use the model family's default. */
   intensity: number | null;
   setIntensity: (value: number | null) => void;
@@ -248,6 +254,23 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
 
   const [outputDirectory, setOutputDirectory] = useState("");
   const [backgroundRemoval, setBackgroundRemoval] = useState<BackgroundRemovalInfo | null>(null);
+  const [pose, setPoseState] = useState(false);
+  const setPose = useCallback((value: boolean) => {
+    setPoseState(value);
+    try {
+      localStorage.setItem(POSE_KEY, value ? "1" : "0");
+    } catch {
+      // Storage can be blocked; the choice then lasts until reload.
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      setPoseState(localStorage.getItem(POSE_KEY) === "1");
+    } catch {
+      // Storage can be blocked.
+    }
+  }, []);
+  const posesAvailable = Boolean(editMethods?.some((m) => m.id === INSTRUCT_METHOD && m.available));
   const [removeBackground, setRemoveBackgroundState] = useState(false);
   const setRemoveBackground = useCallback((value: boolean) => {
     setRemoveBackgroundState(value);
@@ -666,6 +689,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ...(method !== INPAINT_METHOD ? { edit_style: photoStyle ? "photo" : "illustration" } : {}),
         ...(intensity !== null ? { expression_intensity: intensity } : {}),
         ...(removeBackground && backgroundRemoval?.available ? { remove_background: true } : {}),
+        ...(pose && posesAvailable ? { pose: true } : {}),
       });
       if (result.job_id && result.job && isActiveJob(result.job)) {
         tracking = true;
@@ -691,7 +715,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, pose, posesAvailable, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -723,6 +747,9 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setMethod,
       photoStyle,
       setPhotoStyle,
+      pose,
+      setPose,
+      posesAvailable,
       intensity,
       setIntensity,
       familyDefaults,
@@ -759,7 +786,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     }),
     [
       backends, backend, setBackend, apiUrl, connection, connect, connectedBackend, options,
-      capabilities, checkingCapabilities, checkCapabilities, editMethods, vramNote, method, setMethod, photoStyle, setPhotoStyle, intensity, familyDefaults,
+      capabilities, checkingCapabilities, checkCapabilities, editMethods, vramNote, method, setMethod, photoStyle, setPhotoStyle, pose, setPose, posesAvailable, intensity, familyDefaults,
       families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, backgroundRemoval, removeBackground, setRemoveBackground, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
