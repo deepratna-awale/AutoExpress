@@ -23,10 +23,22 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Audit Python requirements
+      - name: Set up uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+
+      # Every version pinned in uv.lock, the same ones the release zips and Docker image ship
+      - name: Export the locked dependencies
+        run: |
+          uv lock --check
+          uv export --frozen --all-extras --no-dev --no-emit-project -o locked-requirements.txt
+
+      - name: Audit Python dependencies
         uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
         with:
-          inputs: requirements.txt
+          inputs: locked-requirements.txt
+          require-hashes: true
 
   frontend:
     runs-on: ubuntu-latest
