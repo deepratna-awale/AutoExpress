@@ -228,6 +228,14 @@ class AutoExpressEditInstructions:
                     "tooltip": "Added to every instruction, e.g. 'Keep the glasses on.'",
                 }),
             },
+            "optional": {
+                "pose": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Also change the pose: a small sprite gesture per expression (arms crossed for anger, ...) "
+                    "starting from the current pose, keeping the outfit and background. Raises the denoise to at least "
+                    f"{instruction_edit.POSE_MIN_DENOISE:g}.",
+                }),
+            },
         }
 
     RETURN_TYPES = ("STRING", "STRING", "INT", "FLOAT")
@@ -246,7 +254,7 @@ class AutoExpressEditInstructions:
         "no face detector or LoRA. " + instruction_edit.VRAM_NOTE
     )
 
-    def build(self, expressions, style=instruction_edit.ILLUSTRATION, intensity=-1.0, extra_instruction=""):
+    def build(self, expressions, style=instruction_edit.ILLUSTRATION, intensity=-1.0, extra_instruction="", pose=False):
         intensity = node_intensity(intensity, photo=style == instruction_edit.PHOTO)
         all_names = instruction_edit.instruction_names()
         wanted = parse_selection(expressions)
@@ -255,9 +263,9 @@ class AutoExpressEditInstructions:
             raise ValueError(f"No expressions matched '{expressions}'. Valid names: {', '.join(all_names)}")
         photo = style == instruction_edit.PHOTO
         values = [instruction_edit.expression_intensity_for(name, intensity, style) for name in names]
-        instructions = [instruction_edit.build_instruction(name, extra_instruction, style, value) for name, value in zip(names, values)]
-        denoise = [expression_intensity.edit_denoise(value, photo) for value in values]
-        log.info(f"AutoExpress: {len(names)} {style} edit instructions at intensity {intensity:g}.")
+        instructions = [instruction_edit.build_instruction(name, extra_instruction, style, value, pose=pose) for name, value in zip(names, values)]
+        denoise = [instruction_edit.EditSettings(intensity=value, photo=photo, pose=bool(pose)).resolved_denoise() for value in values]
+        log.info(f"AutoExpress: {len(names)} {style} edit instructions at intensity {intensity:g}{' with poses' if pose else ''}.")
         return (instructions, names, len(names), denoise)
 
 

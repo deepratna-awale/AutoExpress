@@ -301,6 +301,25 @@ def test_generate_with_instruction_edit(client, monkeypatch, tmp_path):
     assert response.status_code == 409 and "Qwen-Image-Edit" in response.get_json()["message"]
 
 
+def test_generate_with_poses(client, monkeypatch, tmp_path):
+    response = client.post("/generate", json=body(pose=True))
+    assert response.status_code == 400 and "ComfyUI" in response.get_json()["error"]["fields"]["pose"]
+    assert client.post("/generate", json=body(pose="yes")).status_code == 400
+
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_edit", FakeEditWebUI)
+    FakeEditWebUI.instructions = []
+    views.state.connect("fake_edit", None)
+    result = client.post("/generate", json=body(method="instruct", pose=True, expressions=["anger"])).get_json()
+    assert result["status"] == "success"
+    assert "The arms are crossed over the chest." in FakeEditWebUI.instructions[0][0]
+
+    # Face inpainting poses with Qwen first, then inpaints the face.
+    FakeEditWebUI.instructions, calls = [], FakeWebUI.calls
+    result = client.post("/generate", json=body(method="inpaint", pose=True, expressions=["anger"])).get_json()
+    assert result["status"] == "success" and FakeWebUI.calls == calls + 1
+    assert FakeEditWebUI.instructions[0][0].startswith("Change only the pose.")
+
+
 def test_generate_rejects_unknown_edit_style_or_intensity(client):
     response = client.post("/generate", json=body(edit_style="sketch", expression_intensity="1.5"))
     fields = response.get_json()["error"]["fields"]

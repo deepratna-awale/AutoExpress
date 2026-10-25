@@ -78,6 +78,11 @@ class ExpressionGenerator:
                 instruction_edit.INSTRUCT (Qwen-Image-Edit with one sentence per expression; flavor,
                 lora_prompt and the ad_* settings are not used, edit_* settings and seed are; the
                 wording is edit_style, else photo for realistic images, else the family's default).
+                Either method also changes the body pose when settings["pose"] is on: a small sprite
+                gesture per expression (instruction_edit.get_poses(), or settings["poses"] as
+                {expression: sentence}) made by Qwen-Image-Edit from the current pose, keeping the
+                outfit. Face inpainting then adds the expression on top of the posed image, so poses
+                need a backend with the instruction edit mode (ComfyUI) either way.
 
         Yields:
             tuple[str, Image.Image]: Expression name and the generated image.
@@ -88,10 +93,13 @@ class ExpressionGenerator:
 
         family = resolve_flavor(flavor, settings.get("ad_checkpoint"), is_realistic)
         defaults = expression_sets.family_defaults(family)
+        poses = self._poses(settings)
 
         if method == instruction_edit.INSTRUCT:
-            yield from self._iter_instruction_edits(b64_image, settings, only, output_dir, is_realistic, defaults)
+            yield from self._iter_instruction_edits(b64_image, settings, only, output_dir, is_realistic, defaults, poses)
             return
+        if poses is not None:
+            self._require_edit_mode("Poses need")
 
         self.family = family
         intensity = expression_intensity.resolve(settings.get("expression_intensity", defaults["intensity"]))
@@ -120,9 +128,22 @@ class ExpressionGenerator:
                 log.info("Interrupted by user. Stopping..")
                 return
 
+            source = b64_image
+            if poses is not None and poses.get(expression_name):
+                log.info(f"Posing the character for {expression_name}.")
+                posed = self.backend.instruction_edit(
+                    b64_image,
+                    instruction_edit.build_pose_instruction(expression_name, poses[expression_name], style=self._pose_style(settings, is_realistic, defaults)),
+                    dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), pose=True),
+                )
+                if posed is None:
+                    log.error(f"Pose edit failed for {expression_name}, stopping.")
+                    return
+                source = pil_to_b64(posed)
+
             log.info(f"Generating image for {expression_name} expression.")
             settings["ad_prompt"] = expression_sets.build_prompt(base_prompt, expression_name, family, intensity=intensity)
-            payload = build_expression_payload(b64_image, settings)
+            payload = build_expression_payload(source, settings)
             result = self.backend.img2img(payload)
 
             if result is None:
@@ -136,15 +157,36 @@ class ExpressionGenerator:
 
         log.info(f"Generated {len(expressions)} expressions.")
 
-    def _iter_instruction_edits(self, b64_image: str, settings: dict, only, output_dir, is_realistic=False, defaults=None) -> Iterator[tuple[str, Image.Image]]:
+    @staticmethod
+    def _poses(settings: dict) -> dict[str, str] | None:
+        """Expression -> pose sentence when settings["pose"] is on (settings["poses"] overrides single ones), else None."""
+        pose = settings.pop("pose", False)
+        custom = settings.pop("poses", None) or {}
+        if pose in (None, False, "", 0, "off", "false", "False"):
+            return None
+        poses = instruction_edit.get_poses()
+        poses.update({str(name).strip().lower(): str(text).strip() for name, text in custom.items() if name})
+        return poses
+
+    def _require_edit_mode(self, feature: str = "The instruction edit mode needs") -> None:
         if instruction_edit.INSTRUCT not in getattr(self.backend, "edit_methods", ()):
-            raise ValueError(f"{type(self.backend).__name__} has no instruction edit mode; use the ComfyUI backend.")
+            raise ValueError(f"{feature} Qwen-Image-Edit, which {type(self.backend).__name__} doesn't have; use the ComfyUI backend.")
+
+    @staticmethod
+    def _pose_style(settings: dict, is_realistic: bool, defaults: dict) -> str:
+        style = settings.get("edit_style")
+        if style in instruction_edit.STYLES:
+            return style
+        return instruction_edit.PHOTO if is_realistic else defaults["edit_style"]
+
+    def _iter_instruction_edits(
+        self, b64_image: str, settings: dict, only, output_dir, is_realistic=False, defaults=None, poses=None
+    ) -> Iterator[tuple[str, Image.Image]]:
+        self._require_edit_mode()
         self.family = instruction_edit.INSTRUCT
         instructions = instruction_edit.get_instructions(only)
         defaults = defaults or expression_sets.FALLBACK_DEFAULTS
-        style = settings.get("edit_style")
-        if style not in instruction_edit.STYLES:
-            style = instruction_edit.PHOTO if is_realistic else defaults["edit_style"]
+        style = self._pose_style(settings, is_realistic, defaults)
         default_intensity = defaults["intensity"]
         if style == instruction_edit.PHOTO and defaults["edit_style"] != instruction_edit.PHOTO:
             default_intensity = min(default_intensity, expression_intensity.PHOTO_DEFAULT)
@@ -160,8 +202,11 @@ class ExpressionGenerator:
                 return
             log.info(f"Editing the expression to {expression_name}.")
             value = instruction_edit.expression_intensity_for(expression_name, intensity, style)
-            instruction = instruction_edit.build_instruction(expression_name, extra, style, value)
-            result = self.backend.instruction_edit(b64_image, instruction, dataclasses.replace(edit_settings, intensity=value, photo=style == instruction_edit.PHOTO))
+            pose = (poses or {}).get(expression_name) or None
+            instruction = instruction_edit.build_instruction(expression_name, extra, style, value, pose=pose)
+            result = self.backend.instruction_edit(
+                b64_image, instruction, dataclasses.replace(edit_settings, intensity=value, photo=style == instruction_edit.PHOTO, pose=bool(pose))
+            )
             if result is None:
                 log.error(f"Instruction edit failed for {expression_name}, stopping.")
                 return

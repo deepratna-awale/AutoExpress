@@ -71,6 +71,8 @@ Tick **Remove background** to save every expression with a transparent backgroun
 
 With a ComfyUI backend, the **Method** dropdown switches between **Face inpainting** (FaceDetailer) and **Instruction edit** ([Qwen-Image-Edit](comfyui.md#instruction-edit-mode-qwen-image-edit), which needs its models on the ComfyUI side).
 
+**Change pose too** adds a small sprite gesture to each expression, such as arms crossed for anger or a hand on the chin for curiosity, starting from the character's current pose and keeping the outfit and background ([details](comfyui.md#instruction-edit-mode-qwen-image-edit)). It works with either method but needs Qwen-Image-Edit on a ComfyUI backend. Also `"pose": true` on `POST /generate`.
+
 ## Supported WebUIs
 
 Paste the WebUI's address and press connect. The WebUI can run anywhere: on this machine, elsewhere on your network, or on a hosted GPU such as RunPod (`https://<pod-id>-7860.proxy.runpod.net`), behind https, a reverse-proxy sub-path or a login. With **Detect automatically** (the default) AutoExpress asks the address which WebUI it is. Pick one in the **WebUI** dropdown to skip detection.
