@@ -7,6 +7,10 @@ All notable changes to AutoExpress are listed here, newest first.
 ### New
 - **Poses**: change the pose along with each expression, for visual novel and chatbot sprites. Each of the 28 expressions has a small gesture that starts from the character's current pose (arms crossed for anger, a hand on the chin for curiosity), keeping the outfit, framing and background. Made with Qwen-Image-Edit on ComfyUI: in one edit with the instruction edit mode, or as a pose edit before face inpainting. A `pose` input on the Edit Instructions node, **Change pose too** in the standalone app and `"pose": true` on `POST /generate`.
 
+### Security
+- Pillow 13.0.0 and rembg 2.0.86 in `uv.lock`, fixing 41 Pillow advisories (heap overflows in the JPEG, TIFF and FlashPix decoders, the Ghostscript argument injection, decompression bomb bypasses and others) and 3 rembg advisories (SAM model injection, SSRF and path traversal in custom model loading).
+- The standalone app now needs Python 3.11 or newer, since the fixed Pillow and rembg releases no longer support 3.10. The WebUI extension and nodes still work on Python 3.10.
+
 ## 2.1.1 (2026-10-24)
 
 - **macOS releases**: `autoexpress-<version>-macOS_Release.zip` for Apple silicon (macOS 14+) and `autoexpress-<version>-macOS-Intel_Release.zip` for Intel Macs, started with `./run.sh`. The Intel build has no Remove background, since onnxruntime isn't built for Intel Macs.

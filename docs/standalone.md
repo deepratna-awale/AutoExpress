@@ -29,7 +29,7 @@ The container runs as an unprivileged user with uid 1000. If you mount a folder 
 
 ## From source
 
-Needs [Python](https://www.python.org/downloads/) 3.10+ (on Debian/Ubuntu also `python3-venv`) and, for the web interface, [Node.js](https://nodejs.org/) 20.9+ (26 recommended) with [pnpm](https://pnpm.io/) or corepack.
+Needs [Python](https://www.python.org/downloads/) 3.11+ (on Debian/Ubuntu also `python3-venv`) and, for the web interface, [Node.js](https://nodejs.org/) 20.9+ (26 recommended) with [pnpm](https://pnpm.io/) or corepack.
 
 ```bash
 git clone https://github.com/deepratna-awale/AutoExpress.git

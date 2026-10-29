@@ -24,7 +24,7 @@ Thanks for your interest in improving AutoExpress. Bug reports, new prompt style
 
 ## Development setup
 
-You need Python 3.10 or newer. For the web interface you also need Node.js 20.9 or newer and pnpm.
+You need Python 3.11 or newer. For the web interface you also need Node.js 20.9 or newer and pnpm.
 
 ```bash
 git clone https://github.com/deepratna-awale/AutoExpress.git
