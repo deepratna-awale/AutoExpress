@@ -19,7 +19,34 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # The registry rejects a version that's already published, so a push that
+      # changes pyproject.toml without bumping `version` (a dependency update, say)
+      # is skipped. Running the workflow by hand always publishes.
+      - name: Check whether the version changed
+        id: version
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          version_at() {
+            git show "$1:pyproject.toml" | python3 -c 'import sys, tomllib; print(tomllib.loads(sys.stdin.read())["project"]["version"])'
+          }
+          current=$(version_at HEAD)
+          previous=""
+          if [ "$EVENT" = "push" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            previous=$(version_at "$BEFORE")
+          fi
+          if [ -n "$previous" ] && [ "$previous" = "$current" ]; then
+            echo "Version is still $current, nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Publishing version $current (was ${previous:-unknown})."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish custom node
+        if: ${{ steps.version.outputs.publish == 'true' }}
         uses: Comfy-Org/publish-node-action@d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9 # main
         with:
           personal_access_token: ${{ secrets.COMFYUI_REGISTRY_ACCESS_TOKEN }}
