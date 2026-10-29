@@ -7,7 +7,7 @@
 ::   install.bat --clean          delete .venv first and start over
 ::   install.bat --skip-frontend  Python only (the classic interface is served)
 ::
-:: Needs Python 3.10+; the web interface also needs Node.js 20.9+ (26
+:: Needs Python 3.11+; the web interface also needs Node.js 20.9+ (26
 :: recommended) with pnpm or corepack.
 setlocal
 cd /d "%~dp0"
@@ -36,16 +36,16 @@ exit /b 1
 set LOGFILE=install_logs.txt
 echo Installation log - %date% %time% > "%LOGFILE%"
 
-:: Python 3.10 or newer: "python" first, then the "py" launcher
+:: Python 3.11 or newer: "python" first, then the "py" launcher
 set PYTHON=
-python -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>&1
+python -c "import sys; sys.exit(sys.version_info < (3, 11))" >nul 2>&1
 if not errorlevel 1 set PYTHON=python
 if not defined PYTHON (
-    py -3 -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>&1
+    py -3 -c "import sys; sys.exit(sys.version_info < (3, 11))" >nul 2>&1
     if not errorlevel 1 set PYTHON=py -3
 )
 if not defined PYTHON (
-    call :fail "Python 3.10 or newer was not found. Install it from https://www.python.org/downloads/ and tick 'Add python.exe to PATH'."
+    call :fail "Python 3.11 or newer was not found. Install it from https://www.python.org/downloads/ and tick 'Add python.exe to PATH'."
     exit /b 1
 )
 for /f "delims=" %%v in ('%PYTHON% --version 2^>^&1') do call :log "Using %%v."
