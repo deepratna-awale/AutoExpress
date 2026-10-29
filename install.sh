@@ -7,7 +7,7 @@
 #   ./install.sh --clean          delete .venv first and start over
 #   ./install.sh --skip-frontend  Python only (the classic interface is served)
 #
-# Works on Linux and macOS. Needs Python 3.10+; the web interface also needs
+# Works on Linux and macOS. Needs Python 3.11+; the web interface also needs
 # Node.js 20.9+ (26 recommended) with pnpm or corepack.
 
 cd "$(dirname "$0")" || exit 1
@@ -45,17 +45,17 @@ fail() {
     exit 1
 }
 
-# Python 3.10 or newer
+# Python 3.11 or newer
 PYTHON=""
 for candidate in python3 python; do
     if command -v "$candidate" >/dev/null 2>&1 &&
-        "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
+        "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
         PYTHON="$candidate"
         break
     fi
 done
 if [ -z "$PYTHON" ]; then
-    fail "Python 3.10 or newer was not found. Install it from https://www.python.org/downloads/ (Debian/Ubuntu: sudo apt install python3 python3-venv python3-pip)."
+    fail "Python 3.11 or newer was not found. Install it from https://www.python.org/downloads/ (Debian/Ubuntu: sudo apt install python3 python3-venv python3-pip)."
 fi
 log "Using $("$PYTHON" --version 2>&1) ($(command -v "$PYTHON"))."
 
