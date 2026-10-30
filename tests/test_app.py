@@ -311,7 +311,7 @@ def test_generate_with_poses(client, monkeypatch, tmp_path):
     views.state.connect("fake_edit", None)
     result = client.post("/generate", json=body(method="instruct", pose=True, expressions=["anger"])).get_json()
     assert result["status"] == "success"
-    assert "The arms are crossed over the chest." in FakeEditWebUI.instructions[0][0]
+    assert "Both hands are on the hips" in FakeEditWebUI.instructions[0][0]
 
     # Face inpainting poses with Qwen first, then inpaints the face.
     FakeEditWebUI.instructions, calls = [], FakeWebUI.calls

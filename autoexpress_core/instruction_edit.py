@@ -93,7 +93,7 @@ def _load_poses() -> dict:
 
 
 def get_poses(only: list[str] | None = None) -> dict[str, str]:
-    """Expression name -> its sprite pose sentence ("The arms are crossed over the chest."), optionally limited to some names."""
+    """Expression name -> its sprite pose sentence ("Both hands are on the hips and the upper body leans slightly forward."), optionally limited to some names."""
     poses = dict(_load_poses()["poses"])
     if only:
         wanted = {name.strip().lower() for name in only if name and name.strip()}
