@@ -119,7 +119,7 @@ def test_edit_instructions_node(comfy):
     assert photo[0] == "anger. Keep it a realistic photo with natural skin color."
     assert photo_denoise == [pytest.approx(0.224), pytest.approx(0.224)]
     posed, _, _, posed_denoise = node.build("anger", "photo", 0.5, "", pose=True)
-    assert "The arms are crossed over the chest." in posed[0] and posed_denoise == [0.9]
+    assert "Both hands are on the hips" in posed[0] and posed_denoise == [0.9]
 
 
 def test_nodes_apply_intensity(comfy):

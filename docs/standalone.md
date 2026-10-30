@@ -71,7 +71,7 @@ Tick **Remove background** to save every expression with a transparent backgroun
 
 With a ComfyUI backend, the **Method** dropdown switches between **Face inpainting** (FaceDetailer) and **Instruction edit** ([Qwen-Image-Edit](comfyui.md#instruction-edit-mode-qwen-image-edit), which needs its models on the ComfyUI side).
 
-**Change pose too** adds a small sprite gesture to each expression, such as arms crossed for anger or a hand on the chin for curiosity, starting from the character's current pose and keeping the outfit and background ([details](comfyui.md#instruction-edit-mode-qwen-image-edit)). It works with either method but needs Qwen-Image-Edit on a ComfyUI backend. Also `"pose": true` on `POST /generate`.
+**Change pose too** adds a small sprite gesture to each expression, such as hands on the hips for anger or leaning in with the hands behind the back for curiosity, starting from the character's current pose and keeping the outfit and background ([details](comfyui.md#instruction-edit-mode-qwen-image-edit)). It works with either method but needs Qwen-Image-Edit on a ComfyUI backend. Also `"pose": true` on `POST /generate`.
 
 ## Supported WebUIs
 

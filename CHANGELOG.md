@@ -5,7 +5,10 @@ All notable changes to AutoExpress are listed here, newest first.
 ## Unreleased
 
 ### New
-- **Poses**: change the pose along with each expression, for visual novel and chatbot sprites. Each of the 28 expressions has a small gesture that starts from the character's current pose (arms crossed for anger, a hand on the chin for curiosity), keeping the outfit, framing and background. Made with Qwen-Image-Edit on ComfyUI: in one edit with the instruction edit mode, or as a pose edit before face inpainting. A `pose` input on the Edit Instructions node, **Change pose too** in the standalone app and `"pose": true` on `POST /generate`.
+- **Poses**: change the pose along with each expression, for visual novel and chatbot sprites. Each of the 28 expressions has a small gesture that starts from the character's current pose (hands on the hips for anger, leaning in with the hands behind the back for curiosity), keeping the outfit, framing and background. Made with Qwen-Image-Edit on ComfyUI: in one edit with the instruction edit mode, or as a pose edit before face inpainting. A `pose` input on the Edit Instructions node, **Change pose too** in the standalone app and `"pose": true` on `POST /generate`.
+
+### Changed
+- **Anime expressions**: the Danbooru, Pony and Illustrious tags and the sprite poses were tuned against a hand-drawn reference sprite set. Love no longer forces heart-shaped pupils, gratitude keeps the eyes open, grief shows teary eyes instead of sobbing, fear and realization get wavy open mouths, and small manga marks (anger vein, sparkle, flying sweatdrops) appear where they fit. Poses keep the hands off the face, so face inpainting still finds it after the pose edit.
 
 ### Security
 - Pillow 13.0.0 and rembg 2.0.86 in `uv.lock`, fixing 41 Pillow advisories (heap overflows in the JPEG, TIFF and FlashPix decoders, the Ghostscript argument injection, decompression bomb bypasses and others) and 3 rembg advisories (SAM model injection, SSRF and path traversal in custom model loading).

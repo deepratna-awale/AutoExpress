@@ -273,7 +273,7 @@ export function ParametersPanel() {
               </div>
               <p className="text-xs text-muted-foreground">
                 {posesAvailable
-                  ? "Adds a small sprite gesture to each expression (arms crossed for anger, a hand on the chin for curiosity) from the current pose. The outfit and background stay as they are."
+                  ? "Adds a small sprite gesture to each expression (hands on the hips for anger, hands behind the back for curiosity) from the current pose. The outfit and background stay as they are."
                   : "Needs Qwen-Image-Edit on a ComfyUI backend."}
               </p>
             </div>

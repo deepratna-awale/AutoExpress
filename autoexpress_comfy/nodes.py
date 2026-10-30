@@ -231,7 +231,7 @@ class AutoExpressEditInstructions:
             "optional": {
                 "pose": ("BOOLEAN", {
                     "default": False,
-                    "tooltip": "Also change the pose: a small sprite gesture per expression (arms crossed for anger, ...) "
+                    "tooltip": "Also change the pose: a small sprite gesture per expression (hands on the hips for anger, ...) "
                     "starting from the current pose, keeping the outfit and background. Raises the denoise to at least "
                     f"{instruction_edit.POSE_MIN_DENOISE:g}.",
                 }),
