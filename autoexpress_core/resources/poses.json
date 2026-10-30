@@ -9,7 +9,7 @@
     "admiration": "One hand is raised loosely beside the cheek, fingers lightly curled.",
     "amusement": "One hand is raised to cover the mouth, as if holding back a laugh.",
     "anger": "Both hands are on the hips and the upper body leans slightly forward.",
-    "annoyance": "One hand is on the hip and the head is turned slightly away.",
+    "annoyance": "One hand is on the hip and the head turns slightly to the side; the body keeps facing forward.",
     "approval": "One hand gives a thumbs up at chest height.",
     "caring": "One hand rests gently over the heart.",
     "confusion": "The head is tilted to one side and one finger scratches the cheek.",
@@ -17,7 +17,7 @@
     "desire": "The hands are held behind the back and the head tilts slightly.",
     "disappointment": "The shoulders slump, the head hangs slightly down and the hands are held behind the back.",
     "disapproval": "The arms are crossed over the chest and the head is turned slightly away.",
-    "disgust": "The body leans back slightly and both hands are raised in front of the chest, fingers curled, as if warding something off.",
+    "disgust": "The upper body leans back slightly and one hand is raised in front of the chest, palm facing out.",
     "embarrassment": "Both hands are raised close in front of the chin, fingertips together, and the shoulders draw in.",
     "excitement": "Both hands are raised beside the shoulders with the fingers spread.",
     "fear": "Both hands are raised up near the face, pulled in close to the body.",
@@ -32,7 +32,7 @@
     "realization": "One finger is raised in the air, as if saying 'I've got it'.",
     "relief": "One hand is placed on the chest, as if letting out a sigh.",
     "remorse": "The head is lowered and the hands are clasped in front of the body.",
-    "sadness": "The head is lowered, the body turns slightly away and one hand holds the collar.",
+    "sadness": "The head is lowered and one hand holds the collar.",
     "surprise": "Both hands are raised up near the chest, palms open."
   }
 }
