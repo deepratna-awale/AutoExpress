@@ -114,6 +114,7 @@ Every setting is an environment variable, listed with defaults in [autoexpress/c
 | `AUTOEXPRESS_LOG_JSON` / `AUTOEXPRESS_LOG_FILE` | off | JSON log lines, rotated log file |
 | `AUTOEXPRESS_BACKGROUND_MODEL` | `isnet-anime` / `u2net_human_seg` | rembg model for **Remove background** (drawn / photo) |
 | `AUTOEXPRESS_HOST` / `AUTOEXPRESS_PORT` | `0.0.0.0` / `5000` | Listen address |
+| `AUTOEXPRESS_CORS_ORIGINS` | `http://localhost:8000,http://127.0.0.1:8000` | Web pages that may call the API from the browser, such as SillyTavern for the [SillyTavern extension](sillytavern.md). Comma separated, `*` for any page, empty for none |
 
 Generation runs as a queued job on one worker thread, so several clicks or clients never send overlapping requests to the WebUI. Each job keeps its own connection, so switching WebUI doesn't disturb a running job. Every response carries an `X-Request-ID`, which also appears in the log lines.
 

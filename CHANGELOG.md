@@ -5,6 +5,8 @@ All notable changes to AutoExpress are listed here, newest first.
 ## Unreleased
 
 ### New
+- **SillyTavern extension**: install AutoExpress in SillyTavern from this repo's URL and press **Generate expression sprites** to make a character's sprites from its avatar or another image. It drives the standalone app (and whichever WebUI that's connected to, local or remote), and each finished expression goes straight into the character's Character Expressions folder. Options for the checkpoint, prompt style, method, intensity, background removal and poses, a **Missing** button that picks only the expressions the character has no sprite for, progress with Cancel, and a `/autoexpress` command. See [docs/sillytavern.md](docs/sillytavern.md).
+- The standalone app's API can be called from other web pages listed in `AUTOEXPRESS_CORS_ORIGINS`, which allows SillyTavern's default address (`http://localhost:8000`, `http://127.0.0.1:8000`) out of the box.
 - **Poses**: change the pose along with each expression, for visual novel and chatbot sprites. Each of the 28 expressions has a small gesture that starts from the character's current pose (hands on the hips for anger, leaning in with the hands behind the back for curiosity), keeping the outfit, framing and background. Made with Qwen-Image-Edit on ComfyUI: in one edit with the instruction edit mode, or as a pose edit before face inpainting. A `pose` input on the Edit Instructions node, **Change pose too** in the standalone app and `"pose": true` on `POST /generate`.
 
 ### Changed

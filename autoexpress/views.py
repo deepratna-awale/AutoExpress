@@ -128,9 +128,40 @@ def start_request():
     g.log_context.__enter__()
 
 
+CORS_HEADERS = "Content-Type, X-Request-ID"
+
+
+def allowed_origin(origin: str | None) -> str | None:
+    """The Origin to echo back when that web page may call the API (AUTOEXPRESS_CORS_ORIGINS), else None."""
+    if not origin:
+        return None
+    if "*" in settings.cors_origins:
+        return "*"
+    return origin if origin.rstrip("/") in settings.cors_origins else None
+
+
+def add_cors_headers(response) -> None:
+    """Let pages such as SillyTavern (its AutoExpress extension) call the API from the browser."""
+    origin = allowed_origin(request.headers.get("Origin"))
+    if origin is None:
+        return
+    response.headers["Access-Control-Allow-Origin"] = origin
+    if origin != "*":
+        response.headers.add("Vary", "Origin")
+    response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
+    if request.method == "OPTIONS":
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = CORS_HEADERS
+        response.headers["Access-Control-Max-Age"] = "600"
+        # Chrome's Private Network Access: a page on a public address calling AutoExpress on this machine or the LAN.
+        if request.headers.get("Access-Control-Request-Private-Network") == "true":
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+
+
 @autoexpress.after_request
 def finish_request(response):
     response.headers["X-Request-ID"] = g.get("request_id", "-")
+    add_cors_headers(response)
     if request.path.startswith("/static/") or request.path in ("/health",):
         return response
     elapsed = (time.monotonic() - g.get("started", time.monotonic())) * 1000

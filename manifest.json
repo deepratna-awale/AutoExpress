@@ -1,0 +1,13 @@
+{
+    "display_name": "AutoExpress",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "dependencies": [],
+    "js": "sillytavern/index.js",
+    "css": "sillytavern/style.css",
+    "author": "Deepratna Awale",
+    "version": "2.1.1",
+    "homePage": "https://github.com/deepratna-awale/AutoExpress",
+    "auto_update": true
+}

@@ -19,6 +19,8 @@ RELEASE_README.md
 uv.lock
 
 # Other WebUIs
+manifest.json
+sillytavern/
 scripts/
 style.css
 metadata.ini
