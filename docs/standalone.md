@@ -29,7 +29,7 @@ The container runs as an unprivileged user with uid 1000. If you mount a folder 
 
 ## From source
 
-Needs [Python](https://www.python.org/downloads/) 3.11+ (on Debian/Ubuntu also `python3-venv`) and, for the web interface, [Node.js](https://nodejs.org/) 20.9+ (26 recommended) with [pnpm](https://pnpm.io/) or corepack.
+Needs [Python](https://www.python.org/downloads/) 3.11+ (on Debian/Ubuntu also `python3-venv`) and, to build the web interface yourself, [Node.js](https://nodejs.org/) 20.9+ (26 recommended) with [pnpm](https://pnpm.io/) or corepack. Without Node.js, AutoExpress downloads the prebuilt web interface from its GitHub release on first start.
 
 ```bash
 git clone https://github.com/deepratna-awale/AutoExpress.git
@@ -38,7 +38,7 @@ cd AutoExpress
 ./run.sh                # Windows: run.bat
 ```
 
-`install` creates `.venv`, installs the Python dependencies (the exact versions in `uv.lock` when [uv](https://docs.astral.sh/uv/) is installed) and builds the web interface into `frontend/out`. Run it again after pulling updates. It reuses `.venv`; `--clean` starts over and `--skip-frontend` installs only the Python side. Without Node.js it skips the build and the original interface is served. `run` starts the production server; set `AUTOEXPRESS_PORT`, `AUTOEXPRESS_BACKEND_URL` and the other [settings](../autoexpress/config.py) as environment variables. `run_debug` starts Flask's debug server on 127.0.0.1 for development.
+`install` creates `.venv`, installs the Python dependencies (the exact versions in `uv.lock` when [uv](https://docs.astral.sh/uv/) is installed) and builds the web interface into `frontend/out`. Run it again after pulling updates. It reuses `.venv`; `--clean` starts over and `--skip-frontend` installs only the Python side. Without Node.js it skips the build, and the app downloads the prebuilt web interface for its version (or the latest release's) when it starts. Set `AUTOEXPRESS_DOWNLOAD_FRONTEND=false` to turn that off. `run` starts the production server; set `AUTOEXPRESS_PORT`, `AUTOEXPRESS_BACKEND_URL` and the other [settings](../autoexpress/config.py) as environment variables. `run_debug` starts Flask's debug server on 127.0.0.1 for development.
 
 Or by hand:
 
@@ -57,7 +57,7 @@ pnpm install
 pnpm build
 ```
 
-Flask then serves it at [http://127.0.0.1:5000](http://127.0.0.1:5000). Without a build, the original interface is served instead, and it's always available at [/classic](http://127.0.0.1:5000/classic). See [frontend/README.md](../frontend/README.md) for development.
+Flask then serves it at [http://127.0.0.1:5000](http://127.0.0.1:5000). Without a build or a download (offline), the original interface is served instead, and it's always available at [/classic](http://127.0.0.1:5000/classic). See [frontend/README.md](../frontend/README.md) for development.
 
 ## Using it
 
