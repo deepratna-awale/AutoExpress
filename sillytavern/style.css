@@ -1,0 +1,108 @@
+/* AutoExpress for SillyTavern. Uses SillyTavern's theme variables, so it follows the active theme. */
+
+.autoexpress-settings label {
+    display: block;
+    margin-top: 6px;
+}
+
+.autoexpress-status {
+    margin: 6px 0;
+    font-size: 0.9em;
+}
+
+.autoexpress-status.ok i { color: #4caf50; }
+.autoexpress-status.warn i { color: #e0a030; }
+.autoexpress-status.error i { color: #e05050; }
+
+.autoexpress-status ul,
+.autoexpress-status ol {
+    margin: 4px 0 4px 1.2em;
+    padding: 0;
+}
+
+.autoexpress-status code {
+    user-select: all;
+}
+
+.autoexpress-progress {
+    margin-top: 6px;
+}
+
+.autoexpress-progress-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--SmartThemeBorderColor);
+    overflow: hidden;
+    margin: 4px 0;
+}
+
+.autoexpress-progress-bar > div {
+    height: 100%;
+    width: 0;
+    background: var(--SmartThemeQuoteColor);
+    transition: width 0.4s ease;
+}
+
+.autoexpress-dialog {
+    text-align: left;
+}
+
+.autoexpress-dialog h3 {
+    margin-top: 0;
+    text-align: center;
+}
+
+.autoexpress-columns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.autoexpress-source {
+    flex: 0 1 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.autoexpress-options {
+    flex: 1 1 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#autoexpress_preview {
+    width: 100%;
+    max-height: 300px;
+    object-fit: contain;
+    border-radius: 8px;
+    background: var(--black30a);
+}
+
+.autoexpress-dialog .checkbox_label.disabled {
+    opacity: 0.5;
+}
+
+.autoexpress-expressions-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0 6px;
+}
+
+.autoexpress-expressions-header .menu_button {
+    padding: 2px 10px;
+    margin: 0;
+}
+
+.autoexpress-expressions {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 2px 8px;
+}
+
+#autoexpress_expressions_button {
+    margin-top: 4px;
+}

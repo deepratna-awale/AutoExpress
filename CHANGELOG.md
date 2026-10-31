@@ -5,12 +5,15 @@ All notable changes to AutoExpress are listed here, newest first.
 ## Unreleased
 
 ### New
+- **SillyTavern extension**: install AutoExpress in SillyTavern from this repo's URL and press **Generate expression sprites** to make a character's sprites from its avatar or another image. It drives the standalone app (and whichever WebUI that's connected to, local or remote), and each finished expression goes straight into the character's Character Expressions folder. Options for the checkpoint, prompt style, method, intensity, background removal and poses, a **Missing** button that picks only the expressions the character has no sprite for, progress with Cancel, and a `/autoexpress` command. See [docs/sillytavern.md](docs/sillytavern.md).
+- The standalone app's API can be called from other web pages listed in `AUTOEXPRESS_CORS_ORIGINS`, which allows SillyTavern's default address (`http://localhost:8000`, `http://127.0.0.1:8000`) out of the box.
 - **Poses**: change the pose along with each expression, for visual novel and chatbot sprites. Each of the 28 expressions has a small gesture that starts from the character's current pose (hands on the hips for anger, leaning in with the hands behind the back for curiosity), keeping the outfit, framing and background. Made with Qwen-Image-Edit on ComfyUI: in one edit with the instruction edit mode, or as a pose edit before face inpainting. A `pose` input on the Edit Instructions node, **Change pose too** in the standalone app and `"pose": true` on `POST /generate`.
 
 ### Changed
 - **Anime expressions**: the Danbooru, Pony and Illustrious tags and the sprite poses were tuned against a hand-drawn reference sprite set. Love no longer forces heart-shaped pupils, gratitude keeps the eyes open, grief shows teary eyes instead of sobbing, fear and realization get wavy open mouths, and small manga marks (anger vein, sparkle, flying sweatdrops) appear where they fit. Poses keep the hands off the face, so face inpainting still finds it after the pose edit.
 
 ### Security
+- minimatch 11.0.3 for the frontend's lint tools (GHSA-g3hv-75wg-m249, a denial of service through brace expansion). It is only used while developing and is not in the built app.
 - Pillow 13.0.0 and rembg 2.0.86 in `uv.lock`, fixing 41 Pillow advisories (heap overflows in the JPEG, TIFF and FlashPix decoders, the Ghostscript argument injection, decompression bomb bypasses and others) and 3 rembg advisories (SAM model injection, SSRF and path traversal in custom model loading).
 - The standalone app now needs Python 3.11 or newer, since the fixed Pillow and rembg releases no longer support 3.10. The WebUI extension and nodes still work on Python 3.10.
 
