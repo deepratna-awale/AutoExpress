@@ -2,7 +2,7 @@
 
 All notable changes to AutoExpress are listed here, newest first.
 
-## Unreleased
+## 2.2.0 (2026-10-31)
 
 ### New
 - **SillyTavern extension**: install AutoExpress in SillyTavern from this repo's URL and press **Generate expression sprites** to make a character's sprites from its avatar or another image. It drives the standalone app (and whichever WebUI that's connected to, local or remote), and each finished expression goes straight into the character's Character Expressions folder. Options for the checkpoint, prompt style, method, intensity, background removal and poses, a **Missing** button that picks only the expressions the character has no sprite for, progress with Cancel, and a `/autoexpress` command. See [docs/sillytavern.md](docs/sillytavern.md).

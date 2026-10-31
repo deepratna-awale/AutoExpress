@@ -68,6 +68,7 @@ jobs:
             echo
             echo "- **ComfyUI**: install AutoExpress from ComfyUI-Manager or the [Comfy Registry](https://registry.comfy.org/nodes/autoexpress)."
             echo "- **AUTOMATIC1111 / Forge / reForge / SD.Next**: Extensions > Install from URL, paste \`https://github.com/deepratna-awale/AutoExpress\`."
+            echo "- **SillyTavern**: Extensions > Install extension, paste \`https://github.com/deepratna-awale/AutoExpress\`, and run the standalone app below alongside it."
             echo "- **Standalone app, Windows**: download \`autoexpress-$TAG-Windows_Release.zip\`, extract it and run \`run.bat\`."
             echo "- **Standalone app, Linux**: download \`autoexpress-$TAG-Linux_Release.zip\`, extract it and run \`./run.sh\`."
             echo "- **Standalone app, macOS**: download \`autoexpress-$TAG-macOS_Release.zip\` (Apple silicon, macOS 14+) or \`autoexpress-$TAG-macOS-Intel_Release.zip\` (no Remove background), extract it and run \`./run.sh\` in Terminal."
