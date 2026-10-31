@@ -25,6 +25,7 @@ its type is read from its API.
 | AUTOEXPRESS_LOG_JSON | false | One JSON object per log line |
 | AUTOEXPRESS_LOG_FILE | | Also log to this file (rotated at 10 MB) |
 | AUTOEXPRESS_BACKGROUND_MODEL | isnet-anime / u2net_human_seg | rembg model for "Remove background" (illustration / photo) |
+| AUTOEXPRESS_CORS_ORIGINS | http://localhost:8000,http://127.0.0.1:8000 | Web pages allowed to call the API from the browser (comma separated, `*` for any, empty for none). The default is SillyTavern's address, for the SillyTavern extension |
 """
 
 import os
@@ -32,6 +33,9 @@ import pathlib
 from dataclasses import dataclass, field
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# SillyTavern's default address, so its AutoExpress extension works without setup.
+DEFAULT_CORS_ORIGINS = ("http://localhost:8000", "http://127.0.0.1:8000")
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -49,6 +53,13 @@ def _number(name: str, default, cast=float):
         return cast(value)
     except ValueError as e:
         raise ValueError(f"{name} must be a number, got {value!r}") from e
+
+
+def _origins(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return tuple(origin.strip().rstrip("/") for origin in value.split(",") if origin.strip())
 
 
 def _path(name: str, default: pathlib.Path) -> pathlib.Path:
@@ -76,6 +87,7 @@ class Settings:
     log_level: str = "INFO"
     log_json: bool = False
     log_file: str | None = None
+    cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -98,6 +110,7 @@ class Settings:
             log_level=os.environ.get("AUTOEXPRESS_LOG_LEVEL", "INFO").upper(),
             log_json=_bool("AUTOEXPRESS_LOG_JSON", False),
             log_file=os.environ.get("AUTOEXPRESS_LOG_FILE") or None,
+            cors_origins=_origins("AUTOEXPRESS_CORS_ORIGINS", DEFAULT_CORS_ORIGINS),
         )
 
     def connection_options(self) -> dict:

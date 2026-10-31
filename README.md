@@ -18,6 +18,7 @@ AutoExpress repaints a character's face with 28 different emotions and keeps eve
 ## Features
 
 - **Runs where you already generate images.** It works as an extension for AUTOMATIC1111, Forge, reForge and SD.Next, as custom nodes for ComfyUI (and SwarmUI), and as a node for InvokeAI. There's also a standalone app that drives any of those over their API, locally or on a remote GPU.
+- **Sprites straight into SillyTavern.** The SillyTavern extension makes a character's expression sprites from its avatar and puts them in Character Expressions as they finish.
 - **Prompts tuned per model family.** Separate expression prompts for Danbooru-tag anime models, Pony, Illustrious/NoobAI, SDXL and natural-language models such as Flux. **Auto** picks the family from the checkpoint name.
 - **Expression LoRAs.** It downloads and applies the right expression LoRA for the checkpoint, reusing a Civitai key you already have set up.
 - **Two ways to edit.** Face inpainting uses ADetailer or FaceDetailer. Instruction editing uses Qwen-Image-Edit on ComfyUI, which also works on photos.
@@ -57,6 +58,7 @@ Pick the setup you already use. They all share the same expression prompts and g
 | ComfyUI (and SwarmUI) | ComfyUI Manager, or `comfy node install autoexpress`. Needs [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and Subpack. | [docs/comfyui.md](docs/comfyui.md) |
 | InvokeAI | **Nodes → Git Repository URL** with this repo's URL | [docs/invokeai.md](docs/invokeai.md) |
 | Standalone app (drives any of the above) | [Release zip](https://github.com/deepratna-awale/AutoExpress/releases) or `docker run -p 5000:5000 ghcr.io/deepratna-awale/autoexpress` | [docs/standalone.md](docs/standalone.md) |
+| SillyTavern | **Extensions → Install extension** with this repo's URL. Needs the standalone app running. | [docs/sillytavern.md](docs/sillytavern.md) |
 
 Fooocus has no extension system, so it isn't supported.
 
@@ -65,7 +67,7 @@ Fooocus has no extension system, so it isn't supported.
 1. Install AutoExpress for your WebUI (see above), then open the **AutoExpress** tab, a ready-made ComfyUI workflow from [`example_workflows/`](example_workflows/), or the standalone app at http://127.0.0.1:5000.
 2. Drop in a character image. The prompt, checkpoint, sampler and seed are read from its metadata when it has any.
 3. Leave **Prompt Style** on **Auto**, pick the expressions you want, and press **Generate**.
-4. The results are saved as `joy.png`, `anger.png` and so on, ready to [use as SillyTavern sprites](docs/sillytavern.md).
+4. The results are saved as `joy.png`, `anger.png` and so on, ready to [use as SillyTavern sprites](docs/sillytavern.md). The [SillyTavern extension](docs/sillytavern.md#the-sillytavern-extension) does this step for you.
 
 <table>
   <tr>
