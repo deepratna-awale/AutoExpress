@@ -10,6 +10,7 @@ All notable changes to AutoExpress are listed here, newest first.
 - **Poses**: change the pose along with each expression, for visual novel and chatbot sprites. Each of the 28 expressions has a small gesture that starts from the character's current pose (hands on the hips for anger, leaning in with the hands behind the back for curiosity), keeping the outfit, framing and background. Made with Qwen-Image-Edit on ComfyUI: in one edit with the instruction edit mode, or as a pose edit before face inpainting. A `pose` input on the Edit Instructions node, **Change pose too** in the standalone app and `"pose": true` on `POST /generate`.
 
 ### Changed
+- **The Next.js web interface is always the default.** A source install without Node.js now downloads the prebuilt interface from the GitHub release (`autoexpress-frontend.zip`, published with each release) on first start, instead of falling back to the classic page. A build made with `install` is kept, and a downloaded one is replaced when AutoExpress is updated. `AUTOEXPRESS_DOWNLOAD_FRONTEND=false` turns it off.
 - **Anime expressions**: the Danbooru, Pony and Illustrious tags and the sprite poses were tuned against a hand-drawn reference sprite set. Love no longer forces heart-shaped pupils, gratitude keeps the eyes open, grief shows teary eyes instead of sobbing, fear and realization get wavy open mouths, and small manga marks (anger vein, sparkle, flying sweatdrops) appear where they fit. Poses keep the hands off the face, so face inpainting still finds it after the pose edit.
 
 ### Security

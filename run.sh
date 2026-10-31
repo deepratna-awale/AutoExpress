@@ -30,8 +30,7 @@ else
 fi
 
 if [ ! -f "frontend/out/index.html" ]; then
-    echo "The web interface isn't built, so the classic interface is served."
-    echo "Install Node.js 26 and run ./install.sh again to build it."
+    echo "The web interface isn't built here, so AutoExpress downloads the prebuilt one."
     echo ""
 fi
 
