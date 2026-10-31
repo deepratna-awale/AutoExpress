@@ -41,6 +41,8 @@ const DEFAULT_SETTINGS = Object.freeze({
 
 /** The job being generated, if any. One at a time, since the WebUI renders one image at a time anyway. */
 let activeJob = null;
+/** True while the dialog is loading or open, so a second click doesn't open another one. */
+let dialogOpen = false;
 
 function ctx() {
     return SillyTavern.getContext();
@@ -344,6 +346,16 @@ function dialogHtml(options, choices) {
 
 /** Open the dialog, then start a job with what was picked. */
 async function openDialog() {
+    if (dialogOpen) return;
+    dialogOpen = true;
+    try {
+        await showDialog();
+    } finally {
+        dialogOpen = false;
+    }
+}
+
+async function showDialog() {
     if (activeJob) {
         toastr.info('AutoExpress is already generating sprites. Cancel it in the AutoExpress settings first.', 'AutoExpress');
         return;
@@ -360,7 +372,13 @@ async function openDialog() {
         return;
     }
 
-    const options = await loadOptions();
+    const loading = toastr.info('Asking AutoExpress for the WebUI\'s models and options…', 'AutoExpress', { timeOut: 0, extendedTimeOut: 0 });
+    let options;
+    try {
+        options = await loadOptions();
+    } finally {
+        toastr.clear(loading);
+    }
     const choices = characterChoices();
     const s = settings();
     const root = $(dialogHtml(options, choices));
@@ -454,7 +472,7 @@ async function openDialog() {
     save();
 
     const useFile = root.find('input[name="autoexpress_source"]:checked').val() === 'file' && pickedFile;
-    await generate({ character: character(), file: useFile ? pickedFile : null, expressions: selected() });
+    generate({ character: character(), file: useFile ? pickedFile : null, expressions: selected() });
 }
 
 // Generation ------------------------------------------------------------------------
