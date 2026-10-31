@@ -13,6 +13,7 @@ All notable changes to AutoExpress are listed here, newest first.
 - **Anime expressions**: the Danbooru, Pony and Illustrious tags and the sprite poses were tuned against a hand-drawn reference sprite set. Love no longer forces heart-shaped pupils, gratitude keeps the eyes open, grief shows teary eyes instead of sobbing, fear and realization get wavy open mouths, and small manga marks (anger vein, sparkle, flying sweatdrops) appear where they fit. Poses keep the hands off the face, so face inpainting still finds it after the pose edit.
 
 ### Security
+- minimatch 11.0.3 for the frontend's lint tools (GHSA-g3hv-75wg-m249, a denial of service through brace expansion). It is only used while developing and is not in the built app.
 - Pillow 13.0.0 and rembg 2.0.86 in `uv.lock`, fixing 41 Pillow advisories (heap overflows in the JPEG, TIFF and FlashPix decoders, the Ghostscript argument injection, decompression bomb bypasses and others) and 3 rembg advisories (SAM model injection, SSRF and path traversal in custom model loading).
 - The standalone app now needs Python 3.11 or newer, since the fixed Pillow and rembg releases no longer support 3.10. The WebUI extension and nodes still work on Python 3.10.
 
