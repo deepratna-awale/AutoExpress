@@ -5,7 +5,7 @@
 ::
 ::   install.bat                  install, reusing an existing .venv
 ::   install.bat --clean          delete .venv first and start over
-::   install.bat --skip-frontend  Python only (the classic interface is served)
+::   install.bat --skip-frontend  Python only (the prebuilt web interface is downloaded on first start)
 ::
 :: Needs Python 3.11+; the web interface also needs Node.js 20.9+ (26
 :: recommended) with pnpm or corepack.
@@ -112,12 +112,12 @@ if "%SKIP_FRONTEND%"=="1" (
 )
 where node >nul 2>&1
 if errorlevel 1 (
-    call :log "WARNING: Node.js was not found, so the web interface was not built. Install Node.js 26 from https://nodejs.org/ and run install.bat again. Until then the classic interface is served."
+    call :log "WARNING: Node.js was not found, so the web interface was not built. Install Node.js 26 from https://nodejs.org/ and run install.bat again. Until then AutoExpress downloads the prebuilt web interface when it starts."
     goto done
 )
 node -e "process.exit(+process.versions.node.split('.')[0] < 20 ? 1 : 0)" >nul 2>&1
 if errorlevel 1 (
-    call :log "WARNING: Node.js is too old for the web interface (needs 20.9+, 26 recommended). The classic interface is served until it's built."
+    call :log "WARNING: Node.js is too old for the web interface (needs 20.9+, 26 recommended). AutoExpress downloads the prebuilt one when it starts instead."
     goto done
 )
 set PNPM=
@@ -128,7 +128,7 @@ if not defined PNPM (
     if not errorlevel 1 set PNPM=corepack pnpm
 )
 if not defined PNPM (
-    call :log "WARNING: pnpm was not found (npm install -g pnpm, or corepack enable). The classic interface is served until the web interface is built."
+    call :log "WARNING: pnpm was not found (npm install -g pnpm, or corepack enable). AutoExpress downloads the prebuilt web interface when it starts instead."
     goto done
 )
 for /f "delims=" %%v in ('node --version') do call :log "Building the web interface with Node.js %%v..."
@@ -143,7 +143,7 @@ goto done
 
 :frontend_failed
 popd
-call :log "WARNING: The web interface failed to build (see %LOGFILE%). The classic interface is served until it's built."
+call :log "WARNING: The web interface failed to build (see %LOGFILE%). AutoExpress downloads the prebuilt one when it starts instead."
 
 :done
 echo ================================================

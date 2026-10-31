@@ -28,6 +28,7 @@ on:
       - 'run.sh'
       - 'run.bat'
       - 'RELEASE_README.md'
+      - 'autoexpress/frontend.py'
 
 permissions:
   contents: read
@@ -86,6 +87,22 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm build
+
+      # The built interface on its own, for source checkouts without Node.js:
+      # the app downloads it from the release on first start (autoexpress/frontend.py).
+      - name: Zip the web interface
+        if: matrix.platform == 'Linux'
+        run: |
+          (cd frontend/out && zip -qr "$GITHUB_WORKSPACE/autoexpress-frontend.zip" .)
+          ls -l autoexpress-frontend.zip
+
+      - name: Upload the web interface
+        if: matrix.platform == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-frontend
+          path: autoexpress-frontend.zip
+          retention-days: 3
 
       - name: Assemble the release folder
         env:
