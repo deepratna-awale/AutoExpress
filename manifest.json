@@ -7,7 +7,7 @@
     "js": "sillytavern/index.js",
     "css": "sillytavern/style.css",
     "author": "Deepratna Awale",
-    "version": "2.1.1",
+    "version": "2.2.0",
     "homePage": "https://github.com/deepratna-awale/AutoExpress",
     "auto_update": true
 }
