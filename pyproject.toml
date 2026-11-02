@@ -55,7 +55,7 @@ Documentation = "https://github.com/deepratna-awale/AutoExpress#readme"
 packages = ["autoexpress_core", "autoexpress_core.backends", "autoexpress_core.live2d"]
 
 [tool.setuptools.package-data]
-autoexpress_core = ["resources/*.json", "resources/expressions/*.json"]
+autoexpress_core = ["resources/*.json", "resources/*.js", "resources/expressions/*.json"]
 
 # Comfy Registry metadata. .github/workflows/publish-comfy-registry.yml publishes
 # a new version whenever `version` above changes on main. Files listed in

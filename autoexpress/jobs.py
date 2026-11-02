@@ -418,6 +418,8 @@ def run_live2d_job(job: Job) -> None:
         "zip": f"{base}/{result.zip_path.name}",
         "psd": f"{base}/{name}/{name}.psd",
         "seethrough_psd": f"{base}/{name}/{name}_seethrough.psd",
+        "puppet_zip": f"{base}/{result.puppet_zip.name}" if result.puppet_zip else None,
+        "puppet_preview": f"{base}/{name}/puppet/{name}/preview.html" if result.puppet_zip else None,
         "preview": f"{base}/{name}/preview.png",
         "sheet": f"{base}/{name}/sheet.jpg",
         "layers": sum(len(group["layers"]) for group in result.manifest["groups"]),
