@@ -326,6 +326,7 @@ export interface Live2DRequest {
     inner_wear?: string;
     outfit_prompt?: string;
     use_prompt_data?: boolean;
+    clothing_slots?: boolean;
   };
   character_lora?: { entry: CharacterLoraEntry; installed_name: string | null } | null;
 }

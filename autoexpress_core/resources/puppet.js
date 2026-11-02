@@ -205,6 +205,13 @@ class Expression {
 
 // The model ---------------------------------------------------------------------------------
 let PuppetClass = null;
+// Puppets that are playing (the SillyTavern extension looks up a character's puppet here).
+const LIVE = new Set();
+
+/** The puppets on screen now. */
+export function livePuppets() {
+    return [...LIVE];
+}
 
 /**
  * A file of a puppet packed into the page (play.html sets window.AUTOEXPRESS_PUPPET_FILES: path ->
@@ -255,11 +262,14 @@ function definePuppetClass(PIXI) {
             // Expressions that stay on while the emotions change, one per slot (outfit_*, accessories_*):
             // slot -> { now: {expression, start}, old: the one it fades from }.
             this._slots = {};
+            this._pose = new Map(); // parameter id -> offset the user posed
             this._eased = null;
             this._easedVelocity = null;
             // Drag anywhere to pull (the preview page); in SillyTavern only cloth, hair and soft parts,
             // so dragging elsewhere still moves the model.
             this.grabAnywhere = false;
+            // Dragging the head, an arm or the torso poses the skeleton (off: only the bust and hips pull).
+            this.poseable = true;
             this._autoInteract = false;
             this._onPointerMove = (event) => this._pointerMoved(event);
 
@@ -304,11 +314,16 @@ function definePuppetClass(PIXI) {
             super.on('pointertap', (event) => {
                 if (this._drag.moved > 6) return; // that was a drag, not a tap
                 const hits = this.hitTest(event.data.global.x, event.data.global.y);
-                if (hits.length) this.emit('hit', hits);
+                if (!hits.length) return;
+                // The SillyTavern Live2D extension plays its mapping for a hit; with nobody listening
+                // (the preview page), the puppet reacts by itself.
+                if (this.listenerCount('hit')) this.emit('hit', hits);
+                else this.react(hits[0]);
             });
 
             this._ticker = PIXI.Ticker.shared;
             this._ticker.add(this._tick, this);
+            LIVE.add(this);
         }
 
         // Size: like Live2DModel, the size is the canvas size times the scale.
@@ -404,52 +419,62 @@ function definePuppetClass(PIXI) {
         }
 
         /**
-         * What a point on the canvas would pull: 'hair' (the front hair's ends), 'body' (a soft part,
-         * a skirt or ribbon, or with grabAnywhere the rest of the body), or null.
+         * What a press at a canvas point grabs: 'body' on the bust or hips (pulled, springs back),
+         * or a joint of the skeleton to pose ('head', 'arm L' / 'arm R', 'torso'), or null.
          */
         _grabbable(x, y) {
-            const rig = this.doc.Rig;
-            const inside = (entry, root) => entry && x >= entry.X && x <= entry.X + entry.Width && y >= root && y <= entry.Y + entry.Height;
-            const byId = (id) => this.doc.Layers.find(l => l.Id === id);
             if (this._softAt(x, y, 1.15)) return 'body';
-            for (const h of rig.Hair || []) {
-                const entry = byId(h.Layer);
-                if (entry?.Role === 'front_hair' && inside(entry, h.Root + h.Length * 0.4) && this._opaqueAt(entry, x, y)) return 'hair';
+            if (!this.poseable) return null;
+            const rig = this.doc.Rig;
+            const [hl, ht, hr, hb] = rig.Head.Box;
+            if (x >= hl && x <= hr && y >= ht && y <= hb) return 'head';
+            for (const [side, arm] of Object.entries(rig.Arms || {})) {
+                const entry = this.doc.Layers.find(e => e.Id === arm.Layers[0]);
+                if (entry && x >= entry.X && x <= entry.X + entry.Width && y >= arm.Pivot[1] + arm.Length * 0.3 && y <= entry.Y + entry.Height) return `arm ${side}`;
             }
-            for (const c of rig.Cloth || []) {
-                const entry = byId(c.Layer);
-                if (inside(entry, c.Root + c.Length * 0.3) && this._outerShown()) return 'body';
-            }
-            if (!this.grabAnywhere) return null;
-            const [, , , headBottom] = rig.Head.Box;
-            return y > headBottom ? 'body' : (this.doc.Layers.some(e => e.Role === 'front_hair' && inside(e, e.Y) && this._opaqueAt(e, x, y)) ? 'hair' : null);
+            const [bl, bt, br, bb] = rig.Body.Box;
+            if (x >= bl && x <= br && y >= hb && y <= bt + (bb - bt) * 0.55) return 'torso';
+            return null;
         }
 
-        /** Whether a layer's picture is solid at a point on the canvas (true when that can't be read). */
-        _opaqueAt(entry, x, y) {
-            const layer = this.layers?.find(l => l.entry === entry);
-            const source = layer?.mesh.texture?.baseTexture?.resource?.source;
-            if (!source || !source.width) return true;
-            if (!layer._pixels) {
-                try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = source.width;
-                    canvas.height = source.height;
-                    const g = canvas.getContext('2d');
-                    g.drawImage(source, 0, 0);
-                    layer._pixels = { data: g.getImageData(0, 0, canvas.width, canvas.height).data, width: canvas.width, height: canvas.height };
-                } catch (error) {
-                    return true;
-                }
+        /**
+         * Pose the skeleton from a drag: the head turns and nods, an arm swings at the shoulder, the
+         * torso leans. Every joint stops at its limit (the parameters' ranges), and the pose stays.
+         */
+        _poseMove(d, point) {
+            const rig = this.doc.Rig;
+            const [hl, ht, hr, hb] = rig.Head.Box;
+            const dx = point.x - d.sx;
+            const dy = point.y - d.sy;
+            const set = (id, value) => {
+                const i = this.core.getParameterIndex(id);
+                if (i < 0) return;
+                const lo = this.core.mins[i], hi = this.core.maxs[i];
+                // The offset stops where the joint does (the parameter's range, from its default).
+                this._pose.set(id, clamp(value, lo - this.core.defaults[i], hi - this.core.defaults[i]));
+            };
+            const start = (id) => d.poseStart.get(id) || 0;
+            if (d.pose === 'head') {
+                set('ParamAngleX', start('ParamAngleX') + dx / Math.max(1, hr - hl) * 50);
+                set('ParamAngleY', start('ParamAngleY') - dy / Math.max(1, hb - ht) * 50);
+            } else if (d.pose === 'torso') {
+                const [bl, , br] = rig.Body.Box;
+                set('ParamBodyAngleX', start('ParamBodyAngleX') + dx / Math.max(1, br - bl) * 25);
+                set('ParamBodyAngleZ', start('ParamBodyAngleZ') - dx / Math.max(1, br - bl) * 12);
+            } else if (d.pose.startsWith('arm ')) {
+                const side = d.pose.slice(4);
+                const arm = rig.Arms[side];
+                const [px, py] = arm.Pivot;
+                const from = Math.atan2(d.sy - py, d.sx - px);
+                const to = Math.atan2(point.y - py, point.x - px);
+                const degrees = (to - from) * 180 / Math.PI;
+                for (const s of side === 'LR' ? ['L', 'R'] : [side]) set(`ParamArm${s}A`, start(`ParamArm${s}A`) + degrees);
             }
-            const px = Math.floor((x - entry.X) / entry.Width * layer._pixels.width);
-            const py = Math.floor((y - entry.Y) / entry.Height * layer._pixels.height);
-            if (px < 0 || py < 0 || px >= layer._pixels.width || py >= layer._pixels.height) return false;
-            return layer._pixels.data[(py * layer._pixels.width + px) * 4 + 3] > 128;
         }
 
-        _outerShown() {
-            return !this._hasBody || this.core.getParameterValueById('ParamClothesOuter') > 0.5;
+        /** Put the skeleton back in the drawing's pose. */
+        resetPose() {
+            this._pose.clear();
         }
 
         _grabStart(event) {
@@ -457,6 +482,7 @@ function definePuppetClass(PIXI) {
             const d = this._drag;
             d.moved = 0;
             const kind = this._grabbable(point.x, point.y);
+            d.reacted = false;
             if (!kind) return;
             d.kind = kind;
             d.active = true;
@@ -466,26 +492,38 @@ function definePuppetClass(PIXI) {
             d.ty = 0;
             d.start = this._time;
             d.soft = this._softAt(point.x, point.y, 1.15);
+            d.pose = kind === 'body' ? null : kind;
+            d.poseStart = new Map(this._pose);
         }
 
         _grabMove(event) {
             const d = this._drag;
             if (!d.active) return;
             const point = this.toLocal(event.data.global);
+            if (d.pose) {
+                d.moved = Math.max(d.moved, Math.hypot(point.x - d.sx, point.y - d.sy) * Math.abs(this.scale.x || 1));
+                this._poseMove(d, point);
+                return;
+            }
+            // Skin and cloth only stretch so far: the pull is limited to a share of the soft part's
+            // size (a little more sideways than up and down), and gives way gradually towards it.
+            const region = this.doc.Rig[d.soft] || null;
+            const gain = (this.doc.Rig.Strength || {}).drag ?? 1;
             const head = this.doc.Rig.Head;
-            const reach = (head.Box[3] - head.Box[1]) * 0.45 * ((this.doc.Rig.Strength || {}).drag ?? 1);
+            const [rx, ry] = region?.Radius || [(head.Box[3] - head.Box[1]) * 0.4, (head.Box[3] - head.Box[1]) * 0.4];
+            const limitX = rx * 0.32 * gain;
+            const limitY = ry * 0.24 * gain;
             let dx = point.x - d.sx;
             let dy = point.y - d.sy;
             d.moved = Math.max(d.moved, Math.hypot(dx, dy) * Math.abs(this.scale.x || 1));
-            const length = Math.hypot(dx, dy);
-            // Pulls give way gradually: the further the mouse goes, the less the cloth follows.
-            if (length > 0) {
-                const eased = reach * Math.tanh(length / Math.max(1, reach));
-                dx *= eased / length;
-                dy *= eased / length;
-            }
+            dx = limitX * Math.tanh(dx / Math.max(1, limitX * 1.6));
+            dy = limitY * Math.tanh(dy / Math.max(1, limitY * 1.6));
             d.tx = dx;
             d.ty = dy;
+            if (!d.reacted && d.moved > 24) {
+                d.reacted = true;
+                this.react('Drag');
+            }
         }
 
         _grabEnd() {
@@ -496,6 +534,26 @@ function definePuppetClass(PIXI) {
             d.ty = 0;
             // A quick tap on a soft part pokes it: it bounces.
             if (d.soft && d.moved <= 6) this.poke(d.sx, d.sy);
+        }
+
+        /**
+         * React to a touch: show the emotion the puppet's Reactions give the hit area ("Drag" for a
+         * pull), with its motion, for a few seconds, then go back to the emotion from before.
+         */
+        react(area, seconds = 4) {
+            const emotion = (this.doc.Reactions || {})[area];
+            const names = this.internalModel.settings.expressions.map(e => e.Name);
+            if (!emotion || !names.includes(emotion)) return false;
+            const token = (this._reaction = {});
+            const before = this._emotion;
+            this.expression(emotion).then(() => (this._emotion = before));
+            if (this.internalModel.settings.motions[emotion]) this.motion(emotion);
+            setTimeout(() => {
+                if (this._reaction !== token || this._emotion !== before) return; // something newer took over
+                if (before) this.expression(before);
+                else for (const active of this._expressions) if (active.fadeOutStart === undefined) active.fadeOutStart = this._time;
+            }, seconds * 1000);
+            return true;
         }
 
         /** Poke the puppet at a point on the canvas: a soft part there bounces. */
@@ -545,6 +603,7 @@ function definePuppetClass(PIXI) {
             }
             for (const layer of this.layers) this.addChild(layer.mesh);
             this._hasBody = this.layers.some(l => l.role === 'nude_body');
+            this._halfSwitches = new Set(this.doc.Layers.filter(e => e.State === 'half' && e.Switch).map(e => e.Switch));
             this._update(0);
         }
 
@@ -601,17 +660,22 @@ function definePuppetClass(PIXI) {
         _makeCheek(side, hatch) {
             const eye = this.doc.Rig.Eyes[side];
             const [l, t, r, b] = eye.Box;
-            const w = (r - l) * 1.25;
-            const h = (b - t) * 0.6;
+            const w = (r - l) * 1.5;
+            const h = (b - t) * 0.85;
             const canvas = document.createElement('canvas');
             canvas.width = 256;
             canvas.height = 128;
             const g = canvas.getContext('2d');
             if (!hatch) {
-                const gradient = g.createRadialGradient(128, 64, 4, 128, 64, 124);
-                gradient.addColorStop(0, 'rgba(255,128,140,1)');
-                gradient.addColorStop(0.55, 'rgba(255,150,160,0.75)');
-                gradient.addColorStop(1, 'rgba(255,170,180,0)');
+                // Feathered: strongest in the middle and fading out smoothly (no visible rim).
+                const gradient = g.createRadialGradient(128, 64, 0, 128, 64, 126);
+                const stops = 12;
+                for (let i = 0; i <= stops; i++) {
+                    const f = i / stops;
+                    const a = Math.pow(Math.cos(f * Math.PI / 2), 2.2);
+                    gradient.addColorStop(f, `rgba(255,${Math.round(125 + 45 * f)},${Math.round(138 + 40 * f)},${a.toFixed(3)})`);
+                }
+                g.filter = 'blur(3px)';
                 g.setTransform(1, 0, 0, 0.5, 0, 32);
                 g.fillStyle = gradient;
                 g.fillRect(0, 0, 256, 256);
@@ -619,14 +683,15 @@ function definePuppetClass(PIXI) {
                 // Short parallel strokes leaning outwards, thick in the middle, fading at the ends.
                 const lean = (side === 'R') === (this.doc.Rig.Head.Center[0] > (l + r) / 2) ? 1 : -1;
                 g.lineCap = 'round';
+                g.filter = 'blur(1.2px)';
                 for (let i = 0; i < 4; i++) {
                     const x = 70 + i * 36;
                     const grad = g.createLinearGradient(x, 30, x + 18 * lean, 98);
                     grad.addColorStop(0, 'rgba(225,70,95,0)');
-                    grad.addColorStop(0.5, 'rgba(225,70,95,0.9)');
+                    grad.addColorStop(0.5, 'rgba(225,70,95,0.7)');
                     grad.addColorStop(1, 'rgba(225,70,95,0)');
                     g.strokeStyle = grad;
-                    g.lineWidth = 7;
+                    g.lineWidth = 5;
                     g.beginPath();
                     g.moveTo(x - 9 * lean, 34);
                     g.lineTo(x + 9 * lean, 94);
@@ -702,6 +767,7 @@ function definePuppetClass(PIXI) {
             }
             for (const active of this._expressions) if (active.fadeOutStart === undefined) active.fadeOutStart = this._time;
             this._expressions.push({ expression, start: this._time, name: item.Name });
+            this._emotion = item.Name;
             return true;
         }
 
@@ -866,6 +932,11 @@ function definePuppetClass(PIXI) {
                 else values[i] += add.value;
             }
             for (const [i, value] of core.overrides) values[i] = value;
+            // The pose the user dragged the skeleton into, on top of whatever plays.
+            for (const [id, offset] of this._pose) {
+                const i = core.getParameterIndex(id);
+                if (i >= 0) values[i] += offset;
+            }
             for (let i = 0; i < values.length; i++) values[i] = clamp(values[i], core.mins[i], core.maxs[i]);
         }
 
@@ -1031,15 +1102,20 @@ function definePuppetClass(PIXI) {
                 const { role, side, rest, out } = layer;
                 const eyeKey = side && rig.Eyes[side] ? side : (rig.Eyes.LR ? 'LR' : side);
                 const eye = rig.Eyes[eyeKey];
-                const eyeOpen = eyeKey === 'LR' ? (P('ParamEyeLOpen') + P('ParamEyeROpen')) / 2 : P(`ParamEye${side}Open`);
-                const eyeSmile = eyeKey === 'LR' ? (P('ParamEyeLSmile') + P('ParamEyeRSmile')) / 2 : P(`ParamEye${side}Smile`);
+                const rawOpen = eyeKey === 'LR' ? (P('ParamEyeLOpen') + P('ParamEyeROpen')) / 2 : P(`ParamEye${side}Open`);
+                const eyeSmile = clamp(eyeKey === 'LR' ? (P('ParamEyeLSmile') + P('ParamEyeRSmile')) / 2 : P(`ParamEye${side}Smile`), 0, 1);
                 const hasClosed = closedSides.has(side || 'LR') || closedSides.has('LR');
+                // With closed-eye art, a smile closes the eyes into arcs (^ ^) instead of squashing
+                // the open eye, which smears its lashes.
+                const eyeOpen = hasClosed ? Math.min(rawOpen, 1) * (1 - 0.92 * eyeSmile) + Math.max(0, rawOpen - 1) : rawOpen;
 
                 // Opacity from the switches.
                 let alpha = 1;
-                if (role === 'eye_closed') alpha = 1 - smoothstep(0.12, 0.45, eyeOpen);
-                else if (role === 'eye_white' || role === 'iris') alpha = hasClosed ? smoothstep(0.08, 0.4, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen);
-                else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.12, 0.45, eyeOpen) : 1;
+                // A quick cross-fade between the open eye and the closed art (a blink lasts a tenth of a
+                // second, so the swap reads as the lid closing).
+                if (role === 'eye_closed') alpha = 1 - smoothstep(0.2, 0.42, eyeOpen);
+                else if (role === 'eye_white' || role === 'iris') alpha = hasClosed ? smoothstep(0.22, 0.4, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen);
+                else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.2, 0.42, eyeOpen) : 1;
                 else if (role === 'mouth') alpha = hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1;
                 else if (role === 'mouth_open') alpha = smoothstep(0.15, 0.55, mouthOpen);
                 else if (role === 'cheek') alpha = clamp(P('ParamCheek'), 0, 1) * 0.85;
@@ -1047,7 +1123,15 @@ function definePuppetClass(PIXI) {
                 else if (OUTER_ROLES.has(role)) alpha = clamp(outer, 0, 1);
                 else if (role === 'inner') alpha = clamp(inner, 0, 1);
                 // One piece of the clothes on its own (half off), and the accessories.
-                if (layer.entry.Switch && this._hasBody) alpha *= clamp(P(layer.entry.Switch), 0, 1);
+                // Koikatsu-style slots: 1 on, 0.5 half off (with half-off art), 0 off. Without a body
+                // layer only the coat can come off (the clothes under it are drawn).
+                const sw = layer.entry.Switch;
+                if (sw && (this._hasBody || sw === 'ParamClothesCoat')) {
+                    const v = P(sw);
+                    if (layer.entry.State === 'half') alpha *= smoothstep(0.1, 0.35, v) * (1 - smoothstep(0.65, 0.9, v));
+                    else if (this._halfSwitches.has(sw)) alpha *= smoothstep(0.65, 0.9, v);
+                    else alpha *= clamp(v, 0, 1);
+                } else if (layer.entry.State === 'half') alpha = 0;
                 if (layer.entry.Accessory) alpha *= clamp(P('ParamAccessories'), 0, 1);
                 layer.mesh.alpha = alpha;
                 layer.mesh.visible = alpha > 0.003;
@@ -1061,13 +1145,20 @@ function definePuppetClass(PIXI) {
                     if (eye && EYE_ROLES.has(role)) {
                         const [el, et, er, eb] = eye.Box;
                         const eh = eb - et;
-                        const scale = eyeOpen <= 1 ? 0.1 + 0.9 * eyeOpen : eyeOpen;
+                        // The lid comes down a little before the swap to the closed art; without that
+                        // art the eye has to close by squashing.
+                        const scale = eyeOpen <= 1 ? (hasClosed ? 0.55 + 0.45 * eyeOpen : 0.1 + 0.9 * eyeOpen) : eyeOpen;
                         y = eye.Lid + (y - eye.Lid) * scale;
-                        y -= eyeSmile * 0.35 * eh * clamp((rest[k + 1] - et) / Math.max(1, eh), 0, 1);
+                        if (!hasClosed) y -= eyeSmile * 0.35 * eh * clamp((rest[k + 1] - et) / Math.max(1, eh), 0, 1);
                         if (role === 'iris') {
                             x += P('ParamEyeBallX') * (S.eyeball ?? 0.14) * (er - el);
                             y -= P('ParamEyeBallY') * (S.eyeball ?? 0.14) * 0.8 * eh;
                         }
+                    } else if (role === 'eye_closed' && eye && eyeSmile > 0) {
+                        // A smile bends the closed lid into an arc, highest in the middle.
+                        const [el, et, er, eb] = eye.Box;
+                        const n = clamp((x - (el + er) / 2) / Math.max(1, (er - el) / 2), -1, 1);
+                        y -= eyeSmile * 0.3 * (eb - et) * (1 - n * n);
                     } else if (role === 'brow' && eye) {
                         const [el, et, er, eb] = eye.Box;
                         const eh = eb - et;
@@ -1117,7 +1208,7 @@ function definePuppetClass(PIXI) {
                     }
 
                     // The mouse's pull ---------------------------------------------------------
-                    if (dragging && (drag.kind === 'hair' ? layer.hair && role === 'front_hair' : soft || role === 'neck' || role === 'arm')) {
+                    if (dragging && soft) {
                         const ddx = rest[k] - drag.sx;
                         const ddy = rest[k + 1] - drag.sy;
                         const w = Math.exp(-(ddx * ddx + ddy * ddy) / twoSigma2) * (layer.hair ? sway : 1);
@@ -1143,6 +1234,20 @@ function definePuppetClass(PIXI) {
                         }
                     }
 
+                    // Posed arms: turn at the shoulder, the upper end staying attached ----
+                    if (role === 'arm' && rig.Arms) {
+                        const arm = rig.Arms[side] || rig.Arms.LR;
+                        const degrees = arm ? P(`ParamArm${side || 'L'}A`) : 0;
+                        if (degrees) {
+                            const [ax0, ay0] = arm.Pivot;
+                            const w = smoothstep(ay0 - arm.Length * 0.05, ay0 + arm.Length * 0.2, rest[k + 1]);
+                            const angle = degrees * Math.PI / 180 * w;
+                            const ddx = x - ax0, ddy = y - ay0;
+                            x = ax0 + ddx * Math.cos(angle) - ddy * Math.sin(angle);
+                            y = ay0 + ddx * Math.sin(angle) + ddy * Math.cos(angle);
+                        }
+                    }
+
                     // Body: lean, turn and breathing ------------------------------------
                     [x, y] = bodyMove(rest[k], rest[k + 1], x, y);
                     out[k] = x;
@@ -1152,6 +1257,7 @@ function definePuppetClass(PIXI) {
         }
 
         destroy(options) {
+            LIVE.delete(this);
             this._ticker?.remove(this._tick, this);
             window.removeEventListener('pointermove', this._onPointerMove);
             super.destroy(options);

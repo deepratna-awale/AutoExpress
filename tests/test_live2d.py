@@ -385,7 +385,9 @@ def test_build_kit_writes_the_whole_kit(tmp_path):
     backend = FakeBackend()
     result = kit.build_kit(backend, [character((300, 200)), character()], tmp_path, "hina", {"resolution": 1024}, log=lambda _: None)
     assert ("ready", DECOMPOSE) in backend.calls
-    assert sum(1 for call in backend.calls if call[0] == "edit") == 2  # eyes closed, mouth open (Qwen: no character LoRA)
+    edits = [call[1] for call in backend.calls if call[0] == "edit"]
+    # Eyes closed and mouth open (Qwen: no character LoRA), then the coat off and half off for the clothing slots.
+    assert len(edits) == 4 and edits[2].startswith("Take off only her outermost") and "halfway off" in edits[3]
     folder = result.folder
     for name in ("hina.psd", "hina_seethrough.psd", "preview.png", "sheet.jpg", "README.txt", "manifest.json", "input.png", "eyes_closed.png", "mouth_open.png",
                  "runtime/sillytavern_settings.json", "runtime/expressions/joy.exp3.json", "runtime/motions/idle.motion3.json"):
@@ -443,7 +445,10 @@ def test_build_puppet_writes_a_playable_puppet(tmp_path):
     rig = saved["Rig"]
     assert set(rig["Eyes"]) == {"L", "R"} and rig["Eyes"]["L"]["Box"][0] > rig["Eyes"]["R"]["Box"][0]
     assert rig["Mouth"]["Open"] is not None and rig["Head"]["Pivot"][1] > rig["Head"]["Center"][1]
-    assert {area["Name"] for area in saved["HitAreas"]} == {"Head", "Body"}
+    names = [area["Name"] for area in saved["HitAreas"]]
+    assert names[:2] == ["Face", "Head"] and names[-1] == "Body"  # most specific first
+    st = json.loads((folder / "sillytavern_settings.json").read_text())
+    assert st["hit_areas"]["Head"]["expression"] == saved["Reactions"]["Head"] and st["hit_areas"]["Face"]["motion"].endswith("_id=0")
     ids = {p["Id"] for p in saved["Parameters"]}
     for item in saved["FileReferences"]["Expressions"]:
         expression = json.loads((folder / item["File"]).read_text())
@@ -694,7 +699,7 @@ def test_build_kit_with_swappable_clothing(tmp_path):
     document = puppet.load(folder / "mira.puppet.model.json")
     roles = [e["Role"] for e in document["Layers"]]
     assert roles.index("nude_body") < roles.index("inner") < roles.index("clothing")
-    assert document["Outfits"] == ["outfit_full", "outfit_inner", "outfit_nude"]
+    assert document["Outfits"][0] == "outfit_full" and {"outfit_inner", "outfit_nude"} <= set(document["Outfits"])
     nude = json.loads((folder / "expressions" / "outfit_nude.exp3.json").read_text())
     values = {p["Id"]: p["Value"] for p in nude["Parameters"]}
     assert values["ParamClothesOuter"] == 0 and values["ParamClothesInner"] == 0
@@ -847,3 +852,84 @@ def test_defringe_drops_the_pale_halo_but_keeps_the_outline():
     assert sum(fixed.getpixel((5, 20))[:3]) < 400  # halo recoloured
     assert fixed.getpixel((8, 20))[:3] == (20, 10, 5)  # outline kept
     assert fixed.getpixel((20, 20))[:3] == (90, 60, 40)
+
+
+def test_slot_parts_split_the_coat_from_the_top_and_cut_half_off_art():
+    size = (400, 400)
+    white = (255, 255, 255)
+
+    def dressed(coat=True, coat_half=False, top_open=False):
+        image = Image.new("RGB", size, white)
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((150, 200, 250, 399), fill=(245, 215, 195))  # body
+        draw.rectangle((160, 220, 240, 300), fill=(240, 240, 240) if not top_open else (245, 215, 195))  # shirt
+        if top_open:
+            draw.rectangle((160, 220, 175, 300), fill=(240, 240, 240))
+            draw.rectangle((225, 220, 240, 300), fill=(240, 240, 240))
+            draw.rectangle((180, 235, 220, 255), fill=(20, 20, 20))  # the bra in the opening
+        draw.rectangle((160, 300, 240, 360), fill=(160, 40, 60))  # skirt
+        if coat:
+            top = 260 if coat_half else 200
+            draw.rectangle((140, top, 165, 380), fill=(30, 90, 50))
+            draw.rectangle((235, top, 260, 380), fill=(30, 90, 50))
+        return image.convert("RGBA")
+
+    picture = dressed()
+    alpha = Image.new("L", size, 0)
+    ImageDraw.Draw(alpha).rectangle((140, 200, 260, 299), fill=255)
+    top = picture.copy()
+    top.putalpha(alpha)
+    bottom_alpha = Image.new("L", size, 0)
+    ImageDraw.Draw(bottom_alpha).rectangle((140, 300, 260, 380), fill=255)
+    bottom = picture.copy()
+    bottom.putalpha(bottom_alpha)
+    parts = [layers.Part("topwear", top, 0, 0, 0.6), layers.Part("bottomwear", bottom, 0, 0, 0.6)]
+    inner = dressed(coat=False)
+    inner_draw = ImageDraw.Draw(inner)
+    inner_draw.rectangle((160, 220, 240, 300), fill=(245, 215, 195))
+    inner_draw.rectangle((180, 235, 220, 255), fill=(20, 20, 20))
+    edits = {
+        outfits.MID: dressed(coat=False),
+        outfits.OUTER_HALF: dressed(coat_half=True),
+        outfits.TOP_HALF: dressed(coat=False, top_open=True),
+    }
+    result = outfits.slot_parts(parts, size, picture, edits, nude=None, inner=inner)
+    tags = {p.tag: p for p in result}
+    assert {"outer wear", "outer wear half", "topwear half", "topwear", "bottomwear"} <= set(tags)
+    coat = tags["outer wear"]
+    assert coat.left <= 145 and coat.left + coat.image.width >= 255  # both coat panels
+    shirt = layers._on_canvas(tags["topwear"], size)
+    assert shirt.getpixel((200, 250))[3] > 200
+    assert max(abs(a - b) for a, b in zip(shirt.getpixel((152, 250))[:3], (245, 215, 195))) < 30  # under the coat: what the edit drew
+    opened = layers._on_canvas(tags["topwear half"], size)
+    assert opened.getpixel((168, 260))[3] > 200 and opened.getpixel((200, 245))[3] < 30  # the opening shows the inner wear
+
+
+def test_trim_neck_takes_the_chin_out_of_the_neck_layer():
+    size = (200, 300)
+    face = Image.new("RGBA", (100, 120), (240, 200, 180, 255))
+    neck = Image.new("RGBA", (60, 100), (230, 190, 170, 255))
+    parts = [layers.Part("face", face, 50, 20, 0.4), layers.Part("neck", neck, 70, 100, 0.6)]
+    trimmed = {p.tag: p for p in layers.trim_neck(parts, size, overlap=6)}
+    neck_part = trimmed["neck"]
+    # The neck now starts just under the face's edge (keeping a few pixels of overlap), not over the chin.
+    assert neck_part.top == 140 - 6
+    assert neck_part.image.size[1] == 200 - (140 - 6)
+    assert trimmed["face"] is parts[0]
+
+
+def test_body_layer_keeps_an_arm_raised_beside_the_head():
+    size = (300, 400)
+    face = layers.Part("face", Image.new("RGBA", (80, 100), (240, 200, 180, 255)), 110, 40, 0.4)
+    # A sleeve raised beside the head, above the chin, and the top under the face.
+    top = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(top).rectangle((20, 20, 70, 160), fill=(30, 80, 40, 255))
+    ImageDraw.Draw(top).rectangle((80, 150, 260, 380), fill=(30, 80, 40, 255))
+    parts = [face, layers.Part("topwear", top, 0, 0, 0.6)]
+    nude = Image.new("RGBA", size, (255, 255, 255, 255))
+    ImageDraw.Draw(nude).rectangle((20, 20, 70, 160), fill=(230, 180, 160, 255))
+    ImageDraw.Draw(nude).rectangle((80, 150, 260, 380), fill=(230, 180, 160, 255))
+    body = outfits.body_layer(nude, parts, size)
+    alpha = body.getchannel("A")
+    assert alpha.getpixel((45, 40)) > 200  # the raised arm, above the chin
+    assert alpha.getpixel((150, 120)) == 0  # nothing above the chin under the face

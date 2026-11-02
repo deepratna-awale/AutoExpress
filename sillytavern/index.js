@@ -12,7 +12,7 @@
  * http://localhost:8000 and http://127.0.0.1:8000 by default).
  */
 
-import { installPuppetLoader } from '../autoexpress_core/resources/puppet.js';
+import { installPuppetLoader, livePuppets } from '../autoexpress_core/resources/puppet.js';
 
 const MODULE = 'autoexpress';
 const LOG_PREFIX = '[AutoExpress]';
@@ -695,6 +695,53 @@ function registerCommand() {
 // Let the Live2D extension play AutoExpress puppets (*.puppet.model.json) as if they were Live2D models.
 installPuppetLoader();
 
+/**
+ * The emotion of a message, as Character Expressions classifies it (with whichever API it is set
+ * to: local, Extras, LLM or WebLLM). The Live2D extension only asks the local and Extras
+ * classifiers, so with an LLM classifier every message would fall back to neutral.
+ * Waits briefly for Character Expressions' own result for the message, then asks it directly.
+ */
+async function messageEmotion(name, text) {
+    let expressions;
+    try {
+        expressions = await import('/scripts/extensions/expressions/index.js');
+    } catch (error) {
+        return null;
+    }
+    const before = expressions.lastExpression?.[name];
+    for (let waited = 0; waited < 6000; waited += 250) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        const now = expressions.lastExpression?.[name];
+        if (now && now !== before) return now;
+    }
+    try {
+        return (await expressions.getExpressionLabel?.(text)) || null;
+    } catch (error) {
+        console.warn(LOG_PREFIX, 'Could not classify the message for the puppet:', error);
+        return null;
+    }
+}
+
+/** Play the emotion of a new message on the character's puppet, with the Live2D extension's mapping. */
+async function playPuppetEmotion(messageId) {
+    const context = ctx();
+    const message = context.chat?.[messageId];
+    if (!message || message.is_user || message.is_system) return;
+    const puppets = livePuppets().filter(puppet => puppet.st_character === message.name);
+    if (!puppets.length) return;
+    const emotion = await messageEmotion(message.name, message.mes);
+    if (!emotion) return;
+    for (const puppet of puppets) {
+        const mapping = context.extensionSettings?.live2d?.characterModelsSettings?.[message.name]?.[puppet.st_model_path]?.classify_mapping?.[emotion];
+        const names = puppet.internalModel.settings.expressions.map(item => item.Name);
+        const expression = mapping?.expression && mapping.expression !== 'none' ? mapping.expression : (names.includes(emotion) ? emotion : null);
+        if (expression) puppet.expression(expression);
+        const motion = mapping?.motion && mapping.motion !== 'none' ? mapping.motion : `${emotion}_id=random`;
+        const [group, index] = motion.split('_id=');
+        if (puppet.internalModel.settings.motions[group]) puppet.motion(group, index === 'random' ? undefined : index);
+    }
+}
+
 jQuery(async () => {
     settings();
     $('#extensions_settings2').append(settingsHtml());
@@ -715,6 +762,7 @@ jQuery(async () => {
     setTimeout(addExpressionsButton, 2000);
     const { eventSource, eventTypes } = ctx();
     eventSource?.on(eventTypes?.APP_READY, addExpressionsButton);
+    eventSource?.on(eventTypes?.MESSAGE_RECEIVED, (messageId) => playPuppetEmotion(messageId));
 
     checkConnection({ quiet: true });
 });

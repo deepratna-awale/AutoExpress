@@ -36,7 +36,7 @@ import shutil
 import zipfile
 from typing import Callable
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from .. import instruction_edit
 from ..images import pil_to_b64
@@ -192,6 +192,46 @@ def make_outfit_edits(backend, picture: Image.Image, settings: dict, log, check_
     return edits, notes
 
 
+def upscale_sheet(backend, images: list[Image.Image], pad: int = 12) -> list[Image.Image] | None:
+    """
+    images (RGBA) upscaled with the WebUI's upscale model in one go (packed into one sheet), or
+    None when it has none. The colour is upscaled by the model, the transparency smoothly.
+    """
+    if not images or not hasattr(backend, "upscale"):
+        return None
+    columns = max(1, round(len(images) ** 0.5))
+    rows = [images[i:i + columns] for i in range(0, len(images), columns)]
+    width = max(sum(im.width + pad for im in row) for row in rows) + pad
+    height = sum(max(im.height for im in row) + pad for row in rows) + pad
+    sheet = Image.new("RGB", (width, height), (128, 128, 128))
+    places = []
+    y = pad
+    for row in rows:
+        x = pad
+        for image in row:
+            # Transparent pixels take the colour around them, so no grey bleeds into the edges.
+            rgba = image.convert("RGBA")
+            spread = rgba.copy()
+            for _ in range(4):
+                spread = Image.alpha_composite(spread.filter(ImageFilter.GaussianBlur(3)), rgba)
+            flat = Image.alpha_composite(Image.new("RGBA", rgba.size, (128, 128, 128, 255)), spread).convert("RGB")
+            sheet.paste(flat, (x, y))
+            places.append((x, y, image))
+            x += image.width + pad
+        y += max(im.height for im in row) + pad
+    big = backend.upscale(pil_to_b64(sheet))
+    if big is None:
+        return None
+    factor = big.width / sheet.width
+    result = []
+    for x, y, image in places:
+        box = (round(x * factor), round(y * factor), round((x + image.width) * factor), round((y + image.height) * factor))
+        colour = big.crop(box).convert("RGBA")
+        colour.putalpha(image.getchannel("A").resize(colour.size, Image.Resampling.LANCZOS))
+        result.append(colour)
+    return result
+
+
 def read_clothing(image: Image.Image, settings: dict, log) -> dict:
     """
     The clothing named in the picture's prompt data (PNG metadata), filled into settings where the
@@ -243,6 +283,47 @@ def change_outfit(backend, picture: Image.Image, settings: dict, name: str, log)
     if changed.size != picture.size:
         changed = changed.resize(picture.size, Image.Resampling.LANCZOS)
     return changed, ""
+
+
+SLOT_EDITS = (outfits.MID, outfits.OUTER_HALF, outfits.TOP_HALF, outfits.BOTTOM_HALF)
+
+
+def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, log, check_cancel, progress) -> tuple[dict, list[str]]:
+    """
+    The edits for the clothing slots: the picture without its outermost layer and with it slipped
+    halfway off (any character), and, when the inner wear was made (so the clothing check passed),
+    the top opened and the skirt lifted. Returns ({key: picture}, notes).
+    """
+    description = settings.get("character_description", "")
+    if settings.get("outfit_from_prompt"):
+        description = (description + f". Her outfit: {settings['outfit_from_prompt']}").strip(". ")
+    edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
+    inner_wear = settings.get("inner_wear", "")
+    edits: dict[str, Image.Image] = {}
+    notes: list[str] = []
+
+    def run(key, source, instruction, label, fraction):
+        check_cancel()
+        progress(label, fraction)
+        log(f"Drawing {label} (Qwen-Image-Edit).")
+        result = backend.instruction_edit(pil_to_b64(source), outfits.adapt(instruction, description), edit)
+        if result is None:
+            notes.append(f"Couldn't draw {label}: {getattr(backend, 'last_error', None) or 'the WebUI failed'}.")
+            return None
+        result = result.convert("RGB")
+        if result.size != picture.size:
+            result = result.resize(picture.size, Image.Resampling.LANCZOS)
+        edits[key] = result
+        return result
+
+    mid = run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
+    if mid is not None:
+        run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description), "the outer layer half off", 0.37)
+    if outfits.INNER in made:
+        base = mid if mid is not None else picture
+        run(outfits.TOP_HALF, base, outfits.top_half_instruction(inner_wear, description), "the top opened", 0.38)
+        run(outfits.BOTTOM_HALF, base, outfits.bottom_half_instruction(inner_wear, description), "the skirt lifted", 0.39)
+    return edits, notes
 
 
 def to_canvas(picture: Image.Image, box: tuple[int, int, int, int], size: tuple[int, int]) -> Image.Image:
@@ -438,8 +519,12 @@ def build_kit(
         else:
             notes.append(reason)
             outfit_state["refused"] = reason
-        for which, image in outfit_edits.items():
-            image.save(folder / f"{which}.png")
+    if settings.get("clothing_slots", True) is not False and INSTRUCT in getattr(backend, "edit_methods", ()):
+        slot_edits, slot_notes = make_slot_edits(backend, picture, settings, outfit_edits, log, check_cancel, progress)
+        outfit_edits.update(slot_edits)
+        notes.extend(slot_notes)
+    for which, image in outfit_edits.items():
+        image.save(folder / f"{which}.png")
 
     # 4. Split.
     check_cancel()
@@ -454,6 +539,8 @@ def build_kit(
     box = layers.square_placement(picture.size, canvas_size[0])
     base_canvas = to_canvas(picture, box, canvas_size)
     parts = layers.match_picture(parts, Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas).convert("RGB"))
+    parts = layers.settle_lash_strays(parts, canvas_size)
+    parts = layers.trim_neck(parts, canvas_size)
     underlay = layers.hair_underlay(parts, canvas_size)
 
     # 5. Extra art, crop to the picture, write.
@@ -473,7 +560,20 @@ def build_kit(
     outfit_state["made"] = [part.tag for part in extra]
     if outfit_edits and not extra:
         notes.append("The body edit couldn't be cut out to a layer; the clothes stay one layer.")
-    parts = parts + extra + ([underlay] if underlay else [])
+    slot_edits = {key: to_canvas(image, box, canvas_size) for key, image in outfit_edits.items() if key in SLOT_EDITS}
+    if slot_edits:
+        white = Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas)
+        made = {p.tag for p in extra}
+        parts = outfits.slot_parts(
+            parts,
+            canvas_size,
+            white,
+            slot_edits,
+            nude=to_canvas(outfit_edits[outfits.NUDE], box, canvas_size) if "nude body" in made else None,
+            inner=to_canvas(outfit_edits[outfits.INNER], box, canvas_size) if made & {"inner wear", "inner top", "inner bottom"} else None,
+        )
+        outfit_state["slots"] = sorted({p.tag for p in parts} & {"outer wear", "outer wear half", "topwear half", "bottomwear half"})
+    parts = layers.drop_specks(parts + extra) + ([underlay] if underlay else [])
     for which, wanted in ((EYES_CLOSED, "closed"), (MOUTH_OPEN, "Mouth open")):
         if which in variants and not any(wanted in overlay.name for overlay in overlays):
             notes.append(f"The {which.replace('_', ' ')} edit didn't change the {'eyes' if which == EYES_CLOSED else 'mouth'} enough to make a layer from it.")
@@ -504,7 +604,7 @@ def build_kit(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
     )
 
-    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts)
+    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images))
 
     switches = ", ".join(o.name for o in overlays) or "none"
     (folder / "README.txt").write_text(README.format(name=name, switches=switches), encoding="utf-8")

@@ -52,6 +52,10 @@ _PARTS = {
     # Made here, not by See-through: the hair colour painted under the bangs, and the swappable
     # clothing layers (outfits.py) under See-through's clothes.
     "hair underlay": ("Front hair", "Hair underlay", 5),
+    "outer wear": ("Body", "Outer wear", 0),
+    "outer wear half": ("Body", "Outer wear half", 0),
+    "topwear half": ("Body", "Topwear half", 0),
+    "bottomwear half": ("Body", "Bottomwear half", 0),
     "inner wear": ("Body", "Inner wear", 15),
     "inner top": ("Body", "Inner top", 14),
     "inner bottom": ("Body", "Inner bottom", 15),
@@ -553,18 +557,66 @@ def overlay_from_edit(
             if allowed is not None:
                 inner = ImageChops.multiply(inner, allowed.crop(box))
             mask = ImageChops.lighter(mask, inner)
+            # Closed eyes stay close around the eye: changes further out are hair or face the edit
+            # redrew, and would show as a patch over them.
+            width, height = local[2] - local[0], local[3] - local[1]
+            near = Image.new("L", mask.size, 0)
+            reach = (int(local[0] - width * 0.18), int(local[1] - height * 0.45), int(local[2] + width * 0.18), int(local[3] + height * 0.45))
+            near.paste(ellipse_mask((max(1, reach[2] - reach[0]), max(1, reach[3] - reach[1]))), reach[:2])
+            mask = ImageChops.multiply(mask, near)
     if mask.getbbox() is None:
         return None
     edited = edited.convert("RGBA").resize(base.size) if edited.size != base.size else edited.convert("RGBA")
     art = edited.crop(box)
     if fill:
-        art = match_colours(art, base.convert("RGBA").crop(box), mask)
+        art = clean_eyelid(art, base.convert("RGBA").crop(box), mask, local if core is not None else None)
+        # A feathered edge, so the lid melts into the face instead of sitting on it as a patch.
+        mask = ImageChops.multiply(mask, mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(1.6)).point(lambda v: min(255, v * 2)))
     alpha = ImageChops.multiply(art.getchannel("A"), mask)
     art.putalpha(alpha)
     bbox = alpha.getbbox()
     if bbox is None:
         return None
     return Overlay(group, name, art.crop(bbox), box[0] + bbox[0], box[1] + bbox[1], parameter)
+
+
+def clean_eyelid(art: Image.Image, base: Image.Image, mask: Image.Image, core: tuple | None = None) -> Image.Image:
+    """
+    A closed eye from an edit, cleaned up: the lashes (the dark lines) stay as drawn, everything
+    else becomes the picture's own skin colour around the eye with only the edit's soft shading,
+    so the lid never shows a grey or off-colour patch, hair the edit redrew, or bits of the open eye.
+    """
+    solid = mask.point(lambda v: 255 if v > 32 else 0)
+    ring = ImageChops.subtract(solid.filter(ImageFilter.MaxFilter(11)), solid.filter(ImageFilter.MaxFilter(3)))
+    base_rgb = base.convert("RGB")
+    if ring.getbbox() is None:
+        return art
+    # The skin: the lighter half of the ring (the ring can catch lashes, brows and hair too).
+    grey = base_rgb.convert("L")
+    level = ImageStat.Stat(grey, ring).median[0]
+    light = ImageChops.multiply(ring, grey.point(lambda v: 255 if v >= level else 0))
+    skin = ImageStat.Stat(base_rgb, light if light.getbbox() else ring).median
+    skin_level = max(1.0, 0.299 * skin[0] + 0.587 * skin[1] + 0.114 * skin[2])
+    art_rgb = art.convert("RGB")
+    art_grey = art_rgb.convert("L")
+    art_level = max(1.0, ImageStat.Stat(art_grey, solid).median[0])
+    # Lashes: much darker than the skin. Kept with a soft edge.
+    lash = art_grey.point(lambda v: 255 if v < skin_level * 0.55 else 0 if v > skin_level * 0.75 else int((skin_level * 0.75 - v) / (skin_level * 0.2) * 255))
+    lash = lash.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    if core is not None:
+        # Lashes lie across the eye: dark strands above or below it are redrawn hair or brow.
+        width, height = core[2] - core[0], core[3] - core[1]
+        band = Image.new("L", art.size, 0)
+        band.paste(255, (int(core[0] - width * 0.04), int(core[1] - height * 0.1), int(core[2] + width * 0.04), int(core[3] + height * 0.25)))
+        lash = ImageChops.multiply(lash, band.filter(ImageFilter.GaussianBlur(2)))
+    # Skin with the edit's shading (a lid crease, a soft shadow), but none of its colour cast.
+    shade = art_grey.point(lambda v: int(255 * max(0.9, min(1.04, v / art_level)) / 1.04))
+    flat = Image.new("RGB", art.size, tuple(int(c) for c in skin))
+    shaded = ImageChops.multiply(flat, Image.merge("RGB", (shade, shade, shade))).point(lambda v: min(255, int(v * 1.04)))
+    cleaned = Image.composite(art_rgb, shaded, lash)
+    result = cleaned.convert("RGBA")
+    result.putalpha(art.getchannel("A"))
+    return result
 
 
 def match_colours(art: Image.Image, base: Image.Image, mask: Image.Image) -> Image.Image:
@@ -634,6 +686,158 @@ def part_box(part: Part) -> tuple[int, int, int, int] | None:
     if bbox is None:
         return None
     return part.left + bbox[0], part.top + bbox[1], part.left + bbox[2], part.top + bbox[3]
+
+
+_SPECK_TAGS = (
+    "topwear", "bottomwear", "legwear", "footwear", "handwear", "neckwear", "neck", "nude body", "inner wear", "inner top", "inner bottom",
+    "outer wear", "outer wear half", "topwear half", "bottomwear half",
+)
+
+
+def drop_specks(parts: list[Part], share: float = 0.01) -> list[Part]:
+    """
+    The clothing and body layers without their stray specks and slivers: pieces that aren't joined
+    to the rest of the layer and are smaller than share of its biggest piece (bits of a neighbouring
+    garment the split or an edit left, which show as floating scraps when a layer is switched off).
+    """
+    result = []
+    for part in parts:
+        if parse_tag(part.tag)[0] not in _SPECK_TAGS:
+            result.append(part)
+            continue
+        alpha = part.image.getchannel("A")
+        solid = alpha.point(lambda v: 255 if v > 40 else 0)
+        width, height = solid.size
+        scale = max(1, max(width, height) // 400)
+        small = solid.resize((max(1, width // scale), max(1, height // scale)), Image.Resampling.NEAREST)
+        pixels = small.load()
+        w, h = small.size
+        seen = bytearray(w * h)
+        pieces = []
+        for y in range(h):
+            for x in range(w):
+                if pixels[x, y] and not seen[y * w + x]:
+                    stack = [(x, y)]
+                    seen[y * w + x] = 1
+                    piece = []
+                    while stack:
+                        cx, cy = stack.pop()
+                        piece.append((cx, cy))
+                        for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                            if 0 <= nx < w and 0 <= ny < h and pixels[nx, ny] and not seen[ny * w + nx]:
+                                seen[ny * w + nx] = 1
+                                stack.append((nx, ny))
+                    pieces.append(piece)
+        if len(pieces) <= 1:
+            result.append(part)
+            continue
+        biggest = max(len(p) for p in pieces)
+        drop = Image.new("L", small.size, 0)
+        drawn = drop.load()
+        for piece in pieces:
+            if len(piece) < biggest * share:
+                for px, py in piece:
+                    drawn[px, py] = 255
+        if drop.getbbox() is None:
+            result.append(part)
+            continue
+        drop = drop.resize((width, height), Image.Resampling.NEAREST).filter(ImageFilter.MaxFilter(5))
+        image = part.image.convert("RGBA")
+        image.putalpha(ImageChops.subtract(alpha, drop))
+        box = image.getchannel("A").getbbox()
+        if box:
+            result.append(dataclasses.replace(part, image=image.crop(box), left=part.left + box[0], top=part.top + box[1]))
+    return result
+
+
+def settle_lash_strays(parts: list[Part], size) -> list[Part]:
+    """
+    Move what a lash layer has away from its eye (hair strands, the outer corner's shadow,
+    See-through often puts them there) onto the face layer, so a blink only hides the eye itself
+    and never leaves a hole where those were.
+    """
+    face = next((p for p in parts if parse_tag(p.tag)[0] == "face"), None)
+    if face is None:
+        return parts
+    eyes: dict[str, list] = {}
+    for part in parts:
+        base, side = parse_tag(part.tag)
+        if base in ("irides", "eyewhite") and side:
+            eyes.setdefault(side, []).append(part_box(part))
+    face_canvas = _on_canvas(face, size)
+    changed = False
+    result = []
+    for part in parts:
+        base, side = parse_tag(part.tag)
+        box = union_box([b for b in eyes.get(side, []) if b]) if base == "eyelash" and side else None
+        if box is None:
+            result.append(part)
+            continue
+        width, height = box[2] - box[0], box[3] - box[1]
+        reach = (int(box[0] - width * 0.15), int(box[1] - height * 0.6), int(box[2] + width * 0.15), int(box[3] + height * 0.4))
+        near = Image.new("L", size, 0)
+        near.paste(ellipse_mask((max(1, reach[2] - reach[0]), max(1, reach[3] - reach[1]))), reach[:2])
+        lash = _on_canvas(part, size)
+        alpha = lash.getchannel("A")
+        keep = ImageChops.multiply(alpha, near)
+        away = ImageChops.subtract(alpha, near)
+        if ImageStat.Stat(away).sum[0] / 255 < 4:
+            result.append(part)
+            continue
+        stray = lash.copy()
+        stray.putalpha(away)
+        face_canvas.alpha_composite(stray)
+        lash.putalpha(keep)
+        bbox = keep.getbbox()
+        changed = True
+        if bbox:
+            result.append(dataclasses.replace(part, image=lash.crop(bbox), left=bbox[0], top=bbox[1]))
+    bbox = face_canvas.getchannel("A").getbbox()
+    settled = dataclasses.replace(face, image=face_canvas.crop(bbox), left=bbox[0], top=bbox[1]) if changed else face
+    # The ears sit above the face but under the eyes: where the lashes covered an ear, what's there
+    # is See-through's guess, which would show through a blink, so the ear gives way there.
+    covered = Image.new("L", size, 0)
+    for part in parts:
+        base, side = parse_tag(part.tag)
+        if base == "eyelash" and side:
+            covered = ImageChops.lighter(covered, _on_canvas(part, size, "A"))
+    final = []
+    for part in result:
+        if part is face:
+            final.append(settled)
+        elif parse_tag(part.tag)[0] in ("ears", "ear"):
+            ear = _on_canvas(part, size)
+            ear.putalpha(ImageChops.subtract(ear.getchannel("A"), covered))
+            box = ear.getchannel("A").getbbox()
+            if box:
+                final.append(dataclasses.replace(part, image=ear.crop(box), left=box[0], top=box[1]))
+        else:
+            final.append(part)
+    return final
+
+
+def trim_neck(parts: list[Part], size, overlap: int = 6) -> list[Part]:
+    """
+    Take the chin and lips out of the neck layer. See-through often draws the lower face into the
+    neck too; the neck sits above the face, so that copy shows as a second jaw line across the face
+    and stays behind when the head turns. The neck keeps a few pixels under the face's edge so no
+    gap opens at the jaw.
+    """
+    face = _alpha_union(parts, size, ("face",)).point(lambda v: 255 if v > 128 else 0)
+    if face.getbbox() is None:
+        return parts
+    inside = face.filter(ImageFilter.MinFilter(2 * overlap + 1))
+    result = []
+    for part in parts:
+        if parse_tag(part.tag)[0] != "neck":
+            result.append(part)
+            continue
+        neck = _on_canvas(part, size)
+        neck.putalpha(ImageChops.subtract(neck.getchannel("A"), inside))
+        box = neck.getchannel("A").getbbox()
+        if box:
+            result.append(dataclasses.replace(part, image=neck.crop(box), left=box[0], top=box[1]))
+    return result
 
 
 def feature_cores(parts: list[Part]) -> dict[str, tuple[int, int, int, int]]:
