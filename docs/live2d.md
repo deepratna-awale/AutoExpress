@@ -224,8 +224,10 @@ are split along the line drawn between them. Each vertex follows its nearest bon
 weights blend across the seams: around the shoulder and the hip the body and the limb share the
 same bones, so the cloth there stretches with the arm or leg instead of splitting. Dragging a
 hand or a foot bends the limb towards the cursor (inverse kinematics). The joints keep to small,
-natural motion (a sway, a lean, an arm lifted a little): one drawing has nothing drawn behind the
-arms, so bigger poses would tear the clothes. A different pose is a new picture, not a bent one.
+natural motion (a sway, a lean, an arm lifted a little). With depth the bones work in 3D: `ParamBone<Name>Swing`
+swings the spine, an arm or a leg a little towards the viewer (or away; an arm swung back goes behind
+the body), each point moving at its own depth while the view stays the picture's. All of it stays small: one
+drawing has nothing drawn behind the arms, so bigger poses would tear the clothes. A different pose is a new picture, not a bent one.
 
 Expression changes glide: every parameter eases towards its new value instead of jumping. Skirts
 and ribbons swing behind the body like hair.
