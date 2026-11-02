@@ -9,6 +9,7 @@ AutoExpress talks to ComfyUI over its API, so ComfyUI can run on a rented GPU wh
 | Container image | `runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04` (RunPod's official PyTorch image, available on every RunPod GPU) |
 | GPU | RTX PRO 6000 (96 GB) is what the animated sprites were tested on. Any 48 GB+ card works well (RTX 6000 Ada, L40S, A40, A100, H100); 24 GB cards work with ComfyUI's model offloading, more slowly. Blackwell cards need the CUDA 12.8 image above. |
 | Container disk | 200 GB (the models below take about 80 GB) |
+| Volume | none, or 100 GB+ if you want the models to survive stopping the pod (then run the setup script with `COMFYUI_DIR=/workspace/ComfyUI`). RunPod's default 20 GB volume is too small. |
 | HTTP ports | 8888 (Jupyter), 8188 (ComfyUI) |
 | Environment | `JUPYTER_PASSWORD` set to a password of your own |
 
@@ -29,7 +30,7 @@ Open the pod's Jupyter (`https://<pod id>-8888.proxy.runpod.net`), start a termi
 curl -fsSL https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/scripts/runpod/setup_comfyui.sh | bash
 ```
 
-[`setup_comfyui.sh`](../scripts/runpod/setup_comfyui.sh) installs ComfyUI with the Impact Pack and Subpack, downloads the models and starts ComfyUI on port 8188. It skips anything already there, so it's safe to run again. Set `SKIP_WAN=1` or `SKIP_QWEN=1` to leave out a model, and `CHECKPOINT_URL` to also download a checkpoint for face inpainting.
+[`setup_comfyui.sh`](../scripts/runpod/setup_comfyui.sh) installs ComfyUI with the Impact Pack and Subpack, downloads the models and starts ComfyUI on port 8188. It installs into `~/ComfyUI` on the container disk (set `COMFYUI_DIR` to use a volume), and skips anything already there, so it's safe to run again. Set `SKIP_WAN=1` or `SKIP_QWEN=1` to leave out a model, and `CHECKPOINT_URL` to also download a checkpoint for face inpainting.
 
 | Model | Used for | Files (ComfyUI `models/`) | Size |
 |---|---|---|---|

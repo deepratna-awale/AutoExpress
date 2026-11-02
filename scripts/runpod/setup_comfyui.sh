@@ -13,7 +13,9 @@
 #   3. Optionally a checkpoint for face inpainting (CHECKPOINT_URL).
 #
 # Settings (environment variables):
-#   COMFYUI_DIR      where ComfyUI goes (default /workspace/ComfyUI if /workspace exists, else ~/ComfyUI)
+#   COMFYUI_DIR      where ComfyUI goes (default ~/ComfyUI, on the container disk). Set it to /workspace/ComfyUI
+#                    to keep everything on a pod volume, which needs about 100 GB: RunPod's default 20 GB
+#                    volume runs out of quota part way through the downloads.
 #   AUTOEXPRESS_DIR  where AutoExpress goes (default next to ComfyUI)
 #   AUTOEXPRESS_REF  branch or tag of AutoExpress to use (default main)
 #   SKIP_QWEN=1      skip Qwen-Image-Edit (about 31 GB)
@@ -23,9 +25,7 @@
 #   COMFYUI_PORT     ComfyUI's port (default 8188)
 set -euo pipefail
 
-BASE="${HOME}"
-[ -d /workspace ] && BASE=/workspace
-COMFYUI_DIR="${COMFYUI_DIR:-$BASE/ComfyUI}"
+COMFYUI_DIR="${COMFYUI_DIR:-$HOME/ComfyUI}"
 AUTOEXPRESS_DIR="${AUTOEXPRESS_DIR:-$(dirname "$COMFYUI_DIR")/AutoExpress}"
 AUTOEXPRESS_REF="${AUTOEXPRESS_REF:-main}"
 COMFYUI_PORT="${COMFYUI_PORT:-8188}"
