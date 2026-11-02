@@ -224,7 +224,16 @@ def grid_for(width: int, height: int, step: int = 28, most: int = 40) -> list[in
 
 
 def build_puppet(
-    tree: list, manifest: dict, size: tuple[int, int], folder, name: str, parts: list | None = None, enhance=None, joints: dict | None = None, neutral_pose: bool = False
+    tree: list,
+    manifest: dict,
+    size: tuple[int, int],
+    folder,
+    name: str,
+    parts: list | None = None,
+    enhance=None,
+    joints: dict | None = None,
+    neutral_pose: bool = False,
+    depth_maps: dict | None = None,
 ) -> dict:
     """
     Write a puppet for the kit's layer tree (top to bottom, as build_tree returns it) into folder.
@@ -236,7 +245,9 @@ def build_puppet(
 
     joints (canvas pixels, from a pose detector: see skeleton.from_keypoints) give the puppet a
     full-body skeleton to pose; neutral_pose says the character stands in the neutral A-pose, so
-    without joints the skeleton comes from anime proportions. Returns the puppet document.
+    without joints the skeleton comes from anime proportions. depth_maps ({See-through tag: mode L
+    canvas}, "" for the nearest surface; see layers.depth_canvases) give every mesh point a depth
+    ("Z"), so turning the head or the body shows real parallax. Returns the puppet document.
     """
     folder = pathlib.Path(folder)
     if folder.exists():
@@ -288,6 +299,8 @@ def build_puppet(
                     "Grid": grid_for(image.width, image.height),
                     "Visible": bool(layer.visible),
             }
+            if info.get("tag"):
+                entry["Tag"] = info["tag"]
             base = " ".join(w for w in layer.name.split() if w not in ("L", "R") and not w.isdigit())
             if base.endswith(" half"):
                 base = base[: -len(" half")]
@@ -343,6 +356,8 @@ def build_puppet(
         for entry in entries:
             if entry["Role"] not in HEAD_ROLES:
                 entry["Grid"] = grid_for(entry["Width"], entry["Height"], step=20, most=64)
+    if depth_maps:
+        rig["Depth"] = add_depth(entries, depth_maps, rig)
     written = model_files.write_model_files(folder)
     outfits = write_outfits(folder, entries)
     written["Expressions"] = written["Expressions"] + outfits
@@ -376,6 +391,85 @@ def build_puppet(
     (folder / f"{name}{SUFFIX}").write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     write_preview(folder, name)
     return document
+
+
+# Layers made from edits after the split, and which of See-through's layers' depth they take.
+DEPTH_FALLBACK = {"nude body": "", "inner wear": "", "inner top": "", "inner bottom": "", "hair underlay": "front hair"}
+
+
+def save_depth(folder, depth_maps: dict) -> None:
+    """Write depth canvases (layers.depth_canvases) as PNGs with an index.json of tag -> file."""
+    folder = pathlib.Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    index = {}
+    for tag, depth in depth_maps.items():
+        file = (_safe(tag) if tag else "nearest") + ".png"
+        depth.save(folder / file)
+        index[tag] = file
+    (folder / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+
+
+def load_depth(folder) -> dict:
+    """What save_depth wrote ({} without it)."""
+    folder = pathlib.Path(folder)
+    try:
+        index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    result = {}
+    for tag, file in index.items():
+        try:
+            with Image.open(folder / file) as depth:
+                result[tag] = depth.convert("L")
+        except OSError:
+            continue
+    return result
+
+
+def add_depth(entries: list[dict], depth_maps: dict, rig: dict) -> dict:
+    """
+    Give every layer's mesh points a depth ("Z": 0 nearest to 255 farthest, row by row over its
+    Grid) from its See-through layer (or the nearest surface), and return the rig's depth: the head's
+    and the body's turning centre and how many canvas pixels one step of depth is.
+    """
+    import numpy as np
+
+    face_box = rig["Head"]["Box"]
+    face_w = face_box[2] - face_box[0]
+    # Smooth: the estimate is noisy along strands and edges, and neighbouring points moving apart
+    # by different amounts tear the mesh.
+    radius = max(2.0, face_w * 0.12)
+    arrays = {tag: np.asarray(depth.filter(ImageFilter.GaussianBlur(radius))) for tag, depth in depth_maps.items()}
+    nearest = arrays.get("")
+    for entry in entries:
+        tag = entry.get("Tag") or ""
+        depth = arrays.get(tag)
+        if depth is None:
+            depth = arrays.get(DEPTH_FALLBACK.get(tag.removesuffix(" half"), ""), nearest)
+        if depth is None:
+            continue
+        cols, rows = entry["Grid"]
+        xs = np.clip(np.round(entry["X"] + np.linspace(0, entry["Width"], cols)).astype(int), 0, depth.shape[1] - 1)
+        ys = np.clip(np.round(entry["Y"] + np.linspace(0, entry["Height"], rows)).astype(int), 0, depth.shape[0] - 1)
+        entry["Z"] = depth[np.ix_(ys, xs)].astype(int).ravel().tolist()
+
+    def median(roles):
+        values = [z for e in entries if e["Role"] in roles and e.get("Z") for z in e["Z"]]
+        return float(np.median(values)) if values else None
+
+    face = median(("face",)) or 0.0
+    back = median(("back_hair",))
+    # From the face to the back of the head is about a face's width.
+    span = max(20.0, (back - face) if back is not None else 60.0)
+    scale = face_w * 1.1 / span
+    body_z = median(("clothing", "nude_body")) or face
+    body_w = rig["Body"]["Box"][2] - rig["Body"]["Box"][0]
+    return {
+        "Head": round(face + span / 2, 1),
+        # The body turns about its middle, a quarter of its width behind its front.
+        "Body": round(body_z + body_w * 0.25 / scale, 1),
+        "Scale": round(scale, 4),
+    }
 
 
 def jaw_line(folder, entries: list[dict], mouth_box) -> list | None:
@@ -1126,5 +1220,7 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
         tree.append(Group(group["name"], children))
     groups = [{**group, "layers": [info for info in group["layers"] if any(layer.name == info["name"] for g in tree if g.name == group["name"] for layer in g.children)]} for group in manifest["groups"]]
     output = pathlib.Path(output) if output else kit_folder / "puppet" / name
-    build_puppet(tree, {**manifest, "groups": groups}, size, output, name, neutral_pose=bool(manifest.get("neutral_pose")))
+    build_puppet(
+        tree, {**manifest, "groups": groups}, size, output, name, neutral_pose=bool(manifest.get("neutral_pose")), depth_maps=load_depth(kit_folder / "depth") or None
+    )
     return output

@@ -536,7 +536,7 @@ def seethrough_session(prefix_holder):
                     return FakeResponse(None, 200, content=f"{prefix}_t_u_layers.json".encode())
                 if name.endswith("_layers.json"):
                     info = {"width": 1280, "height": 1280, "layers": [
-                        {"name": "face", "filename": f"{prefix}_face.png", "left": 100, "top": 50, "right": 200, "bottom": 150, "depth_median": 0.5},
+                        {"name": "face", "filename": f"{prefix}_face.png", "left": 100, "top": 50, "right": 200, "bottom": 150, "depth_median": 0.5, "depth_filename": f"{prefix}_face_depth.png"},
                         {"name": "irides-l", "filename": f"{prefix}_irides-l.png", "left": 160, "top": 90, "right": 170, "bottom": 100, "depth_median": 0.4},
                     ]}
                     return FakeResponse(None, 200, content=json.dumps(info).encode())
@@ -556,6 +556,8 @@ def test_comfyui_splits_layers_with_see_through():
     parts, size = backend.decompose_layers(pil_to_b64(Image.new("RGB", (64, 64))), layers.SplitSettings(seed=7))
     assert size == (1280, 1280)
     assert [(p.tag, p.left, p.top, p.depth) for p in parts] == [("face", 100, 50, 0.5), ("irides-l", 160, 90, 0.4)]
+    # The face's depth map comes along (the iris had none).
+    assert parts[0].depth_map is not None and parts[0].depth_map.mode == "L" and parts[1].depth_map is None
     workflow = next(kw["json"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt")
     assert workflow["layerdiff"]["inputs"]["model"] == "layerdifforg/seethroughv0.0.2_layerdiff3d"
     assert workflow["depth_model"]["inputs"]["model"] == "seethroughv0.0.1_marigold"  # the local copy
@@ -1131,3 +1133,40 @@ def test_expression_piece_follows_an_edit_drawn_a_few_pixels_off():
     centre = piece.left + (box[0] + box[2]) / 2
     assert abs(centre - 150) < 6
     assert layers.expression_piece(base, base, (100, 120, 200, 190), skin, "Mouth", "Mouth grin", "ParamMouthGrin") is None
+
+
+def test_depth_maps_give_every_mesh_point_a_depth(tmp_path):
+    size = (200, 300)
+    face = Image.new("RGBA", (60, 80), (240, 200, 180, 255))
+    hair = Image.new("RGBA", (100, 120), (90, 60, 40, 255))
+    near = Image.new("L", (60, 80), 60)
+    far = Image.new("L", (100, 120), 220)
+    parts = [layers.Part("face", face, 70, 40, 0.4, near), layers.Part("back hair", hair, 50, 20, 0.9, far), layers.Part("mouth", face, 0, 0, 0.3)]
+    maps = layers.depth_canvases(parts, size)
+    # The mouth had no map; the nearest surface ("") covers the edits made later.
+    assert set(maps) == {"face", "back hair", ""}
+    # Past the layer's edge the depth is the layer's own.
+    assert maps["face"].getpixel((5, 5)) == 60 and maps[""].getpixel((100, 80)) == 60
+    puppet.save_depth(tmp_path / "depth", maps)
+    loaded = puppet.load_depth(tmp_path / "depth")
+    assert set(loaded) == set(maps)
+    entries = [
+        {"Role": "face", "Tag": "face", "X": 70, "Y": 40, "Width": 60, "Height": 80, "Grid": [3, 4]},
+        {"Role": "back_hair", "Tag": "back hair", "X": 50, "Y": 20, "Width": 100, "Height": 120, "Grid": [4, 4]},
+        {"Role": "inner", "Tag": "inner wear", "X": 60, "Y": 150, "Width": 50, "Height": 50, "Grid": [2, 2]},
+    ]
+    rig = {"Head": {"Box": [70, 40, 130, 120]}, "Body": {"Box": [40, 120, 160, 300]}}
+    depth = puppet.add_depth(entries, loaded, rig)
+    assert [len(e["Z"]) for e in entries] == [12, 16, 4]
+    assert max(entries[0]["Z"]) < min(entries[1]["Z"])  # the face is in front of the back hair
+    # The head turns about a point between the face and the back of the head.
+    assert 60 < depth["Head"] < 220 and depth["Scale"] > 0
+
+
+def test_the_player_turns_by_depth_when_the_puppet_has_it():
+    import pathlib
+
+    source = (pathlib.Path(puppet.__file__).resolve().parent.parent / "resources" / "puppet.js").read_text(encoding="utf-8")
+    # Near points move further than far ones; without depth the drawing order's guess stays.
+    assert "depthRig.Head - layer.z[k >> 1]" in source and "depthRig.Body - layer.z[k >> 1]" in source
+    assert "1 + parallax * layer.dz" in source

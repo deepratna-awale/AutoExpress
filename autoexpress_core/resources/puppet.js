@@ -702,6 +702,8 @@ function definePuppetClass(PIXI) {
             }
             const mesh = new PIXI.SimpleMesh(texture, Float32Array.from(rest), uvs, indices, PIXI.DRAW_MODES.TRIANGLES);
             mesh.autoUpdate = true;
+            // Each point's depth (See-through's), for the parallax of a turn.
+            const z = Array.isArray(entry.Z) && entry.Z.length === count ? Float32Array.from(entry.Z) : null;
             const hair = (this.doc.Rig.Hair || []).find(h => h.Layer === entry.Id);
             const cloth = (this.doc.Rig.Cloth || []).find(c => c.Layer === entry.Id);
             return {
@@ -714,6 +716,7 @@ function definePuppetClass(PIXI) {
                 indices,
                 uvs,
                 rest,
+                z,
                 out: mesh.vertices,
                 hair,
                 cloth,
@@ -1262,6 +1265,11 @@ function definePuppetClass(PIXI) {
             const turn = (S.turn ?? 0.1) * faceW;
             const nod = (S.nod ?? 0.07) * faceH;
             const parallax = S.parallax ?? 0.9;
+            // With depth, a turn is a small rotation: near points move further than far ones.
+            const depthRig = rig.Depth && rig.Depth.Scale > 0 ? rig.Depth : null;
+            const yaw = ax * (S.yaw ?? 12) * Math.PI / 180, pitch = ay * (S.pitch ?? 10) * Math.PI / 180;
+            const sinYaw = Math.sin(yaw), cosYaw = Math.cos(yaw), sinPitch = Math.sin(pitch);
+            const sinBodyYaw = Math.sin(bx * (S.body_yaw ?? 8) * Math.PI / 180);
             const cosT = Math.cos(tilt), sinT = Math.sin(tilt);
             const cosB = Math.cos(bodyTilt), sinB = Math.sin(bodyTilt);
             const hairSwing = {
@@ -1469,9 +1477,16 @@ function definePuppetClass(PIXI) {
                         else if (role === 'back_hair' || role === 'front_hair') w = rest[k + 1] <= py ? 1 : lerp(1, role === 'back_hair' ? 0.25 : 0.5, smoothstep(py, py + r * 1.5, rest[k + 1]));
                         const nx = clamp((rest[k] - cx) / r, -1, 1);
                         const ny = clamp((rest[k + 1] - cy) / r, -1, 1);
-                        const depth = 1 + parallax * layer.dz;
-                        x += ax * turn * (1 - 0.5 * nx * nx) * depth * w;
-                        y -= ay * nod * (1 - 0.5 * ny * ny) * depth * w;
+                        if (depthRig && layer.z) {
+                            // In front of the head's centre by d canvas pixels.
+                            const d = (depthRig.Head - layer.z[k >> 1]) * depthRig.Scale;
+                            x += (sinYaw * d + (x - cx) * (cosYaw - 1)) * w;
+                            y -= sinPitch * d * w;
+                        } else {
+                            const depth = 1 + parallax * layer.dz;
+                            x += ax * turn * (1 - 0.5 * nx * nx) * depth * w;
+                            y -= ay * nod * (1 - 0.5 * ny * ny) * depth * w;
+                        }
                         if (tilt) {
                             const dx = x - px, dy = y - py;
                             const c = lerp(1, cosT, w), s = sinT * w;
@@ -1496,6 +1511,10 @@ function definePuppetClass(PIXI) {
 
                     // Body: lean, turn and breathing ------------------------------------
                     [x, y] = bodyMove(rest[k], rest[k + 1], x, y);
+                    if (depthRig && layer.z && sinBodyYaw) {
+                        const up = clamp((bpy - rest[k + 1]) / bodyH, 0, 1);
+                        x += sinBodyYaw * (depthRig.Body - layer.z[k >> 1]) * depthRig.Scale * up;
+                    }
 
                     // Skeleton: the bones' pose, blended between the two nearest bones --------
                     if (boneM) {

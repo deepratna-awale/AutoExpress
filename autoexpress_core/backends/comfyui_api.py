@@ -719,6 +719,12 @@ class ComfyUIClient(RemoteBackend):
             for entry in info.get("layers", []):
                 layer = Image.open(io.BytesIO(self._output_file(entry["filename"])))
                 layer.load()
+                depth_map = None
+                if entry.get("depth_filename"):
+                    try:
+                        depth_map = Image.open(io.BytesIO(self._output_file(entry["depth_filename"]))).convert("L")
+                    except (BackendError, OSError):
+                        depth_map = None  # only the head turn's parallax uses it
                 parts.append(
                     live2d_layers.Part(
                         tag=entry["name"],
@@ -726,6 +732,7 @@ class ComfyUIClient(RemoteBackend):
                         left=int(entry.get("left", 0)),
                         top=int(entry.get("top", 0)),
                         depth=float(entry.get("depth_median", 1.0)),
+                        depth_map=depth_map,
                     )
                 )
             if not parts:
