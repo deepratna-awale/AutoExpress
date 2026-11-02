@@ -745,3 +745,15 @@ def test_small_pictures_are_upscaled_with_the_backends_model():
     assert backend.asked == 1 and picture.size == (1024, 683)
     assert kit.prepare_picture(character((300, 200)), min_side=1024).size == (1024, 683)  # Lanczos without a model
     assert kit.prepare_picture(character((300, 200))).size == (300, 200)
+
+
+def test_defringe_drops_the_pale_halo_but_keeps_the_outline():
+    image = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((4, 4, 35, 35), fill=(250, 250, 250, 255))  # pale halo baked in around the hair
+    draw.rectangle((7, 7, 32, 32), fill=(20, 10, 5, 255))  # dark outline
+    draw.rectangle((9, 9, 30, 30), fill=(90, 60, 40, 255))  # the hair
+    fixed = layers.defringe(image)
+    assert sum(fixed.getpixel((5, 20))[:3]) < 400  # halo recoloured
+    assert fixed.getpixel((8, 20))[:3] == (20, 10, 5)  # outline kept
+    assert fixed.getpixel((20, 20))[:3] == (90, 60, 40)
