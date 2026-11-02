@@ -114,7 +114,7 @@ The full documentation is in [docs/](docs/README.md):
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to set up a dev environment and run the tests, and read the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues as described in [SECURITY.md](SECURITY.md). Changes are listed in the [changelog](CHANGELOG.md).
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to set up a dev environment and run the tests, and read the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues as described in [SECURITY.md](SECURITY.md). Changes are listed in the [changelog](CHANGELOG.md). AI coding agents and assistants: see [AGENTS.md](AGENTS.md) for setup, the backends each feature needs, GPU deployment and the HTTP API.
 
 ## Acknowledgements
 
