@@ -9,6 +9,9 @@ Live2D model kits from the command line.
     python -m autoexpress_core.live2d attach path/to/exported_model_folder
         Add the 28 emotions' expressions and motions to a rigged model (a folder with a .model3.json)
         and write sillytavern_settings.json for the SillyTavern Live2D extension.
+    python -m autoexpress_core.live2d puppet path/to/kit_folder [--output folder]
+        Make the ready-to-play puppet from a kit folder (for kits made before puppets, or after
+        editing the layer PNGs).
     python -m autoexpress_core.live2d lora "Hinata Hyuga" [--arch illustrious]
         Look for a character LoRA on Civitai.
 """
@@ -59,6 +62,13 @@ def _attach(args) -> int:
     return 0
 
 
+def _puppet(args) -> int:
+    from .puppet import from_kit
+
+    print(from_kit(args.folder, args.output))
+    return 0
+
+
 def _lora(args) -> int:
     from ..civitai_key import find_civitai_key
     from .character_lora import search
@@ -91,6 +101,11 @@ def main(argv=None) -> int:
     attach.add_argument("folder")
     attach.add_argument("--no-backup", action="store_true", help="don't keep a .bak copy of the .model3.json")
     attach.set_defaults(run=_attach)
+
+    puppet = commands.add_parser("puppet", help="make the ready-to-play puppet from a kit folder")
+    puppet.add_argument("folder")
+    puppet.add_argument("--output", default=None, help="where to write it (default: <kit>/puppet/<name>)")
+    puppet.set_defaults(run=_puppet)
 
     lora = commands.add_parser("lora", help="look for a character LoRA on Civitai")
     lora.add_argument("name")

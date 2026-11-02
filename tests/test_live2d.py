@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 from autoexpress_core.backends.comfyui_api import ComfyUIClient
 from autoexpress_core.images import b64_to_pil, pil_to_b64
-from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, psd
+from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, psd, puppet
 
 from test_remote_backends import ComfySession, FakeResponse, comfy_routes
 
@@ -395,6 +395,65 @@ def test_build_kit_writes_the_whole_kit(tmp_path):
     assert {layer.name for layer in flat} >= {"front hair", "irides-l", "back hair"}
     with zipfile.ZipFile(result.zip_path) as archive:
         assert "hina/hina.psd" in archive.namelist() and "hina/runtime/expressions/sadness.exp3.json" in archive.namelist()
+        assert "hina/puppet/hina/hina.puppet.model.json" in archive.namelist()
+    with zipfile.ZipFile(result.puppet_zip) as archive:
+        names = archive.namelist()
+        assert {"hina/hina.puppet.model.json", "hina/sillytavern_settings.json", "hina/preview.html", "hina/puppet.js"} <= set(names)
+        assert any(n.startswith("hina/textures/") for n in names) and "hina/expressions/joy.exp3.json" in names
+
+
+# Puppets ---------------------------------------------------------------------------
+def test_puppet_roles_cover_the_kit_layers():
+    assert puppet.role_of("Eye L", "Iris L") == ("iris", "L")
+    assert puppet.role_of("Eye R", "Eye R closed") == ("eye_closed", "R")
+    assert puppet.role_of("Face", "Eyebrow L") == ("brow", "L")
+    assert puppet.role_of("Mouth", "Mouth open") == ("mouth_open", None)
+    assert puppet.role_of("Body", "Arm R") == ("arm", "R")
+    assert puppet.role_of("Body", "Neck") == ("neck", None)
+    assert puppet.role_of("Front hair", "Front hair") == ("front_hair", None)
+    assert puppet.role_of("Other", "Whiskers") == ("body", None)
+
+
+def test_build_puppet_writes_a_playable_puppet(tmp_path):
+    parts = seethrough_parts()
+    base = character().convert("RGBA")
+    overlays = layers.edit_overlays(parts, base, character(eyes_closed=True).convert("RGBA"), character(mouth_open=True).convert("RGBA"))
+    tree, manifest = layers.build_tree(parts, overlays)
+    folder = tmp_path / "hina"
+    document = puppet.build_puppet(tree, manifest, (400, 400), folder, "hina", parts)
+    saved = puppet.load(folder / "hina.puppet.model.json")
+    assert saved == document and saved["Type"] == puppet.FORMAT
+    assert puppet.is_puppet("assets/live2d/hina/hina.puppet.model.json") and "model" in "hina.puppet.model.json"
+    entries = saved["Layers"]
+    roles = [entry["Role"] for entry in entries]
+    # Drawn bottom to top: back hair first, front hair last, the closed eye above the open one.
+    assert roles[0] == "back_hair" and roles[-1] == "front_hair"
+    assert roles.index("eye_closed") > roles.index("iris")
+    assert roles.index("mouth_open") > roles.index("face")
+    for entry in entries:
+        with Image.open(folder / entry["Texture"]) as texture:
+            assert texture.size == (entry["Width"], entry["Height"])
+        assert entry["Grid"][0] >= 2 and entry["Grid"][1] >= 2
+    rig = saved["Rig"]
+    assert set(rig["Eyes"]) == {"L", "R"} and rig["Eyes"]["L"]["Box"][0] > rig["Eyes"]["R"]["Box"][0]
+    assert rig["Mouth"]["Open"] is not None and rig["Head"]["Pivot"][1] > rig["Head"]["Center"][1]
+    assert {area["Name"] for area in saved["HitAreas"]} == {"Head", "Body"}
+    ids = {p["Id"] for p in saved["Parameters"]}
+    for item in saved["FileReferences"]["Expressions"]:
+        expression = json.loads((folder / item["File"]).read_text())
+        assert {p["Id"] for p in expression["Parameters"]} <= ids  # every expression drives puppet parameters
+    assert "Idle" in saved["FileReferences"]["Motions"]
+    settings = json.loads((folder / "sillytavern_settings.json").read_text())
+    assert settings["classify_mapping"]["joy"]["expression"] == "joy" and settings["param_mouth_open_y_id"] == "ParamMouthOpenY"
+    assert (folder / "puppet.js").exists() and "hina.puppet.model.json" in (folder / "preview.html").read_text()
+
+
+def test_puppet_from_an_existing_kit_folder(tmp_path):
+    result = kit.build_kit(FakeBackend(), [character()], tmp_path, "mira", {"resolution": 1024}, log=lambda _: None)
+    out = puppet.from_kit(result.folder, tmp_path / "again")
+    again = puppet.load(out / "mira.puppet.model.json")
+    first = puppet.load(result.folder / "puppet" / "mira" / "mira.puppet.model.json")
+    assert [e["Role"] for e in again["Layers"]] == [e["Role"] for e in first["Layers"]]
 
 
 def test_build_kit_uses_face_inpainting_with_an_installed_character_lora(tmp_path):
