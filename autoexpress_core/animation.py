@@ -25,7 +25,7 @@ import re
 import sys
 from functools import lru_cache
 
-from PIL import Image, ImageMath
+from PIL import Image, ImageChops, ImageMath
 
 from .instruction_edit import HF, PHOTO, ModelFile
 
@@ -358,15 +358,23 @@ def loop_frames(frames: list[Image.Image]) -> list[Image.Image]:
     return frames[:-1] if len(frames) > 2 else frames
 
 
-def pick_key_color(image: Image.Image) -> tuple[int, int, int]:
-    """A flat background color far from the character's own colors: green, unless the character has green in it."""
+def _opaque_colors(image: Image.Image) -> list[tuple[int, int, int]]:
     small = image.convert("RGBA").resize((64, 64))
     data = small.get_flattened_data() if hasattr(small, "get_flattened_data") else small.getdata()  # Pillow < 12.1
-    pixels = [p[:3] for p in data if p[3] > 128] or [(128, 128, 128)]
+    return [p[:3] for p in data if p[3] > 128] or [(128, 128, 128)]
+
+
+def key_distance(image: Image.Image, color: tuple[int, int, int]) -> float:
+    """How far (RGB distance) the character's closest color is from a key color."""
+    return min(sum((a - b) ** 2 for a, b in zip(color, p)) for p in _opaque_colors(image)) ** 0.5
+
+
+def pick_key_color(image: Image.Image) -> tuple[int, int, int]:
+    """A flat background color far from the character's own colors: green, unless the character has green in it."""
     best, best_distance = KEY_COLOR, -1.0
     for candidate in (KEY_COLOR, (255, 0, 255), (0, 128, 255), (255, 255, 255), (128, 128, 128)):
-        distance = min(sum((a - b) ** 2 for a, b in zip(candidate, p)) for p in pixels)
-        if distance >= 120**2:
+        distance = key_distance(image, candidate)
+        if distance >= 120:
             return candidate
         if distance > best_distance:
             best, best_distance = candidate, distance
@@ -408,6 +416,37 @@ def remove_background_frames(frames: list[Image.Image], model: str, smooth: int 
     return result
 
 
+def _math(expression: str, func, **images):
+    """ImageMath with lambda_eval on Pillow 11+ and the older string eval before it."""
+    if hasattr(ImageMath, "lambda_eval"):
+        return ImageMath.lambda_eval(lambda e: func(*(e[name] for name in images)), **images)
+    return ImageMath.eval(expression, **images)  # Pillow < 11
+
+
+def key_out(frame: Image.Image, color: tuple[int, int, int], inner: int = 60, outer: int = 110) -> Image.Image:
+    """
+    Make pixels close to the key color transparent, on top of the cut-out's own alpha.
+
+    rembg sometimes keeps patches of the flat background (between the arms, beside the hair); since the
+    key color was picked far from the character's colors, anything this close to it is background.
+    Pixels within inner of the key go fully transparent, beyond outer they keep their alpha.
+    """
+    rgba = frame.convert("RGBA")
+    r, g, b, a = (band.convert("F") for band in rgba.split())
+    kr, kg, kb = (float(c) for c in color)
+    low, high = float(inner * inner), float(outer * outer)
+    distance = _math(
+        f"(r - {kr}) * (r - {kr}) + (g - {kg}) * (g - {kg}) + (b - {kb}) * (b - {kb})",
+        lambda r, g, b: (r - kr) * (r - kr) + (g - kg) * (g - kg) + (b - kb) * (b - kb),
+        r=r, g=g, b=b,
+    )
+    scale = 255.0 / (high - low)
+    keyed = distance.point(lambda v: v * scale - low * scale)  # a linear map, so Pillow applies it as scale and offset
+    alpha = ImageChops.darker(a.convert("L"), keyed.convert("L"))  # convert("L") clamps to 0..255
+    rgba.putalpha(alpha)
+    return rgba
+
+
 def despill(frame: Image.Image, color: tuple[int, int, int]) -> Image.Image:
     """
     Take the key color back out of semi-transparent edge pixels, so cut-outs don't keep a colored fringe.
@@ -423,10 +462,7 @@ def despill(frame: Image.Image, color: tuple[int, int, int]) -> Image.Image:
     share = alpha.point(lambda v: max(v, 1)).convert("F")
     bands = []
     for band, key in zip(rgba.split()[:3], color):
-        if hasattr(ImageMath, "lambda_eval"):
-            value = ImageMath.lambda_eval(lambda e: (e["c"] * 255.0 - (255.0 - e["a"]) * key) / e["a"], c=band.convert("F"), a=share)
-        else:  # Pillow < 11
-            value = ImageMath.eval("(c * 255.0 - (255.0 - a) * k) / a", c=band.convert("F"), a=share, k=float(key))
+        value = _math(f"(c * 255.0 - (255.0 - a) * {float(key)}) / a", lambda c, a: (c * 255.0 - (255.0 - a) * key) / a, c=band.convert("F"), a=share)
         bands.append(value.convert("L"))  # clamps to 0..255
     fixed = Image.merge("RGBA", (*bands, alpha))
     return Image.composite(fixed, rgba, edge)
@@ -473,6 +509,9 @@ def animate_sprite(backend, still: Image.Image, expression: str, settings: Anima
         from .background import ILLUSTRATION_MODEL
 
         frames = remove_background_frames(frames, background_model or ILLUSTRATION_MODEL)
+        # Keying out the flat color is only safe when the character has nothing close to it.
+        if key_distance(still, key) >= 120:
+            frames = [key_out(frame, key) for frame in frames]
         frames = [despill(frame, key) for frame in frames]
     if frames and parameters:
         frames[0].info["parameters"] = parameters

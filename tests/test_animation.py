@@ -293,3 +293,11 @@ def test_missing_models_lists_the_wan_files(tmp_path):
     names = [model.name for model in animation.missing_models(tmp_path)]
     assert "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors" in names and len(names) == 6
     assert animation.main(["check", str(tmp_path)]) == 1
+
+
+def test_key_out_clears_leftover_key_color():
+    frame = Image.new("RGBA", (3, 1))
+    frame.putdata([(250, 5, 250, 255), (200, 60, 190, 255), (30, 40, 50, 255)])
+    keyed = animation.key_out(frame, (255, 0, 255))
+    assert [keyed.getpixel((x, 0))[3] for x in range(3)] == [0, 217, 255]
+    assert animation.key_distance(Image.new("RGB", (4, 4), (0, 255, 0)), (0, 255, 0)) == 0
