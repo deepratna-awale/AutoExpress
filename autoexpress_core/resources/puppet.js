@@ -493,7 +493,8 @@ function definePuppetClass(PIXI) {
 
             // Idle in the background when nothing else plays.
             const idle = this.internalModel.settings.motions.Idle;
-            if (idle && idle.length && !this._motions.some(m => m.group === 'Idle' && m.fadeOutStart === undefined) && !this._idleLoading) {
+            const reacting = this._motions.some(m => m.group !== 'Idle' && m.fadeOutStart === undefined);
+            if (idle && idle.length && !reacting && !this._motions.some(m => m.group === 'Idle' && m.fadeOutStart === undefined) && !this._idleLoading) {
                 this._idleLoading = true;
                 this.motion('Idle').finally(() => (this._idleLoading = false));
             }
@@ -506,7 +507,9 @@ function definePuppetClass(PIXI) {
                 if (active.fadeOutStart !== undefined && now - active.fadeOutStart > m.fadeOut) return false;
                 return true;
             });
-            for (const active of this._motions) {
+            // The idle loop goes underneath whatever else plays.
+            const ordered = [...this._motions.filter(a => a.group === 'Idle'), ...this._motions.filter(a => a.group !== 'Idle')];
+            for (const active of ordered) {
                 const m = active.motion;
                 const t = now - active.start;
                 const local = m.loop ? t % m.duration : t;
