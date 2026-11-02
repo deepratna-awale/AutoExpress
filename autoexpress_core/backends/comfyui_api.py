@@ -938,7 +938,9 @@ class ComfyUIClient(RemoteBackend):
         files = self.animate_files()
         if not all(files[role] for role in ("high_noise", "low_noise", "text_encoder", "vae")):
             self.ensure_animate_ready()  # raises with the list of missing files
-        lightning = settings.lightning if settings.lightning is not None else bool(files["lightning_high"] and files["lightning_low"])
+        # Full sampling by default: at the 4-step LoRAs' cfg 1 the negative prompt (talking, lip sync, ...) has no
+        # effect, and smiling or upset faces then open and close the mouth as if talking.
+        lightning = bool(settings.lightning)
         if lightning and not (files["lightning_high"] and files["lightning_low"]):
             log.warning("Wan 2.2 4-step LoRAs not found, sampling 20 steps instead.")
             lightning = False

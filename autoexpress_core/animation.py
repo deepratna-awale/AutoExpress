@@ -142,6 +142,7 @@ class AnimationSettings:
     cfg: float | None = None
     shift: float = 5.0
     seed: int = -1
+    # None/False: full sampling (20 steps, cfg 3.5, the negative prompt applies); True: the 4-step LoRAs, ~6x faster.
     lightning: bool | None = None
     loop: bool = True
     formats: tuple[str, ...] = DEFAULT_FORMATS

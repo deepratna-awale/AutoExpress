@@ -161,6 +161,8 @@ export interface AnimationSettings {
   formats?: string[];
   idle_motion?: string;
   idle_source?: IdleSource | "none";
+  /** Wan 2.2's 4-step LoRAs: faster, lower quality. Off by default. */
+  lightning?: boolean;
 }
 
 export interface AnimationInfo {

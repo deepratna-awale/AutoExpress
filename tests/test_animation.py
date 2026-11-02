@@ -119,6 +119,7 @@ def test_motions_are_silent_reactions():
             assert word not in lowered, (name, word)
     assert "does not speak" in animation.build_motion_prompt("joy")
     assert "does not speak" in animation.build_motion_prompt("joy", style="photo")
+    assert "mouth does not open" in animation.build_motion_prompt("surprise")
     assert "talking" in animation.negative_prompt() and "lip sync" in animation.negative_prompt()
 
 
@@ -263,7 +264,7 @@ def test_comfyui_builds_the_wan_workflow():
     assert backend.can_animate and backend.check_ready("animate") == (True, "ok")
 
     still = Image.new("RGB", (400, 600))
-    result = backend.animate(pil_to_b64(still), "She waves.", "static", animation.AnimationSettings(seed=3))
+    result = backend.animate(pil_to_b64(still), "She waves.", "static", animation.AnimationSettings(seed=3, lightning=True))
     assert len(result) == 3  # every frame of the PreviewImage node
 
     workflow = next(kw["json"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt")
@@ -288,6 +289,13 @@ def test_comfyui_wan_without_lightning_and_missing_files():
     workflow = next(kw["json"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt")
     assert "high_lightning" not in workflow and workflow["sample_high"]["inputs"]["steps"] == 20
     assert "end_image" not in workflow["video"]["inputs"]
+
+    # Full sampling is the default even with the 4-step LoRAs installed, so the negative prompt applies.
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = ComfySession(wan_routes())
+    backend.animate(pil_to_b64(Image.new("RGB", (64, 64))), "x", "y", animation.AnimationSettings())
+    workflow = next(kw["json"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt")
+    assert "high_lightning" not in workflow and workflow["sample_high"]["inputs"]["cfg"] == 3.5
 
     routes = wan_routes()
     routes["GET /object_info/UNETLoader"]["UNETLoader"]["input"]["required"]["unet_name"] = [["flux1-dev.safetensors"]]

@@ -13,7 +13,7 @@
   "expressions": {
     "admiration": "The character looks on with quiet admiration: eyes slightly widened and shining, eyebrows gently raised, and a soft closed-mouth smile.",
     "amusement": "The character is amused: a playful lopsided smirk, eyes narrowed with mirth and one eyebrow slightly raised.",
-    "anger": "The character is angry: eyebrows drawn down and together, eyes narrowed into a glare, and the lips pressed into a firm frown.",
+    "anger": "The character is angry: eyebrows drawn down and together, eyes narrowed into a glare, and the lips pressed into a firm frown with no teeth showing.",
     "annoyance": "The character is annoyed: a small frown, lips pressed into a flat line and half-lidded eyes glancing to the side.",
     "approval": "The character shows approval: a calm, satisfied closed-mouth smile and relaxed, confident eyes.",
     "caring": "The character looks caring and compassionate: a soft warm smile, gentle eyes and eyebrows tilted up with concern.",
@@ -39,6 +39,19 @@
     "remorse": "The character is remorseful: eyes glistening with held-back tears, eyebrows drawn up in the middle and lips pressed together.",
     "sadness": "The character is sad: the inner ends of the eyebrows raised, eyes teary and looking slightly down, and the mouth turned down in a small frown. The head does not move or tilt.",
     "surprise": "The character is surprised: eyes wide open, eyebrows raised high and the mouth open in a small round shape. The skin color does not change."
+  },
+  "closed_mouth": {
+      "_comment": "Used instead of 'expressions' and 'subtle' for animated sprites. The video model keeps the first and last frame, so an open mouth in the still opens and closes during the clip and looks like talking; chatbot reaction sprites keep the mouth closed.",
+      "anger": "The character is angry: eyebrows drawn down and together, eyes narrowed into a glare, and the mouth closed in a firm frown with no teeth showing.",
+      "confusion": "The character is confused: one eyebrow raised and the other lowered, eyes uncertain, and the mouth closed in a small puzzled pout.",
+      "curiosity": "The character is curious: eyes wide and attentive, eyebrows raised, and the mouth closed in a small interested smile.",
+      "disgust": "The character is disgusted: nose wrinkled, eyes squinting and the mouth closed in a tight grimace with no teeth showing.",
+      "excitement": "The character is excited: eyes wide and sparkling, eyebrows high, and a big smile with the lips pressed together; not laughing or cheering.",
+      "fear": "The character is frightened: eyes widened, eyebrows raised and pulled together, lips pressed together, and a drop of sweat on the forehead. The skin color does not change.",
+      "grief": "The character is overwhelmed with grief: eyes squeezed shut, tears streaming down the cheeks and the lips pressed together and trembling.",
+      "joy": "The character is happy: eyes closed in happy crescents and a broad smile with the lips pressed together, like a contented grin; not laughing.",
+      "realization": "The character has a sudden realization: eyes snapping wide, eyebrows shooting up and the mouth closed.",
+      "surprise": "The character is surprised: eyes wide open, eyebrows raised high and the mouth closed. The skin color does not change."
   },
   "intensity": {
     "subtle": "Keep the change subtle and natural, the way a real person would show it.",

@@ -177,6 +177,9 @@ interface AutoExpressState {
   suggestingIdle: boolean;
   animationFormats: string[];
   setAnimationFormats: (formats: string[]) => void;
+  /** Use Wan 2.2's 4-step LoRAs (fast) instead of full sampling. */
+  animationFast: boolean;
+  setAnimationFast: (value: boolean) => void;
   generating: boolean;
   /** The running job on backends with the job API, null otherwise. */
   job: Job | null;
@@ -341,6 +344,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [idleSource, setIdleSource] = useState<IdleSource>("card");
   const [suggestingIdle, setSuggestingIdle] = useState(false);
   const [animationFormats, setAnimationFormats] = useState<string[]>(["webp"]);
+  // Wan 2.2's 4-step LoRAs: about 6x faster, but they sample without the negative prompt, so mouths move more.
+  const [animationFast, setAnimationFast] = useState(false);
   const imageRef = useRef<string | null>(null);
   const suggestIdleMotion = useCallback(async (source: IdleSource) => {
     if (!imageRef.current) return;
@@ -779,6 +784,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
               animate: true,
               animation: {
                 formats: animationFormats,
+                lightning: animationFast,
                 ...(idleMotion.trim() ? { idle_motion: idleMotion.trim() } : { idle_source: idleSource }),
               },
             }
@@ -808,7 +814,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, pose, posesAvailable, animate, animationInfo, animationFormats, idleMotion, idleSource, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, pose, posesAvailable, animate, animationInfo, animationFormats, animationFast, idleMotion, idleSource, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -879,6 +885,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       suggestingIdle,
       animationFormats,
       setAnimationFormats,
+      animationFast,
+      setAnimationFast,
       generating,
       job,
       generate,
@@ -894,7 +902,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, backgroundRemoval, removeBackground, setRemoveBackground,
-      animationInfo, animate, setAnimate, character, idleMotion, idleSource, suggestIdleMotion, suggestingIdle, animationFormats,
+      animationInfo, animate, setAnimate, character, idleMotion, idleSource, suggestIdleMotion, suggestingIdle, animationFormats, animationFast,
       generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]
   );

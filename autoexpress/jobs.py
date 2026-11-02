@@ -277,10 +277,14 @@ def run_expression_job(job: Job) -> None:
             job.completed.append(name)
         return
 
+    settings = spec.settings
+    if spec.animate is not None:
+        # An open mouth in a still opens and closes in its clip, which looks like talking.
+        settings = {**settings, "closed_mouth": True}
     for name, _ in expression_generator.iter_expressions(
         spec.backend,
         spec.output_path,
-        spec.settings,
+        settings,
         image_str=spec.image,
         is_realistic=spec.is_realistic,
         model_family=spec.family,

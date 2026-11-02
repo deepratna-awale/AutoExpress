@@ -193,6 +193,8 @@ class ExpressionGenerator:
         intensity = expression_intensity.resolve(settings.get("expression_intensity", default_intensity))
         edit_settings = instruction_edit.EditSettings.from_settings(settings)
         extra = settings.get("edit_instruction", "")
+        # Animated sprites keep the mouth closed, see instruction_edit.build_instruction.
+        closed_mouth = bool(settings.pop("closed_mouth", False))
         output_dir = self._prepare_output(output_dir)
         log.info(f"Using {style} instruction edits at intensity {intensity:g} ({len(instructions)} expressions).")
 
@@ -203,7 +205,7 @@ class ExpressionGenerator:
             log.info(f"Editing the expression to {expression_name}.")
             value = instruction_edit.expression_intensity_for(expression_name, intensity, style)
             pose = (poses or {}).get(expression_name) or None
-            instruction = instruction_edit.build_instruction(expression_name, extra, style, value, pose=pose)
+            instruction = instruction_edit.build_instruction(expression_name, extra, style, value, pose=pose, closed_mouth=closed_mouth)
             result = self.backend.instruction_edit(
                 b64_image, instruction, dataclasses.replace(edit_settings, intensity=value, photo=style == instruction_edit.PHOTO, pose=bool(pose))
             )
