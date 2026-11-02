@@ -34,6 +34,7 @@ def main(argv=None) -> int:
     parser.add_argument("--name", default="autoexpress-comfyui")
     parser.add_argument("--gpu", action="append", help="GPU type id to use (repeat to give fallbacks); default: a list of 48 GB+ GPUs")
     parser.add_argument("--disk", type=int, default=200, help="Container disk in GB (the models take about 80 GB)")
+    parser.add_argument("--volume", type=int, default=0, help="Pod volume in GB, mounted at /workspace (default none: RunPod's 20 GB default is too small for the models)")
     parser.add_argument("--community", action="store_true", help="Community cloud instead of secure cloud (cheaper, less available)")
     args = parser.parse_args(argv)
 
@@ -56,6 +57,7 @@ def main(argv=None) -> int:
         "gpuCount": 1,
         "cloudType": "COMMUNITY" if args.community else "SECURE",
         "containerDiskInGb": args.disk,
+        "volumeInGb": args.volume,
         "ports": ["8888/http", "8188/http", "22/tcp"],
         "env": {"JUPYTER_PASSWORD": password},
     }
