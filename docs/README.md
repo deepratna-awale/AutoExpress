@@ -21,6 +21,7 @@
 ## Project
 
 - [Contributing](../CONTRIBUTING.md)
+- [Guide for AI agents](../AGENTS.md): running, deploying and automating AutoExpress
 - [Changelog](../CHANGELOG.md)
 - [Security policy](../SECURITY.md)
 
