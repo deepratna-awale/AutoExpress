@@ -23,11 +23,13 @@ const LOG = '[AutoExpress puppet]';
 
 // How far in front of the face each role sits, for the head-turn parallax (face = 0).
 const ROLE_DEPTH = {
-    front_hair: 0.75, hair_under: 0.75, headwear: 0.65, nose: 0.6, eyewear: 0.6, brow: 0.45, mouth: 0.45, mouth_open: 0.45,
-    eyelash: 0.4, eye_closed: 0.4, eyes: 0.4, iris: 0.35, eye_white: 0.35, cheek: 0.25, face: 0,
+    front_hair: 0.75, hair_under: 0.75, headwear: 0.65, nose: 0.6, eyewear: 0.6, brow: 0.45, brow_angry: 0.45, mouth: 0.45, mouth_open: 0.45,
+    mouth_grin: 0.45, eyelash: 0.4, eye_closed: 0.4, eye_tears: 0.39, eyes: 0.4, iris: 0.35, eye_white: 0.35, cheek: 0.25, face: 0,
     ear: -0.3, back_hair: -0.45,
 };
 const HEAD_ROLES = new Set(Object.keys(ROLE_DEPTH));
+// The bones where each limb joins the body.
+const ROOT_BONES = new Set(['UpperArmL', 'UpperArmR', 'ThighL', 'ThighR']);
 const EYE_ROLES = new Set(['eye_white', 'iris', 'eyelash', 'eyes']);
 // Layers of the body under the head: they jiggle with the soft parts and follow the mouse's pull.
 const SOFT_ROLES = new Set(['body', 'clothing', 'nude_body', 'inner']);
@@ -52,6 +54,46 @@ const lerp = (a, b, t) => a + (b - a) * t;
 function smoothstep(edge0, edge1, x) {
     const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
     return t * t * (3 - 2 * t);
+}
+
+// Skeleton ---------------------------------------------------------------------------------------
+// Rig.Skeleton.Bones, parents first: {Name, Parent, Head, Tail, Radius, Group, Param}. Each bone
+// turns about its Head (canvas pixels, the drawing's pose) by its parameter, in degrees, clockwise
+// on screen; children follow. Affine matrices are [a, b, c, d, e, f]: x' = a x + c y + e,
+// y' = b x + d y + f.
+function segmentDistance(x, y, [ax, ay], [bx, by]) {
+    const dx = bx - ax, dy = by - ay;
+    const t = clamp(((x - ax) * dx + (y - ay) * dy) / Math.max(1e-6, dx * dx + dy * dy), 0, 1);
+    return Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+}
+/** How far along the bone (0 at its head, 1 at its tail) the point projects, unclamped. */
+function alongBone(x, y, [ax, ay], [bx, by]) {
+    const dx = bx - ax, dy = by - ay;
+    return ((x - ax) * dx + (y - ay) * dy) / Math.max(1e-6, dx * dx + dy * dy);
+}
+function applyMatrix(M, o, x, y) {
+    return [M[o] * x + M[o + 2] * y + M[o + 4], M[o + 1] * x + M[o + 3] * y + M[o + 5]];
+}
+function invertAt(M, o, x, y) {
+    const a = M[o], b = M[o + 1], c = M[o + 2], d = M[o + 3];
+    const det = a * d - b * c || 1e-6;
+    const px = x - M[o + 4], py = y - M[o + 5];
+    return [(d * px - c * py) / det, (-b * px + a * py) / det];
+}
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** The jaw's height at x, between its sampled points ([[x, y], ...] left to right). */
+function jawAt(points, x) {
+    if (!points || !points.length) return null;
+    if (x <= points[0][0]) return points[0][1];
+    for (let i = 1; i < points.length; i++) {
+        if (x <= points[i][0]) {
+            const [x0, y0] = points[i - 1];
+            const [x1, y1] = points[i];
+            return y0 + (y1 - y0) * (x - x0) / Math.max(1e-6, x1 - x0);
+        }
+    }
+    return points[points.length - 1][1];
 }
 
 export function isPuppetPath(source) {
@@ -423,14 +465,23 @@ function definePuppetClass(PIXI) {
          * or a joint of the skeleton to pose ('head', 'arm L' / 'arm R', 'torso'), or null.
          */
         _grabbable(x, y) {
+            // A hand or a leg over the bust or hips is the limb's (it's drawn in front of them).
+            const limb = this.poseable && this._bones ? this._boneAt(x, y) : null;
+            if (limb && limb.Group && limb.Group !== 'torso' && limb.Group !== 'head') return `bone ${limb.Name}`;
             if (this._softAt(x, y, 1.15)) return 'body';
             if (!this.poseable) return null;
             const rig = this.doc.Rig;
             const [hl, ht, hr, hb] = rig.Head.Box;
             if (x >= hl && x <= hr && y >= ht && y <= hb) return 'head';
+            if (this._bones) {
+                const bone = this._boneAt(x, y);
+                return bone ? `bone ${bone.Name}` : null;
+            }
             for (const [side, arm] of Object.entries(rig.Arms || {})) {
                 const entry = this.doc.Layers.find(e => e.Id === arm.Layers[0]);
-                if (entry && x >= entry.X && x <= entry.X + entry.Width && y >= arm.Pivot[1] + arm.Length * 0.3 && y <= entry.Y + entry.Height) return `arm ${side}`;
+                // Anywhere on the arm away from its joint (near the joint is the body's).
+                if (entry && x >= entry.X && x <= entry.X + entry.Width && y >= entry.Y && y <= entry.Y + entry.Height
+                    && Math.hypot(x - arm.Pivot[0], y - arm.Pivot[1]) >= arm.Length * 0.3) return `arm ${side}`;
             }
             const [bl, bt, br, bb] = rig.Body.Box;
             if (x >= bl && x <= br && y >= hb && y <= bt + (bb - bt) * 0.55) return 'torso';
@@ -454,13 +505,19 @@ function definePuppetClass(PIXI) {
                 this._pose.set(id, clamp(value, lo - this.core.defaults[i], hi - this.core.defaults[i]));
             };
             const start = (id) => d.poseStart.get(id) || 0;
-            if (d.pose === 'head') {
+            if (d.pose.startsWith('bone ')) {
+                const bone = this._boneByName.get(d.pose.slice(5));
+                if (bone) this._solveIK(bone, d.local, point.x, point.y);
+            } else if (d.pose === 'head') {
                 set('ParamAngleX', start('ParamAngleX') + dx / Math.max(1, hr - hl) * 50);
                 set('ParamAngleY', start('ParamAngleY') - dy / Math.max(1, hb - ht) * 50);
             } else if (d.pose === 'torso') {
-                const [bl, , br] = rig.Body.Box;
-                set('ParamBodyAngleX', start('ParamBodyAngleX') + dx / Math.max(1, br - bl) * 25);
-                set('ParamBodyAngleZ', start('ParamBodyAngleZ') - dx / Math.max(1, br - bl) * 12);
+                // The torso leans the way it is pulled: around the hips, like the arms at the shoulder.
+                const [bl, bt, br, bb] = rig.Body.Box;
+                const hx = (bl + br) / 2, hy = bt + (bb - bt) * 0.75;
+                const lean = (Math.atan2(point.x - hx, hy - point.y) - Math.atan2(d.sx - hx, hy - d.sy)) * 180 / Math.PI;
+                set('ParamBodyAngleZ', start('ParamBodyAngleZ') + lean);
+                set('ParamBodyAngleX', start('ParamBodyAngleX') + dx / Math.max(1, br - bl) * 20);
             } else if (d.pose.startsWith('arm ')) {
                 const side = d.pose.slice(4);
                 const arm = rig.Arms[side];
@@ -494,6 +551,12 @@ function definePuppetClass(PIXI) {
             d.soft = this._softAt(point.x, point.y, 1.15);
             d.pose = kind === 'body' ? null : kind;
             d.poseStart = new Map(this._pose);
+            if (kind.startsWith('bone ')) {
+                // Where on the bone it was grabbed, in the drawing's pose: that point follows the pointer.
+                const bone = this._boneByName.get(kind.slice(5));
+                const M = this._poseBones(b => this._pose.get(b.param) || 0);
+                d.local = invertAt(M, bone.index * 6, point.x, point.y);
+            }
         }
 
         _grabMove(event) {
@@ -601,9 +664,11 @@ function definePuppetClass(PIXI) {
                 }
                 index += 1;
             }
-            for (const layer of this.layers) this.addChild(layer.mesh);
+            this._setupSkeleton();
+            for (const mesh of this._drawOrder()) this.addChild(mesh);
             this._hasBody = this.layers.some(l => l.role === 'nude_body');
             this._halfSwitches = new Set(this.doc.Layers.filter(e => e.State === 'half' && e.Switch).map(e => e.Switch));
+            this._ready = true;
             this._update(0);
         }
 
@@ -644,6 +709,10 @@ function definePuppetClass(PIXI) {
                 role: entry.Role,
                 side: entry.Side,
                 mesh,
+                meshes: [mesh],
+                texture,
+                indices,
+                uvs,
                 rest,
                 out: mesh.vertices,
                 hair,
@@ -651,6 +720,164 @@ function definePuppetClass(PIXI) {
                 dz: ROLE_DEPTH[entry.Role] ?? 0,
                 head: HEAD_ROLES.has(entry.Role) || entry.Role === 'neck',
             };
+        }
+
+        /**
+         * Bind the body to the skeleton (when the puppet has one): every vertex of the body, clothes
+         * and arms gets the two bones nearest it (by how far inside each bone's thickness it is), and
+         * the head's layers follow the Head bone. The body layers come cut into pieces per limb
+         * (entry.Piece), so an arm swung across the body is drawn over it, and the legs under the hips.
+         */
+        _setupSkeleton() {
+            const sk = this.doc.Rig.Skeleton;
+            this._bones = null;
+            if (!sk || !(sk.Bones || []).length) return;
+            const bones = sk.Bones.map((b, index) => ({ ...b, index, param: b.Param || `ParamBone${b.Name}` }));
+            const byName = new Map(bones.map(b => [b.Name, b]));
+            for (const b of bones) b.parentIndex = b.Parent && byName.has(b.Parent) ? byName.get(b.Parent).index : -1;
+            this._bones = bones;
+            this._boneByName = byName;
+            this._boneM = new Float32Array(bones.length * 6);
+            const head = byName.get('Head');
+            const bodyBones = bones.filter(b => b.Name !== 'Head');
+            for (const layer of this.layers) {
+                if (layer.head && layer.role !== 'neck') {
+                    layer.skinHead = head ? head.index : -1;
+                    continue;
+                }
+                if (!layer.rest || layer.role === 'cheek' || layer.role === 'cheek_hatch') continue;
+                const count = layer.rest.length / 2;
+                const i0 = new Uint8Array(count), i1 = new Uint8Array(count), w0 = new Float32Array(count);
+                // A piece follows only its own limb's bones (and the bone it hangs from, so it bends
+                // smoothly into the body); the torso piece only the torso's. Otherwise the body
+                // under an arm would be dragged along when the arm swings.
+                const piece = layer.entry?.Piece;
+                const candidates = !piece ? bodyBones : bodyBones.filter(b => {
+                    // The torso also listens to the first bone of each limb, the way the arm's
+                    // piece listens to the chest: across the seam both pieces then carry the same
+                    // weights, so the cloth around the shoulder or hip stretches instead of splitting.
+                    if (piece === 'torso') return b.Group === 'torso' || ROOT_BONES.has(b.Name);
+                    if (b.Group === piece) return true;
+                    return b.Name === (piece.startsWith('arm') ? 'Chest' : 'Hips');
+                });
+                const pool = candidates.length ? candidates : bodyBones;
+                for (let v = 0; v < count; v++) {
+                    const x = layer.rest[v * 2], y = layer.rest[v * 2 + 1];
+                    let best = -1, second = -1, sb = 0, ss = 0, nearest = null, nd = Infinity;
+                    for (const b of pool) {
+                        // On the torso a limb's first bone only reaches around its joint (the
+                        // shoulder or hip), not all along the arm hanging beside the body.
+                        const joint = piece === 'torso' && ROOT_BONES.has(b.Name);
+                        const d = joint ? Math.hypot(x - b.Head[0], y - b.Head[1]) : segmentDistance(x, y, b.Head, b.Tail);
+                        const q = d / Math.max(1, joint ? b.Radius * 0.9 : b.Radius);
+                        let score = Math.exp(-3 * q * q) * (joint ? 0.8 : 1);
+                        if (piece && piece !== 'torso' && ROOT_BONES.has(b.Name)) {
+                            // Around the shoulder or hip joint the limb's own piece follows the body
+                            // too, so the top of a thigh stays tucked under a skirt and the top of
+                            // a sleeve under the jacket's shoulder instead of swinging out at a corner.
+                            const t = alongBone(x, y, b.Head, b.Tail);
+                            score *= clamp((t + 0.05) / (b.Name.startsWith('Thigh') ? 0.6 : 0.3), 0.05, 1);
+                        }
+                        if (!joint && d - b.Radius < nd) { nd = d - b.Radius; nearest = b; }
+                        if (score > sb) { second = best; ss = sb; best = b.index; sb = score; }
+                        else if (score > ss) { second = b.index; ss = score; }
+                    }
+                    if (sb < 1e-4) { best = nearest.index; sb = 1; second = -1; ss = 0; }
+                    i0[v] = best;
+                    i1[v] = second < 0 ? best : second;
+                    w0[v] = second < 0 ? 1 : sb / (sb + ss);
+                }
+                layer.skin = { i0, i1, w0 };
+            }
+        }
+
+        /** The meshes in drawing order: with a skeleton, the legs under the body and the arms over it. */
+        _drawOrder() {
+            const all = [];
+            for (const layer of this.layers) for (const mesh of layer.meshes) {
+                mesh.puppetGroup = layer.entry?.Piece || null;
+                all.push(mesh);
+            }
+            if (!this._bones) return all;
+            const first = all.findIndex(m => m.puppetGroup);
+            if (first < 0) return all;
+            const rank = (g) => (g && g.startsWith('leg') ? 0 : g && g.startsWith('arm') ? 2 : 1);
+            const before = all.slice(0, first);
+            const rest = all.slice(first);
+            const skinned = rest.filter(m => m.puppetGroup);
+            const after = rest.filter(m => !m.puppetGroup);
+            skinned.sort((a, b) => rank(a.puppetGroup) - rank(b.puppetGroup)); // stable: keeps the layer order within a rank
+            return [...before, ...skinned, ...after];
+        }
+
+        /** Every bone's matrix for the current angles (angle(bone) in degrees). */
+        _poseBones(angle) {
+            const M = this._boneM;
+            for (const b of this._bones) {
+                const t = angle(b) * Math.PI / 180;
+                const c = Math.cos(t), s = Math.sin(t);
+                const [hx, hy] = b.Head;
+                const la = c, lb = s, lc = -s, ld = c, le = hx - c * hx + s * hy, lf = hy - s * hx - c * hy;
+                const o = b.index * 6;
+                if (b.parentIndex < 0) {
+                    M[o] = la; M[o + 1] = lb; M[o + 2] = lc; M[o + 3] = ld; M[o + 4] = le; M[o + 5] = lf;
+                } else {
+                    const p = b.parentIndex * 6;
+                    const pa = M[p], pb = M[p + 1], pc = M[p + 2], pd = M[p + 3], pe = M[p + 4], pf = M[p + 5];
+                    M[o] = pa * la + pc * lb;
+                    M[o + 1] = pb * la + pd * lb;
+                    M[o + 2] = pa * lc + pc * ld;
+                    M[o + 3] = pb * lc + pd * ld;
+                    M[o + 4] = pa * le + pc * lf + pe;
+                    M[o + 5] = pb * le + pd * lf + pf;
+                }
+            }
+            return M;
+        }
+
+        /** The bone under a canvas point in the current pose (how far inside its thickness), or null. */
+        _boneAt(x, y) {
+            if (!this._bones) return null;
+            const M = this._poseBones(b => this.core.getParameterValueById(b.param) || 0);
+            let found = null, bestQ = 1.25;
+            for (const b of this._bones) {
+                if (b.Name === 'Head') continue;
+                const o = b.index * 6;
+                const head = applyMatrix(M, o, b.Head[0], b.Head[1]);
+                const tail = applyMatrix(M, o, b.Tail[0], b.Tail[1]);
+                const q = segmentDistance(x, y, head, tail) / Math.max(1, b.Radius);
+                // Limbs win over the torso where they overlap (an arm across the chest).
+                const bias = (b.Group || 'torso') === 'torso' ? 0.35 : 0;
+                if (q + bias < bestQ) { bestQ = q + bias; found = b; }
+            }
+            return found;
+        }
+
+        /**
+         * Drag a bone's point to a canvas point: cyclic coordinate descent up the limb (hand, forearm,
+         * upper arm; foot, shin, thigh; or the chest and spine), each joint stopping at its limits.
+         */
+        _solveIK(bone, local, tx, ty) {
+            const chain = [];
+            for (let b = bone; b && chain.length < 3; b = b.parentIndex >= 0 ? this._bones[b.parentIndex] : null) {
+                if (b.Name === 'Hips') break;
+                if ((b.Group || 'torso') === 'torso' && (bone.Group || 'torso') !== 'torso') break; // a limb stops at the body
+                chain.push(b);
+            }
+            const angle = (b) => this._pose.get(b.param) || 0;
+            for (let iter = 0; iter < 4; iter++) {
+                for (const j of chain) {
+                    const M = this._poseBones(angle);
+                    const [ex, ey] = applyMatrix(M, bone.index * 6, local[0], local[1]);
+                    const [jx, jy] = applyMatrix(M, j.index * 6, j.Head[0], j.Head[1]);
+                    if (Math.hypot(ex - jx, ey - jy) < 2) continue;
+                    const delta = wrapAngle(Math.atan2(ty - jy, tx - jx) - Math.atan2(ey - jy, ex - jx)) * 180 / Math.PI;
+                    const i = this.core.getParameterIndex(j.param);
+                    if (i < 0) continue;
+                    const lo = this.core.mins[i] - this.core.defaults[i], hi = this.core.maxs[i] - this.core.defaults[i];
+                    this._pose.set(j.param, clamp(angle(j) + delta, lo, hi));
+                }
+            }
         }
 
         /**
@@ -791,8 +1018,10 @@ function definePuppetClass(PIXI) {
 
         // Every frame -------------------------------------------------------------------------
         _tick() {
-            if (!this.layers) return;
-            const dt = Math.min(0.1, this._ticker.deltaMS / 1000);
+            if (!this.layers || !this._ready) return; // still loading
+            // Real time, so a slow frame rate never slows blinks and motions down (the springs
+            // sub-step); only a long pause (a hidden tab) is cut short.
+            const dt = Math.min(0.5, this._ticker.deltaMS / 1000);
             this._update(dt);
         }
 
@@ -1045,8 +1274,14 @@ function definePuppetClass(PIXI) {
             const mouthForm = P('ParamMouthForm');
             const hasMouthOpen = this.layers.some(l => l.role === 'mouth_open');
             const closedSides = new Set(this.layers.filter(l => l.role === 'eye_closed').map(l => l.side || 'LR'));
+            // Drawn pieces for the strongest emotions: angry brows, a grin, tears (each over what it replaces).
+            const hasArt = (role) => this.layers.some(l => l.role === role);
+            const angry = hasArt('brow_angry') ? smoothstep(0.1, 0.7, P('ParamBrowAngry')) : 0;
+            const grin = hasArt('mouth_grin') ? smoothstep(0.1, 0.7, P('ParamMouthGrin')) : 0;
+            const tears = smoothstep(0.05, 0.6, P('ParamTear'));
             const outer = this._hasBody ? P('ParamClothesOuter') : 1;
             const inner = P('ParamClothesInner');
+            const boneM = this._bones && this._bones.some(b => P(b.param)) ? this._poseBones(b => P(b.param)) : null;
 
             // Where the body moves a point to (lean, turn, breathing, tilt): used for the vertices and
             // to drive the soft parts, which trail behind that movement.
@@ -1116,8 +1351,12 @@ function definePuppetClass(PIXI) {
                 if (role === 'eye_closed') alpha = 1 - smoothstep(0.2, 0.42, eyeOpen);
                 else if (role === 'eye_white' || role === 'iris') alpha = hasClosed ? smoothstep(0.22, 0.4, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen);
                 else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.2, 0.42, eyeOpen) : 1;
-                else if (role === 'mouth') alpha = hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1;
+                else if (role === 'mouth') alpha = (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1) * (1 - grin);
                 else if (role === 'mouth_open') alpha = smoothstep(0.15, 0.55, mouthOpen);
+                else if (role === 'mouth_grin') alpha = grin * (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1);
+                else if (role === 'brow') alpha = 1 - angry;
+                else if (role === 'brow_angry') alpha = angry;
+                else if (role === 'eye_tears') alpha = tears * (hasClosed ? smoothstep(0.2, 0.42, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen));
                 else if (role === 'cheek') alpha = clamp(P('ParamCheek'), 0, 1) * 0.85;
                 else if (role === 'cheek_hatch') alpha = smoothstep(0.35, 0.85, P('ParamCheek')) * 0.8;
                 else if (OUTER_ROLES.has(role)) alpha = clamp(outer, 0, 1);
@@ -1133,9 +1372,11 @@ function definePuppetClass(PIXI) {
                     else alpha *= clamp(v, 0, 1);
                 } else if (layer.entry.State === 'half') alpha = 0;
                 if (layer.entry.Accessory) alpha *= clamp(P('ParamAccessories'), 0, 1);
-                layer.mesh.alpha = alpha;
-                layer.mesh.visible = alpha > 0.003;
-                if (!layer.mesh.visible) continue;
+                for (const mesh of layer.meshes) {
+                    mesh.alpha = alpha;
+                    mesh.visible = alpha > 0.003;
+                }
+                if (alpha <= 0.003) continue;
 
                 for (let k = 0; k < rest.length; k += 2) {
                     let x = rest[k];
@@ -1159,7 +1400,7 @@ function definePuppetClass(PIXI) {
                         const [el, et, er, eb] = eye.Box;
                         const n = clamp((x - (el + er) / 2) / Math.max(1, (er - el) / 2), -1, 1);
                         y -= eyeSmile * 0.3 * (eb - et) * (1 - n * n);
-                    } else if (role === 'brow' && eye) {
+                    } else if ((role === 'brow' || role === 'brow_angry') && eye) {
                         const [el, et, er, eb] = eye.Box;
                         const eh = eb - et;
                         const brow = eye.Brow || eye.Box;
@@ -1178,6 +1419,11 @@ function definePuppetClass(PIXI) {
                         if (role === 'mouth') y = mcy + (y - mcy) * (1 + (hasMouthOpen ? 1.5 : 4) * mouthOpen);
                         else y = mcy + (y - mcy) * (0.3 + 0.7 * mouthOpen);
                         y -= mouthForm * (S.mouth_form ?? 0.35) * mw * 0.3 * (n * n - 0.35);
+                    }
+                    if ((role === 'mouth' || role === 'mouth_open') && mouth && mouth.Jaw) {
+                        // Never past the jaw: an open or stretched mouth stays inside the face.
+                        const jaw = jawAt(mouth.Jaw, x);
+                        if (jaw !== null) y = Math.min(y, jaw - Math.max(3, (jaw - mouth.Center[1]) * 0.18));
                     }
 
                     // Hair and cloth sway ----------------------------------------------
@@ -1235,12 +1481,12 @@ function definePuppetClass(PIXI) {
                     }
 
                     // Posed arms: turn at the shoulder, the upper end staying attached ----
-                    if (role === 'arm' && rig.Arms) {
+                    if (role === 'arm' && rig.Arms && !this._bones) {
                         const arm = rig.Arms[side] || rig.Arms.LR;
                         const degrees = arm ? P(`ParamArm${side || 'L'}A`) : 0;
                         if (degrees) {
                             const [ax0, ay0] = arm.Pivot;
-                            const w = smoothstep(ay0 - arm.Length * 0.05, ay0 + arm.Length * 0.2, rest[k + 1]);
+                            const w = smoothstep(arm.Length * 0.04, arm.Length * 0.25, Math.hypot(rest[k] - ax0, rest[k + 1] - ay0));
                             const angle = degrees * Math.PI / 180 * w;
                             const ddx = x - ax0, ddy = y - ay0;
                             x = ax0 + ddx * Math.cos(angle) - ddy * Math.sin(angle);
@@ -1250,6 +1496,25 @@ function definePuppetClass(PIXI) {
 
                     // Body: lean, turn and breathing ------------------------------------
                     [x, y] = bodyMove(rest[k], rest[k + 1], x, y);
+
+                    // Skeleton: the bones' pose, blended between the two nearest bones --------
+                    if (boneM) {
+                        if (layer.skin) {
+                            const v = k >> 1;
+                            const o0 = layer.skin.i0[v] * 6, o1 = layer.skin.i1[v] * 6, w = layer.skin.w0[v];
+                            const [x0, y0] = applyMatrix(boneM, o0, x, y);
+                            if (w < 0.999) {
+                                const [x1, y1] = applyMatrix(boneM, o1, x, y);
+                                x = x0 * w + x1 * (1 - w);
+                                y = y0 * w + y1 * (1 - w);
+                            } else {
+                                x = x0;
+                                y = y0;
+                            }
+                        } else if (layer.skinHead >= 0 && layer.skinHead !== undefined) {
+                            [x, y] = applyMatrix(boneM, layer.skinHead * 6, x, y);
+                        }
+                    }
                     out[k] = x;
                     out[k + 1] = y;
                 }

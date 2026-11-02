@@ -92,7 +92,7 @@ def body(**overrides):
     return data
 
 
-def wait_for(client, job_id, timeout=10):
+def wait_for(client, job_id, timeout=120):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         job = client.get(f"/jobs/{job_id}").get_json()

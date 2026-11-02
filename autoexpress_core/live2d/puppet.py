@@ -29,9 +29,9 @@ import json
 import pathlib
 import shutil
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageFilter, ImageStat
 
-from . import layers, model_files
+from . import layers, model_files, skeleton
 
 FORMAT = "AutoExpress Puppet"
 VERSION = 1
@@ -58,6 +58,9 @@ PARAMETERS = [
     ("ParamMouthForm", -1, 1, 0),
     ("ParamMouthOpenY", 0, 1, 0),
     ("ParamCheek", 0, 1, 0),
+    ("ParamBrowAngry", 0, 1, 0),
+    ("ParamMouthGrin", 0, 1, 0),
+    ("ParamTear", 0, 1, 0),
     ("ParamBodyAngleX", -10, 10, 0),
     ("ParamBodyAngleY", -10, 10, 0),
     ("ParamBodyAngleZ", -10, 10, 0),
@@ -170,9 +173,9 @@ _BODY_ROLES = {
     "Topwear": "clothing", "Bottomwear": "clothing", "Legwear": "clothing", "Footwear": "clothing", "Neckwear": "clothing",
     "Outer wear": "clothing", "Outer wear half": "clothing", "Topwear half": "clothing", "Bottomwear half": "clothing",
 }
-HEAD_ROLES = ("face", "brow", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "mouth", "mouth_open", "ear", "front_hair", "hair_under", "headwear", "back_hair")
+HEAD_ROLES = ("face", "brow", "brow_angry", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "mouth", "mouth_open", "mouth_grin", "ear", "front_hair", "hair_under", "headwear", "back_hair")
 # The eyes and mouth: small on the canvas, drawn large; their textures get upscaled.
-FEATURE_ROLES = ("eyes", "eyelash", "iris", "eye_white", "eye_closed", "brow", "mouth", "mouth_open")
+FEATURE_ROLES = ("eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "brow", "brow_angry", "mouth", "mouth_open", "mouth_grin")
 # The outer clothes: hidden by ParamClothesOuter when the puppet has a body layer under them.
 OUTER_ROLES = ("clothing", "arm")
 
@@ -185,8 +188,14 @@ def role_of(group: str, layer_name: str) -> tuple[str, str | None]:
         side = words[-1]
     if layer_name.endswith("closed"):
         return "eye_closed", (group.split()[-1] if group.startswith("Eye ") else None)
+    if layer_name.endswith("tears"):
+        return "eye_tears", (group.split()[-1] if group.startswith("Eye ") else None)
+    if layer_name.endswith("angry"):
+        return "brow_angry", side or (words[1] if len(words) > 2 and words[1] in ("L", "R") else None)
     if layer_name == "Mouth open":
         return "mouth_open", None
+    if layer_name == "Mouth grin":
+        return "mouth_grin", None
     if layer_name == "Hair underlay":
         return "hair_under", None
     if group.startswith("Eye "):
@@ -209,19 +218,25 @@ def _union(boxes):
     return layers.union_box([b for b in boxes if b])
 
 
-def grid_for(width: int, height: int, step: int = 28) -> list[int]:
-    """Mesh columns and rows for a layer: about one vertex every step pixels, 2 to 40 per side."""
-    return [max(2, min(40, round(width / step) + 1)), max(2, min(40, round(height / step) + 1))]
+def grid_for(width: int, height: int, step: int = 28, most: int = 40) -> list[int]:
+    """Mesh columns and rows for a layer: about one vertex every step pixels, 2 to most per side."""
+    return [max(2, min(most, round(width / step) + 1)), max(2, min(most, round(height / step) + 1))]
 
 
-def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name: str, parts: list | None = None, enhance=None) -> dict:
+def build_puppet(
+    tree: list, manifest: dict, size: tuple[int, int], folder, name: str, parts: list | None = None, enhance=None, joints: dict | None = None, neutral_pose: bool = False
+) -> dict:
     """
     Write a puppet for the kit's layer tree (top to bottom, as build_tree returns it) into folder.
 
     parts (the decomposition's layers) gives each layer's depth for the head-turn parallax; without
     it the depth follows the drawing order. enhance, when given, takes the eyes' and mouth's textures
     (RGBA) and returns sharper, larger copies (or None): those are small on the canvas and the
-    player draws them biggest, so they get more pixels. Returns the puppet document.
+    player draws them biggest, so they get more pixels.
+
+    joints (canvas pixels, from a pose detector: see skeleton.from_keypoints) give the puppet a
+    full-body skeleton to pose; neutral_pose says the character stands in the neutral A-pose, so
+    without joints the skeleton comes from anime proportions. Returns the puppet document.
     """
     folder = pathlib.Path(folder)
     if folder.exists():
@@ -300,13 +315,41 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
                 better.save(path)
 
     rig = build_rig(entries, size)
+    if rig.get("Mouth"):
+        rig["Mouth"]["Jaw"] = jaw_line(folder, entries, rig["Mouth"]["Box"])
+    radii, arm_alpha = None, {}
+    if joints is None and neutral_pose:
+        joints = skeleton.from_proportions(rig["Head"]["Box"], rig["Body"]["Box"])
+        arm_alpha, silhouette = limb_alphas(folder, entries, size)
+        joints, radii = skeleton.fit_to_layers(joints, rig["Head"]["Box"], arm_alpha, silhouette)
+        # Only the hands come off with the arms from their own layers (the split leaves stray bits of
+        # an arm under a sleeve, which would punch holes in the body).
+        face_h = rig["Head"]["Box"][3] - rig["Head"]["Box"][1]
+        for side in list(arm_alpha):
+            if f"wrist_{side}" not in joints:
+                del arm_alpha[side]
+                continue
+            hand = arm_alpha[side].point(lambda v: 255 if v > 128 else 0).filter(ImageFilter.MinFilter(5)).filter(ImageFilter.MaxFilter(7))
+            hand.paste(0, (0, 0, size[0], max(0, int(joints[f"wrist_{side}"][1] - face_h * 0.15))))
+            arm_alpha[side] = hand
+    bones = skeleton.bones(joints, rig["Head"]["Box"], radii) if joints else None
+    parameters = list(PARAMETERS)
+    if bones:
+        # Posed by the bones: the arms bend with them, and the body layers get finer meshes to bend smoothly.
+        rig["Skeleton"] = bones
+        rig.pop("Arms", None)
+        parameters += skeleton.parameters(bones)
+        entries = split_limbs(folder, entries, skeleton.limb_masks(bones, size, arms=arm_alpha), rig, hands=arm_alpha)
+        for entry in entries:
+            if entry["Role"] not in HEAD_ROLES:
+                entry["Grid"] = grid_for(entry["Width"], entry["Height"], step=20, most=64)
     written = model_files.write_model_files(folder)
     outfits = write_outfits(folder, entries)
     written["Expressions"] = written["Expressions"] + outfits
     (folder / model_files.SETTINGS_FILE).write_text(
         json.dumps(
             model_files.sillytavern_settings(
-                motions=set(written["Motions"]), parameters={p[0] for p in PARAMETERS}, reactions={k: v for k, v in REACTIONS.items() if k != "Drag"}
+                motions=set(written["Motions"]), parameters={p[0] for p in parameters}, reactions={k: v for k, v in REACTIONS.items() if k != "Drag"}
             ),
             indent=2,
         )
@@ -318,7 +361,7 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
         "Version": VERSION,
         "Name": name,
         "Canvas": {"Width": size[0], "Height": size[1]},
-        "Parameters": [{"Id": pid, "Min": low, "Max": high, "Default": default} for pid, low, high, default in PARAMETERS],
+        "Parameters": [{"Id": pid, "Min": low, "Max": high, "Default": default} for pid, low, high, default in parameters],
         "Layers": entries,
         "Rig": rig,
         "HitAreas": hit_areas(rig, size),
@@ -333,6 +376,350 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
     (folder / f"{name}{SUFFIX}").write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     write_preview(folder, name)
     return document
+
+
+def jaw_line(folder, entries: list[dict], mouth_box) -> list | None:
+    """
+    [[x, y], ...]: the bottom of the face (the jaw and chin) across and around the mouth, so the
+    player keeps a moving mouth, and the art that replaces it, inside the face instead of clipping
+    over the chin.
+    """
+    import numpy as np
+
+    face = next((e for e in entries if e["Role"] == "face"), None)
+    if face is None:
+        return None
+    try:
+        alpha = np.asarray(Image.open(pathlib.Path(folder) / face["Texture"]).convert("RGBA").getchannel("A")) > 128
+    except OSError:
+        return None
+    width = mouth_box[2] - mouth_box[0]
+    points = []
+    for i in range(9):
+        x = mouth_box[0] - width * 0.5 + width * 2 * i / 8
+        column = int(round(x - face["X"]))
+        if not 0 <= column < alpha.shape[1]:
+            continue
+        rows = np.nonzero(alpha[:, column])[0]
+        if len(rows):
+            points.append([round(x, 1), round(float(rows.max()) + face["Y"], 1)])
+    return points or None
+
+
+def limb_alphas(folder, entries: list[dict], size) -> tuple[dict, Image.Image]:
+    """Each arm layer's alpha ({"L"/"R": mode L, canvas size}) and the alpha of the whole body below the head."""
+    folder = pathlib.Path(folder)
+    arms: dict = {}
+    silhouette = Image.new("L", size, 0)
+    for entry in entries:
+        if entry["Role"] in HEAD_ROLES or entry["Role"] in ("back_hair", "front_hair", "cheek", "cheek_hatch"):
+            continue
+        try:
+            alpha = Image.open(folder / entry["Texture"]).convert("RGBA").getchannel("A")
+        except OSError:
+            continue
+        canvas = Image.new("L", size, 0)
+        canvas.paste(alpha, (entry["X"], entry["Y"]))
+        silhouette = ImageChops.lighter(silhouette, canvas)
+        if entry["Role"] == "arm" and entry.get("Side") in ("L", "R"):
+            arms[entry["Side"]] = ImageChops.lighter(arms[entry["Side"]], canvas) if entry["Side"] in arms else canvas
+    return arms, silhouette
+
+
+def _skirt(alpha: Image.Image, box, masks: dict) -> bool:
+    """Whether a bottomwear layer is a skirt (whole across the middle between the legs) rather than trousers."""
+    import numpy as np
+
+    legs = [masks[g].getbbox() for g in ("leg_L", "leg_R") if g in masks and masks[g].getbbox()]
+    if len(legs) < 2:
+        return False
+    top = min(b[1] for b in legs)
+    mid = sum((b[0] + b[2]) / 2 for b in legs) / 2
+    a = np.asarray(alpha) > 128
+    x = int(mid) - box[0]
+    if not 0 <= x < a.shape[1]:
+        return False
+    below = a[max(0, top - box[1]):]
+    counts = below.sum(axis=1)
+    # The garment's own rows (not stray bits further down).
+    rows = counts >= 0.4 * max(1, counts.max())
+    if rows.sum() < 4:
+        return False
+    return below[rows, max(0, x - 2):x + 3].any(axis=1).mean() > 0.8
+
+
+def _unlike(image: Image.Image, alpha: Image.Image, distance: int = 70) -> Image.Image:
+    """Where a layer's colour is far from its usual colour (mode L mask)."""
+    rgb = image.convert("RGB")
+    median = tuple(int(v) for v in ImageStat.Stat(rgb, alpha.point(lambda v: 255 if v > 128 else 0)).median)
+    diff = ImageChops.difference(rgb, Image.new("RGB", rgb.size, median)).convert("L")
+    return diff.point(lambda v: 255 if v > distance * 0.6 else 0).filter(ImageFilter.MaxFilter(5))
+
+
+def _trim_below_bulk(alpha: Image.Image) -> Image.Image:
+    """alpha without what lies well below the rows the layer mostly fills."""
+    import numpy as np
+
+    a = np.asarray(alpha).copy()
+    counts = (a > 128).sum(axis=1)
+    rows = np.nonzero(counts >= 0.4 * max(1, counts.max()))[0]
+    if len(rows):
+        a[rows.max() + max(8, a.shape[0] // 50):] = 0
+    return Image.fromarray(a, "L")
+
+
+def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image) -> tuple[Image.Image, Image.Image]:
+    """
+    The body behind a limb cut out of the torso piece: where the cut leaves a hole inside the torso
+    (a hand in front of the skirt, a sleeve over the side of the jacket), the hole is painted in from
+    the torso around it, so moving the limb away doesn't show a gap. Holes at the torso's edge stay
+    open (nothing was there).
+    """
+    import numpy as np
+
+    a = np.asarray(alpha).astype(np.float32) / 255
+    t = np.asarray(torso).astype(np.float32) / 255
+    removed = (a > 0.5) & (t < 0.5)
+    if not removed.any():
+        return image, torso
+    kept = t > 0.5
+    # Bounded on both sides in its row by torso that stays.
+    hole = np.zeros_like(removed)
+    for y in np.nonzero(removed.any(axis=1))[0]:
+        xs = np.nonzero(kept[y])[0]
+        if len(xs) > 1:
+            hole[y, xs.min():xs.max() + 1] = removed[y, xs.min():xs.max() + 1]
+    if not hole.any():
+        return image, torso
+    rgb = np.asarray(image.convert("RGB")).astype(np.float32)
+    filled = _push_pull(rgb, kept)
+    # Smoothed, so the fill shows no blocks from the pyramid.
+    smooth = np.asarray(Image.fromarray(filled.clip(0, 255).astype(np.uint8), "RGB").filter(ImageFilter.GaussianBlur(4))).astype(np.float32)
+    out = rgb.copy()
+    out[hole] = smooth[hole]
+    new_alpha = np.maximum(t, hole.astype(np.float32) * a)
+    result = Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    result.putalpha(image.getchannel("A"))
+    return result, Image.fromarray((new_alpha * 255).clip(0, 255).astype(np.uint8), "L")
+
+
+def _push_pull(rgb, known):
+    """Colours for the unknown pixels, spread smoothly from the known ones (a pyramid fill)."""
+    import numpy as np
+
+    w = known.astype(np.float32)
+    levels = [(rgb * w[..., None], w)]
+    while min(levels[-1][1].shape) > 2:
+        c, k = levels[-1]
+        h, wd = (k.shape[0] + 1) // 2 * 2, (k.shape[1] + 1) // 2 * 2
+        c = np.pad(c, ((0, h - c.shape[0]), (0, wd - c.shape[1]), (0, 0)))
+        k = np.pad(k, ((0, h - k.shape[0]), (0, wd - k.shape[1])))
+        c = c.reshape(h // 2, 2, wd // 2, 2, 3).sum(axis=(1, 3))
+        k = k.reshape(h // 2, 2, wd // 2, 2).sum(axis=(1, 3))
+        levels.append((c, k))
+    colour = levels[-1][0] / np.maximum(levels[-1][1], 1e-6)[..., None]
+    for c, k in reversed(levels[:-1]):
+        up = np.repeat(np.repeat(colour, 2, axis=0), 2, axis=1)[: k.shape[0], : k.shape[1]]
+        own = c / np.maximum(k, 1e-6)[..., None]
+        blend = np.clip(k, 0, 1)[..., None]
+        colour = own * blend + up * (1 - blend)
+    return colour
+
+
+def _fit_under_skirts(folder: pathlib.Path, entries: list[dict], skirts: dict, grown: dict) -> Image.Image | None:
+    """
+    The body, inner wear and legwear under a skirt are cut to the skirt's outline over its rows: the
+    edits draw the hips a little wider than the skirt, which showed as slivers at its sides (and
+    swung out when a leg moved). Off, the skirt then shows hips of its own width. Returns where
+    the skirts cover (mode L, canvas size; None without a skirt) bar what hangs over their sides: no
+    arm piece takes what's under a skirt there, or it would be drawn over the skirt.
+    """
+    import numpy as np
+
+    skirt_entries = [e for e in entries if e.get("Garment") == "bottomwear" and e.get("State") != "half" and skirts.get(e.get("Switch") or e["Id"])]
+    if not skirt_entries:
+        return None
+    size = next(iter(grown.values())).size
+    keep = np.ones((size[1], size[0]), bool)
+    band = max(8, size[0] // 80)
+    # What hangs over the skirt's sides goes with the arms.
+    arms = np.zeros((size[1], size[0]), bool)
+    for group, mask in grown.items():
+        if group.startswith("arm"):
+            arms |= np.asarray(mask) > 0
+    run = np.zeros((size[1], size[0]), bool)
+    skirt_alpha = np.zeros((size[1], size[0]), bool)
+    for entry in skirt_entries:
+        layer = Image.open(folder / entry["Texture"]).getchannel("A")
+        canvas = Image.new("L", size, 0)
+        canvas.paste(layer, (entry["X"], entry["Y"]))
+        skirt_alpha |= np.asarray(canvas) > 128
+        alpha = (np.asarray(canvas) > 128) & ~arms
+        counts = alpha.sum(axis=1)
+        rows = np.nonzero(counts >= 0.4 * max(1, counts.max()))[0]
+        if len(rows) < 4:
+            continue
+        middle = int(np.average(np.arange(size[0]), weights=alpha[rows].sum(axis=0) + 1e-6))
+        for y in range(rows[0], rows[-1] + 1):
+            row = alpha[y]
+            if not row[middle]:
+                continue
+            # The skirt's own run through the middle (the layer can hold bits under the hands).
+            gaps = np.nonzero(~row)[0]
+            left = gaps[gaps < middle].max() + 1 if (gaps < middle).any() else 0
+            right = gaps[gaps > middle].min() - 1 if (gaps > middle).any() else size[0] - 1
+            # A band beside it: a hand hanging further out stays.
+            keep[y, max(0, left - band) : max(0, left - 1)] = False
+            keep[y, right + 2 : right + band] = False
+            run[y, left : right + 1] = True
+    for entry in entries:
+        if not (entry["Role"] in ("nude_body", "inner") or entry.get("Garment") == "legwear"):
+            continue
+        path = folder / entry["Texture"]
+        image = Image.open(path).convert("RGBA")
+        box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
+        region = Image.fromarray((keep * 255).astype(np.uint8)).crop(box)
+        image.putalpha(ImageChops.multiply(image.getchannel("A"), region))
+        image.save(path)
+    # Under a hand the skirt was painted in; the body's outline at its side is still the skirt's
+    # (a band wider than its own run), the hand further out isn't.
+    covered = Image.fromarray((run * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(4 * band + 1))
+    return ImageChops.multiply(covered, Image.fromarray((skirt_alpha * 255).astype(np.uint8)))
+
+
+def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: int = 3, hands: dict | None = None) -> list[dict]:
+    """
+    Cut every body layer (body, clothes, arms) into a piece per limb it covers (masks from
+    skeleton.limb_masks) plus the torso piece, each its own texture with "Piece" set to its group,
+    so the player can draw an arm over the body when it swings across, and the legs under the hips.
+    Neighbouring pieces overlap by a few pixels so no seam opens between them. The head's layers
+    stay whole. Returns the new entries (rig["Cloth"] follows the pieces).
+    """
+    if not masks:
+        return entries
+    folder = pathlib.Path(folder)
+    grown = {group: mask.filter(ImageFilter.MaxFilter(2 * overlap + 1)) for group, mask in masks.items()}
+    cores = {group: mask.filter(ImageFilter.MinFilter(2 * overlap + 1)) for group, mask in masks.items()}
+    result = []
+    renamed: dict[str, list[str]] = {}
+    skirts: dict[str, bool] = {}  # by switch: a half-off state is cut from the same garment
+    for entry in entries:
+        if entry.get("Garment") == "bottomwear" and entry.get("State") != "half" and entry["Role"] not in HEAD_ROLES:
+            image = Image.open(folder / entry["Texture"]).convert("RGBA")
+            box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
+            skirts[entry.get("Switch") or entry["Id"]] = _skirt(image.getchannel("A"), box, masks)
+    under_skirt = _fit_under_skirts(folder, entries, skirts, grown)
+    for entry in entries:
+        if entry["Role"] in HEAD_ROLES:
+            result.append(entry)
+            continue
+        path = folder / entry["Texture"]
+        image = Image.open(path).convert("RGBA")
+        box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
+        alpha = image.getchannel("A")
+        total = ImageStat.Stat(alpha).sum[0] or 1
+        if entry["Role"] == "arm" and f"arm_{entry.get('Side')}" in grown:
+            # An arm's own layer goes with its arm whole; what lies outside the arm is a stray bit of
+            # the split under the sleeve.
+            group = f"arm_{entry['Side']}"
+            image.putalpha(ImageChops.multiply(alpha, grown[group].crop(box)))
+            bbox = image.getchannel("A").getbbox()
+            path.unlink()
+            if bbox is None:
+                renamed[entry["Id"]] = []
+                continue
+            piece_id = f"{entry['Id']}__{group}"
+            image.crop(bbox).save(folder / "textures" / f"{piece_id}.png")
+            result.append({**entry, "Id": piece_id, "Texture": f"textures/{piece_id}.png", "X": entry["X"] + bbox[0], "Y": entry["Y"] + bbox[1], "Width": bbox[2] - bbox[0], "Height": bbox[3] - bbox[1], "Piece": group})
+            renamed[entry["Id"]] = [piece_id]
+            continue
+        limbs = []
+        if entry["Role"] == "inner":
+            # Inner wear doesn't reach down the legs: there it's stockings or shoes the edit kept,
+            # which would stay on when the legwear comes off.
+            for group in [g for g in cores if g.startswith("leg")]:
+                alpha = ImageChops.multiply(alpha, ImageChops.invert(cores[group].crop(box)))
+            # Nor is it on the hands: what the edit left around them is the hand redrawn, which
+            # would stay on the hips when the arm moves.
+            for hand in (hands or {}).values():
+                alpha = ImageChops.multiply(alpha, ImageChops.invert(hand.filter(ImageFilter.MaxFilter(31)).crop(box)))
+            image.putalpha(alpha)
+            image.save(path)
+        skirt = False
+        if entry.get("Garment") == "bottomwear":
+            key = entry.get("Switch") or entry["Id"]
+            skirt = skirts[key] if key in skirts else _skirt(alpha, box, masks)
+        if skirt or entry.get("Garment") == "outerwear":
+            # Stray bits the split left far below the hem would stay behind when a leg moves.
+            alpha = _trim_below_bulk(alpha)
+            image.putalpha(alpha)
+        for group, mask in grown.items():
+            if group.startswith("leg") and skirt:
+                # A skirt stays whole: the legs move under it.
+                continue
+            piece = ImageChops.multiply(alpha, mask.crop(box))
+            if group.startswith("arm") and entry.get("Garment") in ("bottomwear", "legwear", "footwear"):
+                # Hands hang over these: what's under a hand is mostly painted-in garment, which
+                # stays; only what isn't the garment's colour (a cuff the split put in the layer)
+                # goes with the arm.
+                piece = ImageChops.multiply(piece, _unlike(image, alpha))
+                hand = (hands or {}).get(group.split("_")[1])
+                if hand is not None:
+                    # The garment's own dark outline stays too, unless it's on the hand.
+                    light = image.convert("L").point(lambda v: 255 if v > 80 else 0)
+                    piece = ImageChops.multiply(piece, ImageChops.lighter(light, hand.filter(ImageFilter.MaxFilter(9)).crop(box)))
+            elif group.startswith("arm") and under_skirt is not None and (entry["Role"] in ("nude_body", "inner") or entry.get("Garment") == "legwear"):
+                # The body under a skirt isn't the arm's: drawn with the arm it would cover the skirt.
+                piece = ImageChops.multiply(piece, ImageChops.invert(under_skirt.crop(box)))
+            if ImageStat.Stat(piece).sum[0] > 0.01 * total:
+                limbs.append((group, piece))
+        if not limbs:
+            # Still a torso piece: it follows the torso's bones and keeps its place in the drawing order.
+            image.save(path)
+            result.append({**entry, "Piece": "torso"})
+            continue
+        taken = Image.new("L", image.size, 0)
+        for group, piece in limbs:
+            # The legs take all of their side below the crotch, the strip between them too: a
+            # sliver of torso left there would stay behind when a leg moves. A limb takes only
+            # what its piece holds (on a skirt, just the bit on the hand).
+            region = (grown if group.startswith("leg") else cores)[group].crop(box)
+            held = piece.point(lambda v: 255 if v > 0 else 0)
+            taken = ImageChops.lighter(taken, ImageChops.multiply(region, held))
+        torso_alpha = ImageChops.multiply(alpha, ImageChops.invert(taken))
+        behind, torso_alpha = _fill_behind(image, alpha, torso_alpha)
+        pieces = [("torso", torso_alpha)] + limbs
+        path.unlink()
+        ids = []
+        for group, piece_alpha in pieces:
+            bbox = piece_alpha.getbbox()
+            if bbox is None:
+                continue
+            piece = (behind if group == "torso" else image).copy()
+            piece.putalpha(piece_alpha)
+            piece = piece.crop(bbox)
+            piece_id = f"{entry['Id']}__{group}"
+            piece.save(folder / "textures" / f"{piece_id}.png")
+            result.append(
+                {
+                    **entry,
+                    "Id": piece_id,
+                    "Texture": f"textures/{piece_id}.png",
+                    "X": entry["X"] + bbox[0],
+                    "Y": entry["Y"] + bbox[1],
+                    "Width": piece.width,
+                    "Height": piece.height,
+                    "Piece": group,
+                }
+            )
+            ids.append(piece_id)
+        renamed[entry["Id"]] = ids
+    cloth = []
+    for item in rig.get("Cloth", []):
+        cloth += [{**item, "Layer": new} for new in renamed.get(item["Layer"], [item["Layer"]])]
+    if "Cloth" in rig:
+        rig["Cloth"] = cloth
+    return result
 
 
 def write_outfits(folder, entries: list[dict]) -> list[dict]:
@@ -450,15 +837,18 @@ def build_rig(entries: list[dict], size: tuple[int, int]) -> dict:
     }
     rig.update(soft_body(entries, face, body_box))
     rig["Cloth"] = cloth(entries, body_box)
-    rig["Arms"] = arms(entries)
+    rig["Arms"] = arms(entries, face)
     return rig
 
 
-def arms(entries: list[dict]) -> dict:
+def arms(entries: list[dict], face=None) -> dict:
     """
-    Each arm's shoulder joint (its layer's top middle) and length, for posing: {"L": {"Pivot",
-    "Length", "Layers"}}. An arm layer without a side counts for both.
+    Each arm's joint for posing: {"L": {"Pivot", "Length", "Layers"}}. The joint is the point of the
+    layer nearest the shoulder (beside the neck, under the chin), so a raised or bent arm turns at
+    the shoulder and an arm layer that is only a hand (the sleeve in the clothes) turns at the
+    wrist. Length is the farthest the layer reaches from it. An arm layer without a side counts for both.
     """
+    neck = _union([_box(e) for e in entries if e["Role"] == "neck"])
     found = {}
     for entry in entries:
         if entry["Role"] != "arm":
@@ -466,11 +856,17 @@ def arms(entries: list[dict]) -> dict:
         side = entry.get("Side") or "LR"
         left, top, right, bottom = _box(entry)
         width = right - left
-        found[side] = {
-            "Pivot": [round(left + width / 2, 1), round(top + min(width, bottom - top) * 0.3, 1)],
-            "Length": round(bottom - top, 1),
-            "Layers": [entry["Id"]],
-        }
+        if face is not None:
+            face_w, face_h = face[2] - face[0], face[3] - face[1]
+            cx = (neck[0] + neck[2]) / 2 if neck else (face[0] + face[2]) / 2
+            middle = (left + right) / 2
+            sx = cx + (face_w * 0.95 if middle > cx else -face_w * 0.95)
+            sy = face[3] + face_h * 0.45
+            px, py = min(max(sx, left), right), min(max(sy, top), bottom)
+        else:
+            px, py = left + width / 2, top + min(width, bottom - top) * 0.3
+        reach = max(((cx_ - px) ** 2 + (cy_ - py) ** 2) ** 0.5 for cx_ in (left, right) for cy_ in (top, bottom))
+        found[side] = {"Pivot": [round(px, 1), round(py, 1)], "Length": round(max(1.0, reach), 1), "Layers": [entry["Id"]]}
     return found
 
 
@@ -730,5 +1126,5 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
         tree.append(Group(group["name"], children))
     groups = [{**group, "layers": [info for info in group["layers"] if any(layer.name == info["name"] for g in tree if g.name == group["name"] for layer in g.children)]} for group in manifest["groups"]]
     output = pathlib.Path(output) if output else kit_folder / "puppet" / name
-    build_puppet(tree, {**manifest, "groups": groups}, size, output, name)
+    build_puppet(tree, {**manifest, "groups": groups}, size, output, name, neutral_pose=bool(manifest.get("neutral_pose")))
     return output

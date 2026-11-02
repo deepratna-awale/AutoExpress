@@ -31,6 +31,7 @@ Only Pillow is needed here; rembg is used when installed.
 
 import dataclasses
 import json
+import os
 import pathlib
 import shutil
 import zipfile
@@ -46,15 +47,29 @@ from . import DECOMPOSE, guidance, layers, model_files, outfits, prompt_data, ps
 MAX_SIDE = 2048
 EYES_CLOSED = "eyes_closed"
 MOUTH_OPEN = "mouth_open"
+# Drawn pieces for the strongest emotions (the rig bends the rest).
+ANGRY_BROWS = "angry_brows"
+GRIN = "grin"
+TEARS = "teary_eyes"
+EXPRESSION_ART = (ANGRY_BROWS, GRIN, TEARS)
 
 KEEP = "Keep everything else exactly the same: face shape, eyebrows, hair, outfit, pose, colors, line art, art style, background and framing."
 INSTRUCTIONS = {
     EYES_CLOSED: "Close both eyes gently, like a calm blink: relaxed closed eyelids drawn as soft curved lash lines, no other change to the face. " + KEEP,
     MOUTH_OPEN: "Open the mouth a little, as if saying \"ah\": a small relaxed open mouth showing a bit of the inside, no other change to the face. " + KEEP,
+    ANGRY_BROWS: "Make the eyebrows furious: sharply furrowed and slanted, the inner ends pulled hard down towards the nose in a fierce scowl. "
+    "Keep the eyes open and looking the same way, and the mouth unchanged. " + KEEP.replace("eyebrows, ", ""),
+    GRIN: "Give the character a wide, beaming grin: the corners of the mouth pulled up high and the lips parted just enough to show the upper teeth. "
+    "The jaw doesn't drop: the chin and the outline of the face stay exactly where they are. Keep the eyes, eyebrows and everything else unchanged. " + KEEP,
+    TEARS: "Make the eyes teary: glistening, watery eyes with tears welling up along the lower lids and a tear running down each cheek. "
+    "Keep the eyes open, and the eyebrows and mouth unchanged. " + KEEP,
 }
 PROMPTS = {
     EYES_CLOSED: "closed eyes, calm expression, closed mouth",
     MOUTH_OPEN: "open mouth, :o, neutral expression, eyes open",
+    ANGRY_BROWS: "v-shaped eyebrows, furrowed brow, angry, eyes open, closed mouth",
+    GRIN: "grin, wide smile, upper teeth, parted lips, happy, eyes open",
+    TEARS: "tears, teary eyes, streaming tears, eyes open, closed mouth",
 }
 
 AUTO, INPAINT, INSTRUCT = "auto", instruction_edit.INPAINT, instruction_edit.INSTRUCT
@@ -117,8 +132,13 @@ def prepare_picture(
             from .. import background
 
             if background.available():
-                log("Removing the background.")
-                image = background.remove_background(image, background.ILLUSTRATION_MODEL)
+                model = os.environ.get(background.MODEL_ENV, "").strip() or background.LIVE2D_MODEL
+                log(f"Removing the background ({model}).")
+                try:
+                    image = background.remove_background(image, model)
+                except Exception as error:  # noqa: BLE001 - a model that can't load: the lighter one
+                    log(f"{model} failed ({error}); using {background.ILLUSTRATION_MODEL}.")
+                    image = background.remove_background(image, background.ILLUSTRATION_MODEL)
                 transparent = True
             else:
                 log("The background is busy and rembg isn't installed, so it stays. A plain background splits better.")
@@ -285,20 +305,55 @@ def change_outfit(backend, picture: Image.Image, settings: dict, name: str, log)
     return changed, ""
 
 
-SLOT_EDITS = (outfits.MID, outfits.OUTER_HALF, outfits.TOP_HALF, outfits.BOTTOM_HALF)
+NEUTRAL_POSE = (
+    "Redraw this exact character standing in a neutral A-pose, seen straight from the front, full body from the top of the "
+    "head to the feet: standing straight and relaxed, arms straight down and held a little away from the sides with open "
+    "relaxed hands, legs straight and slightly apart, feet flat. Keep the same face, expression, hair, outfit, accessories, "
+    "body proportions, colours, line art and art style. Plain white background, the whole character in frame with a little "
+    "margin, nothing else in the picture."
+)
+# Portrait shape for the A-pose (width / height): room for the arms and the feet.
+NEUTRAL_ASPECT = 0.62
+
+
+def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Image.Image | None, str]:
+    """
+    The character redrawn in the neutral A-pose, full body on white (Qwen-Image-Edit), so every limb
+    is apart from the body and the puppet can be posed from it. The picture is first set on a
+    portrait canvas with room for the whole body. Returns (picture or None, note).
+    """
+    if INSTRUCT not in getattr(backend, "edit_methods", ()):
+        return None, "The neutral pose needs Qwen-Image-Edit on ComfyUI; the puppet keeps the picture's pose."
+    image = picture.convert("RGBA")
+    height = max(image.height, round(image.width / NEUTRAL_ASPECT))
+    width = max(image.width, round(height * NEUTRAL_ASPECT))
+    canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
+    canvas.alpha_composite(image, ((width - image.width) // 2, (height - image.height) // 2))
+    description = settings.get("character_description", "")
+    edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
+    log("Redrawing the character in a neutral A-pose, full body (Qwen-Image-Edit).")
+    posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(NEUTRAL_POSE, description) + outfits._describe(description), edit)
+    if posed is None:
+        return None, f"Couldn't redraw the neutral pose: {getattr(backend, 'last_error', None) or 'the WebUI failed'}. The puppet keeps the picture's pose."
+    posed = posed.convert("RGB")
+    if posed.size != canvas.size:
+        posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
+    return posed, ""
+
+
+SLOT_EDITS = (outfits.MID,)
 
 
 def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, log, check_cancel, progress) -> tuple[dict, list[str]]:
     """
-    The edits for the clothing slots: the picture without its outermost layer and with it slipped
-    halfway off (any character), and, when the inner wear was made (so the clothing check passed),
-    the top opened and the skirt lifted. Returns ({key: picture}, notes).
+    The edit for the clothing slots: the picture without its outermost layer, so the coat comes
+    off on its own. The half-off states aren't drawn: they fade part of each garment out and show
+    the layers under it (the same inner wear and body as when it's off). Returns ({key: picture}, notes).
     """
     description = settings.get("character_description", "")
     if settings.get("outfit_from_prompt"):
         description = (description + f". Her outfit: {settings['outfit_from_prompt']}").strip(". ")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
-    inner_wear = settings.get("inner_wear", "")
     edits: dict[str, Image.Image] = {}
     notes: list[str] = []
 
@@ -316,13 +371,7 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
         edits[key] = result
         return result
 
-    mid = run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
-    if mid is not None:
-        run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description), "the outer layer half off", 0.37)
-    if outfits.INNER in made:
-        base = mid if mid is not None else picture
-        run(outfits.TOP_HALF, base, outfits.top_half_instruction(inner_wear, description), "the top opened", 0.38)
-        run(outfits.BOTTOM_HALF, base, outfits.bottom_half_instruction(inner_wear, description), "the skirt lifted", 0.39)
+    run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
     return edits, notes
 
 
@@ -476,8 +525,21 @@ def build_kit(
             settings["outfit_from_prompt"] = " ".join(settings["outfit_prompt"].split())[:300]
         if note:
             notes.append(note)
+    posed = False
+    if settings.get("neutral_pose", True) is not False:
+        # Every edit after this one, and the split, see the character in the A-pose.
+        check_cancel()
+        progress("redrawing the neutral pose", 0.04)
+        redrawn, note = neutral_pose(backend, original, settings, log)
+        if redrawn is not None:
+            original = redrawn
+            posed = True
+            redrawn.save(folder / "neutral_pose.png")
+        if note:
+            notes.append(note)
     split = layers.SplitSettings.from_settings(settings)
-    picture = prepare_picture(original, settings.get("remove_background"), log, backend, split.resolution)
+    # The redrawn picture is always cut out: a clean edge around the whole character.
+    picture = prepare_picture(original, True if posed else settings.get("remove_background"), log, backend, split.resolution)
     picture.save(folder / "input.png")
     check_cancel()
 
@@ -493,9 +555,10 @@ def build_kit(
             lora_prompt = lora_tag(character_lora["entry"], character_lora["installed_name"])
     variants: dict[str, Image.Image] = {}
     if method:
-        for index, which in enumerate((EYES_CLOSED, MOUTH_OPEN)):
+        wanted = (EYES_CLOSED, MOUTH_OPEN) + (EXPRESSION_ART if settings.get("expression_art", True) is not False else ())
+        for index, which in enumerate(wanted):
             check_cancel()
-            progress(f"drawing {which.replace('_', ' ')}", 0.05 + 0.15 * index)
+            progress(f"drawing {which.replace('_', ' ')}", 0.05 + 0.25 * index / len(wanted))
             log(f"Drawing the character with {which.replace('_', ' ')} ({'face inpainting' if method == INPAINT else 'Qwen-Image-Edit'}).")
             result = make_variant(backend, picture, which, method, settings, lora_prompt if method == INPAINT else "")
             if result is None:
@@ -545,22 +608,27 @@ def build_kit(
 
     # 5. Extra art, crop to the picture, write.
     progress("writing the kit", 0.9)
+    # Qwen hands its edits back a little zoomed and shifted: line each one up with the picture first.
+    face_box = layers._alpha_union(parts, canvas_size, ("face",)).getbbox()
+    variants = {which: layers.align_edit(base_canvas, to_canvas(image, box, canvas_size), face_box) for which, image in variants.items()}
+    outfit_edits = {which: layers.align_edit(base_canvas, to_canvas(image, box, canvas_size), face_box) for which, image in outfit_edits.items()}
     overlays = layers.edit_overlays(
         parts,
         base_canvas,
-        to_canvas(variants[EYES_CLOSED], box, canvas_size) if EYES_CLOSED in variants else None,
-        to_canvas(variants[MOUTH_OPEN], box, canvas_size) if MOUTH_OPEN in variants else None,
+        variants.get(EYES_CLOSED),
+        variants.get(MOUTH_OPEN),
+        *(variants.get(which) for which in EXPRESSION_ART),
     )
     extra = outfits.outfit_parts(
         parts,
         canvas_size,
-        to_canvas(outfit_edits[outfits.NUDE], box, canvas_size) if outfits.NUDE in outfit_edits else None,
-        to_canvas(outfit_edits[outfits.INNER], box, canvas_size) if outfits.INNER in outfit_edits else None,
+        outfit_edits[outfits.NUDE] if outfits.NUDE in outfit_edits else None,
+        outfit_edits[outfits.INNER] if outfits.INNER in outfit_edits else None,
     )
     outfit_state["made"] = [part.tag for part in extra]
     if outfit_edits and not extra:
         notes.append("The body edit couldn't be cut out to a layer; the clothes stay one layer.")
-    slot_edits = {key: to_canvas(image, box, canvas_size) for key, image in outfit_edits.items() if key in SLOT_EDITS}
+    slot_edits = {key: image for key, image in outfit_edits.items() if key in SLOT_EDITS}
     if slot_edits:
         white = Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas)
         made = {p.tag for p in extra}
@@ -569,8 +637,8 @@ def build_kit(
             canvas_size,
             white,
             slot_edits,
-            nude=to_canvas(outfit_edits[outfits.NUDE], box, canvas_size) if "nude body" in made else None,
-            inner=to_canvas(outfit_edits[outfits.INNER], box, canvas_size) if made & {"inner wear", "inner top", "inner bottom"} else None,
+            nude=outfit_edits[outfits.NUDE] if "nude body" in made else None,
+            inner=outfit_edits[outfits.INNER] if made & {"inner wear", "inner top", "inner bottom"} else None,
         )
         outfit_state["slots"] = sorted({p.tag for p in parts} & {"outer wear", "outer wear half", "topwear half", "bottomwear half"})
     parts = layers.drop_specks(parts + extra) + ([underlay] if underlay else [])
@@ -604,7 +672,7 @@ def build_kit(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
     )
 
-    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images))
+    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed)
 
     switches = ", ".join(o.name for o in overlays) or "none"
     (folder / "README.txt").write_text(README.format(name=name, switches=switches), encoding="utf-8")
@@ -617,6 +685,7 @@ def build_kit(
             "character_lora": (character_lora or {}).get("entry"),
             "split": dataclasses.asdict(split),
             "outfits": outfit_state,
+            "neutral_pose": posed,
             "clothing": clothing_info,
             "notes": notes,
         }

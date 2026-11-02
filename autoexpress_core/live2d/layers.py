@@ -915,8 +915,174 @@ def mouth_area(parts: list[Part], size, allowed: Image.Image | None) -> Image.Im
     return ImageChops.multiply(allowed, inner.filter(ImageFilter.GaussianBlur(1)))
 
 
-def edit_overlays(parts: list[Part], base: Image.Image, eyes_closed: Image.Image | None = None, mouth_open: Image.Image | None = None) -> list[Overlay]:
-    """Hidden layers for blinking and talking from the edited copies (both on the decomposition's canvas)."""
+def _silhouette(image: Image.Image):
+    """Where the character is (numpy bool): not transparent and not the white background."""
+    import numpy as np
+
+    white = Image.alpha_composite(Image.new("RGBA", image.size, (255, 255, 255, 255)), image.convert("RGBA")).convert("RGB")
+    return np.asarray(ImageChops.difference(white, Image.new("RGB", image.size, (255, 255, 255))).convert("L")) > 24
+
+
+def _edges(mask, top: int, bottom: int):
+    import numpy as np
+
+    rows = mask[top:bottom]
+    has = rows.any(axis=1)
+    left = np.where(has, rows.argmax(axis=1), np.nan)
+    right = np.where(has, rows.shape[1] - 1 - rows[:, ::-1].argmax(axis=1), np.nan)
+    return left.astype(float), right.astype(float)
+
+
+def align_edit(base: Image.Image, edited: Image.Image | None, face) -> Image.Image | None:
+    """
+    edited (on base's canvas) moved and scaled to lie exactly over base. Qwen hands its edits back
+    a little zoomed and shifted (often 10-25 px on a 2 K picture), so pieces cut from an edit at the
+    picture's coordinates land beside the features they replace. The head's outline (the hair and the
+    shoulders, which an expression or outfit edit leaves alone) is matched row by row, from the top of
+    the character to below the chin. face is the face's box on the canvas.
+    """
+    import numpy as np
+
+    if edited is None or face is None:
+        return edited
+    edited = edited.convert("RGBA")
+    if edited.size != base.size:
+        edited = edited.resize(base.size)
+    mb, me = _silhouette(base), _silhouette(edited)
+    rows = np.nonzero(mb.any(axis=1))[0]
+    if not len(rows):
+        return edited
+    face_h = face[3] - face[1]
+    top, bottom = int(rows.min()), int(min(mb.shape[0], face[3] + face_h * 0.8))
+    if bottom - top < 20:
+        return edited
+    lb, rb = _edges(mb, top, bottom)
+    le_all, re_all = _edges(me, 0, mb.shape[0])
+    ys = np.arange(top, bottom, dtype=float)
+    cy = (top + bottom) / 2
+    reach = max(8, int(face_h * 0.3))
+    best = None
+    for scale in np.arange(0.92, 1.08, 0.0025):
+        for dy in range(-reach, reach + 1):
+            ye = np.round(cy + (ys - cy) * scale + dy).astype(int)
+            ok = (ye >= 0) & (ye < mb.shape[0])
+            le = np.full(len(ys), np.nan)
+            re = np.full(len(ys), np.nan)
+            le[ok], re[ok] = le_all[ye[ok]], re_all[ye[ok]]
+            wb, we = rb - lb, re - le
+            valid = ~np.isnan(wb) & ~np.isnan(we)
+            if valid.sum() < (bottom - top) * 0.6:
+                continue
+            error = float(np.abs(we[valid] - scale * wb[valid]).mean()) + 0.01 * abs(dy) + 2 * abs(scale - 1)
+            if best is None or error < best[0]:
+                centre_b = ((lb + rb) / 2)[valid]
+                centre_e = ((le + re) / 2)[valid]
+                best = (error, scale, dy, float(np.median(centre_e - scale * centre_b)))
+    if best is None:
+        return edited
+    _, scale, dy, ex = best
+    if abs(scale - 1) < 1e-3 and dy == 0 and abs(ex) < 0.5:
+        return edited
+    return edited.transform(base.size, Image.AFFINE, (scale, 0, ex, 0, scale, cy - cy * scale + dy), resample=Image.BICUBIC)
+
+
+def best_shift(base: Image.Image, edited: Image.Image, box, reach: int = 12) -> tuple[int, int]:
+    """
+    How far (dx, dy) the edit is drawn from the picture around box: Qwen redraws the whole picture
+    and often moves it by a few pixels, so a piece cut at the same place would sit off the face.
+    """
+    import numpy as np
+
+    box = clamp_box(box, base.size)
+    a = np.asarray(base.convert("L").crop(box), dtype=np.float32)
+    wide = clamp_box((box[0] - reach, box[1] - reach, box[2] + reach, box[3] + reach), edited.size)
+    b = np.asarray(edited.convert("L").crop(wide), dtype=np.float32)
+    ox, oy = box[0] - wide[0], box[1] - wide[1]
+    h, w = a.shape
+    best, shift = None, (0, 0)
+    for dy in range(-oy, b.shape[0] - h - oy + 1):
+        for dx in range(-ox, b.shape[1] - w - ox + 1):
+            window = b[oy + dy:oy + dy + h, ox + dx:ox + dx + w]
+            # The median difference: the changed feature itself doesn't pull the match off.
+            score = float(np.median(np.abs(window - a))) + 0.02 * (abs(dx) + abs(dy))
+            if best is None or score < best:
+                best, shift = score, (dx, dy)
+    return shift
+
+
+def expression_piece(
+    base: Image.Image,
+    edited: Image.Image,
+    region,
+    skin: Image.Image,
+    group: str,
+    name: str,
+    parameter: str,
+    core=None,
+    threshold: int = 22,
+) -> Overlay | None:
+    """
+    A drawn piece for a strong emotion (angry brows, a grin, teary eyes) cut from an edit: the edit is
+    lined up with the picture first, then what it changed inside a soft ellipse over region is kept,
+    on the face's skin only, with the feature itself (core) covered completely, so the old one never
+    shows through. The edge is feathered, so the piece melts into the face.
+    """
+    size = base.size
+    region = clamp_box(tuple(int(round(v)) for v in region), size)
+    width, height = region[2] - region[0], region[3] - region[1]
+    if width < 6 or height < 6:
+        return None
+    edited = edited.convert("RGBA")
+    if edited.size != size:
+        edited = edited.resize(size)
+    dx, dy = best_shift(base, edited, grow_box(region, 0.6, 0.6, size))
+    if dx or dy:
+        edited = edited.transform(size, Image.AFFINE, (1, 0, dx, 0, 1, dy), resample=Image.BILINEAR)
+    diff = ImageChops.difference(base.convert("RGB").crop(region), edited.convert("RGB").crop(region)).convert("L")
+    grow = max(3, (width // 24) * 2 + 1)
+    mask = diff.point(lambda v: 255 if v >= threshold else 0).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    mask = mask.filter(ImageFilter.MaxFilter(grow)).filter(ImageFilter.MaxFilter(grow)).filter(ImageFilter.MinFilter(grow))
+    if mask.getbbox() is None:
+        return None  # the edit didn't change anything here
+    if core is not None:
+        local = (core[0] - region[0], core[1] - region[1], core[2] - region[0], core[3] - region[1])
+        cw, ch = max(1, local[2] - local[0]), max(1, local[3] - local[1])
+        inner = Image.new("L", mask.size, 0)
+        reach = (int(local[0] - cw * 0.1), int(local[1] - ch * 0.15))
+        inner.paste(ellipse_mask((int(cw * 1.2) + 1, int(ch * 1.3) + 1)), reach)
+        mask = ImageChops.lighter(mask, inner)
+    if mask.getbbox() is None:
+        return None
+    # Kept inside a soft ellipse over the region, on the skin.
+    oval = Image.new("L", mask.size, 0)
+    ImageDraw.Draw(oval).ellipse((width * 0.06, height * 0.06, width * 0.94, height * 0.94), fill=255)
+    oval = oval.filter(ImageFilter.GaussianBlur(max(1.5, min(width, height) * 0.06)))
+    mask = ImageChops.multiply(mask.filter(ImageFilter.GaussianBlur(max(1.2, grow / 3))), oval)
+    mask = ImageChops.multiply(mask, skin.crop(region).filter(ImageFilter.GaussianBlur(1.2)))
+    art = edited.crop(region)
+    alpha = ImageChops.multiply(art.getchannel("A"), mask)
+    art.putalpha(alpha)
+    bbox = alpha.point(lambda v: 255 if v > 8 else 0).getbbox()
+    if bbox is None:
+        return None
+    return Overlay(group, name, art.crop(bbox), region[0] + bbox[0], region[1] + bbox[1], parameter)
+
+
+def edit_overlays(
+    parts: list[Part],
+    base: Image.Image,
+    eyes_closed: Image.Image | None = None,
+    mouth_open: Image.Image | None = None,
+    angry_brows: Image.Image | None = None,
+    grin: Image.Image | None = None,
+    tears: Image.Image | None = None,
+) -> list[Overlay]:
+    """
+    Hidden layers from the edited copies (all on the decomposition's canvas): blinking and talking,
+    and drawn pieces for the strongest emotions, past what bending the rig can do: angry brows
+    ("Brow L angry", ParamBrowAngry), a wide grin ("Mouth grin", ParamMouthGrin) and teary eyes
+    ("Eye L tears", ParamTear).
+    """
     boxes = feature_boxes(parts, base.size)
     cores = feature_cores(parts)
     allowed = face_area(parts, base.size)
@@ -937,6 +1103,50 @@ def edit_overlays(parts: list[Part], base: Image.Image, eyes_closed: Image.Image
         overlay = overlay_from_edit(base, mouth_open, boxes["Mouth"], "Mouth", "Mouth open", "ParamMouthOpenY", allowed=mouth_area(parts, base.size, allowed), core=cores["Mouth"])
         if overlay:
             overlays.append(overlay)
+    face = _alpha_union(parts, base.size, ("face",))
+    face_box = face.getbbox()
+    if face_box is None or (angry_brows is None and grin is None and tears is None):
+        return overlays
+    face_w, face_h = face_box[2] - face_box[0], face_box[3] - face_box[1]
+    # The pieces go on the face's skin, kept off its outline (edits redraw the jaw a little differently).
+    margin = max(3, face_w // 40) * 2 + 1
+    skin = face.point(lambda v: 255 if v > 200 else 0).filter(ImageFilter.MinFilter(margin))
+    if angry_brows is not None:
+        for side in ("L", "R"):
+            brow = union_box([part_box(p) for p in parts if parse_tag(p.tag) in (("eyebrow", side), ("brow", side))])
+            eye = cores.get(f"Eye {side}")
+            if brow is None:
+                continue
+            # The brow and the upper lid under it (a scowl pulls the brow down onto the eye).
+            near = union_box([brow, eye]) if eye else brow
+            width = near[2] - near[0]
+            bottom = eye[1] + (eye[3] - eye[1]) * 0.4 if eye else brow[3] + face_h * 0.03
+            region = (near[0] - width * 0.15, brow[1] - max((brow[3] - brow[1]) * 0.6, face_h * 0.05), near[2] + width * 0.15, bottom)
+            overlay = expression_piece(base, angry_brows, region, skin, "Face", f"Brow {side} angry", "ParamBrowAngry")
+            if overlay:
+                overlays.append(overlay)
+    if grin is not None and "Mouth" in cores:
+        mouth = cores["Mouth"]
+        mx, my = (mouth[0] + mouth[2]) / 2, (mouth[1] + mouth[3]) / 2
+        nose = union_box([part_box(p) for p in parts if parse_tag(p.tag)[0] == "nose"])
+        top = nose[3] + face_h * 0.01 if nose and nose[3] < my else my - face_h * 0.12
+        # A wide open grin reaches well down towards the chin (the skin mask keeps it inside the jaw).
+        region = (mx - face_w * 0.34, top, mx + face_w * 0.34, face_box[3] - face_h * 0.02)
+        overlay = expression_piece(base, grin, region, skin, "Mouth", "Mouth grin", "ParamMouthGrin", core=mouth)
+        if overlay:
+            overlays.append(overlay)
+    if tears is not None:
+        eyes = _alpha_union(parts, base.size, ("eyewhite", "irides", "eyelash", "eye"))
+        for group in ("Eye L", "Eye R"):
+            if group not in cores:
+                continue
+            eye = cores[group]
+            width, height = eye[2] - eye[0], eye[3] - eye[1]
+            # The eye and the cheek under it, where the tears run.
+            region = (eye[0] - width * 0.3, eye[1] - height * 0.35, eye[2] + width * 0.3, min(face_box[3] - face_h * 0.04, eye[3] + height * 2.4))
+            overlay = expression_piece(base, tears, region, ImageChops.lighter(skin, eyes), group, f"{group} tears", "ParamTear", core=eye)
+            if overlay:
+                overlays.append(overlay)
     return overlays
 
 
