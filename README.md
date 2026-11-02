@@ -23,7 +23,8 @@ AutoExpress repaints a character's face with 28 different emotions and keeps eve
 - **Expression LoRAs.** It downloads and applies the right expression LoRA for the checkpoint, reusing a Civitai key you already have set up.
 - **Two ways to edit.** Face inpainting uses ADetailer or FaceDetailer. Instruction editing uses Qwen-Image-Edit on ComfyUI, which also works on photos.
 - **Animated sprites.** Every expression can become a looping animation (Wan 2.2 image to video on ComfyUI), transparent if you like, with an idle animation written from the character card.
-- **Live2D models from pictures.** A ready-to-play puppet for the SillyTavern Live2D extension (blinking, head turns, hair sway, the 28 expressions), and a layered PSD to rig a full Live2D model in Cubism Editor.
+- **Live2D models from pictures.** A ready-to-play puppet for the SillyTavern Live2D extension, and a layered PSD to rig a full Live2D model in Cubism Editor. The puppet blinks, turns its head with depth, follows the cursor and plays the 28 expressions, gliding from one to the next. Its hair, skirts and ribbons sway, and the bust and hips jiggle. You can drag hair, clothes and soft parts with the mouse or poke them. Layers are split at 2048 px and cleaned up: skin is solid and the hair colour is painted under the bangs.
+- **Swappable clothing for Live2D puppets.** Optional, and only for drawn adult characters. The body, the inner wear and the outer clothes become separate layers, and outfit switches change between them.
 - **One intensity slider** sets how far each expression is pushed.
 - **Ready for sprites.** Files are named after their expression, and each run can save a labelled sprite sheet.
 
