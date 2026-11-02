@@ -297,6 +297,9 @@ export interface Live2DKit {
   zip: string;
   psd: string;
   seethrough_psd: string;
+  /** The ready-to-play puppet for the SillyTavern Live2D extension, and a page that plays it. */
+  puppet_zip?: string | null;
+  puppet_preview?: string | null;
   preview: string;
   sheet: string;
   layers: number;

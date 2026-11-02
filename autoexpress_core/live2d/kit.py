@@ -37,7 +37,7 @@ from PIL import Image, ImageDraw
 from .. import instruction_edit
 from ..images import pil_to_b64
 from ..payload import build_expression_payload
-from . import DECOMPOSE, guidance, layers, model_files, psd
+from . import DECOMPOSE, guidance, layers, model_files, psd, puppet
 
 MAX_SIDE = 2048
 EYES_CLOSED = "eyes_closed"
@@ -61,6 +61,7 @@ class KitResult:
     folder: pathlib.Path
     zip_path: pathlib.Path
     manifest: dict
+    puppet_zip: pathlib.Path | None = None
 
 
 class KitCancelled(Exception):
@@ -163,6 +164,16 @@ def contact_sheet(parts: list[layers.Part], tile: int = 256, columns: int = 6) -
 README = """AutoExpress Live2D model kit: {name}
 ==========================================
 
+Play it now (no Cubism Editor)
+------------------------------
+puppet/{name}/ is a ready-to-play puppet made from these layers: blinking, breathing, head turns,
+hair sway, the 28 expressions and their motions. In SillyTavern, with the AutoExpress extension and
+the Live2D extension both installed:
+1. Copy puppet/{name} into SillyTavern's data/<user>/assets/live2d (or the character's live2d folder).
+2. In the Live2D extension, pick "{name}.puppet.model.json" for the character. The emotions are
+   already mapped. {name}_puppet.zip next to the kit holds the same folder.
+To try it in a browser, serve puppet/{name} with any web server and open preview.html.
+
 What's here
 -----------
 {name}.psd             The character split into Live2D parts, ready to import into Live2D Cubism Editor.
@@ -176,6 +187,7 @@ layers/                Every layer as a PNG, at its place on the canvas.
 preview.png            The layers put back together. sheet.png shows every layer on its own.
 runtime/               Expressions and motions for the 28 SillyTavern emotions, and the settings file
                        the SillyTavern Live2D extension reads.
+puppet/                The ready-to-play puppet (see above).
 manifest.json          What went where, and the checks of the picture.
 
 Make the Live2D model (Live2D Cubism Editor)
@@ -331,6 +343,8 @@ def build_kit(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
     )
 
+    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts)
+
     switches = ", ".join(o.name for o in overlays) or "none"
     (folder / "README.txt").write_text(README.format(name=name, switches=switches), encoding="utf-8")
     manifest.update(
@@ -351,6 +365,11 @@ def build_kit(
         for path in sorted(folder.rglob("*")):
             if path.is_file():
                 archive.write(path, f"{name}/{path.relative_to(folder)}")
+    puppet_zip = output_dir / f"{name}_puppet.zip"
+    with zipfile.ZipFile(puppet_zip, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted((folder / "puppet").rglob("*")):
+            if path.is_file():
+                archive.write(path, str(path.relative_to(folder / "puppet")))
     progress("done", 1.0)
     log(f"Live2D kit ready: {zip_path}")
-    return KitResult(folder, zip_path, manifest)
+    return KitResult(folder, zip_path, manifest, puppet_zip)

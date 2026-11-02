@@ -366,7 +366,21 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
             {kit && (
               <section className="space-y-3">
                 <div className="flex flex-wrap gap-2">
-                  <Button asChild>
+                  {kit.puppet_zip && (
+                    <Button asChild>
+                      <a href={kit.puppet_zip} download>
+                        <Download className="mr-2 h-4 w-4" /> Puppet (.zip)
+                      </a>
+                    </Button>
+                  )}
+                  {kit.puppet_preview && (
+                    <Button asChild variant="outline">
+                      <a href={kit.puppet_preview} target="_blank" rel="noreferrer">
+                        Try the puppet
+                      </a>
+                    </Button>
+                  )}
+                  <Button asChild variant={kit.puppet_zip ? "outline" : "default"}>
                     <a href={kit.zip} download>
                       <Download className="mr-2 h-4 w-4" /> Kit (.zip)
                     </a>
@@ -382,6 +396,13 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                     </a>
                   </Button>
                 </div>
+                {kit.puppet_zip && (
+                  <p className="text-sm text-muted-foreground">
+                    The puppet plays right away in SillyTavern: unzip it into <code>assets/live2d</code> and pick its
+                    .puppet.model.json in the Live2D extension (the AutoExpress extension must be installed too). The
+                    kit is for making a full Live2D model in Cubism Editor.
+                  </p>
+                )}
                 <p className="text-sm">
                   {kit.layers} layers in {kit.groups.length} parts: {kit.groups.join(", ")}.
                   {kit.switches.length ? ` Hidden for blinking and talking: ${kit.switches.map((s) => s.layer).join(", ")}.` : ""}
