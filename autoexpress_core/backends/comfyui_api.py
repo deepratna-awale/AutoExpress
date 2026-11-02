@@ -68,6 +68,9 @@ SEETHROUGH_NODES = (
     "SeeThrough_SavePSD",
 )
 SEETHROUGH_INFO_LOG = "seethrough_psd_info.log"
+# The depth pass only orders the layers, and above about 1280 px its kernels fail on some GPUs
+# (CUDA "invalid configuration argument" at 2048 on an RTX PRO 6000).
+DEPTH_MAX = 1280
 
 IMPACT_PACK = "https://github.com/ltdrdata/ComfyUI-Impact-Pack"
 IMPACT_SUBPACK = "https://github.com/ltdrdata/ComfyUI-Impact-Subpack"
@@ -627,7 +630,7 @@ class ComfyUIClient(RemoteBackend):
             },
             "depth": {
                 "class_type": "SeeThrough_GenerateDepth",
-                "inputs": {"layers": ["layers", 0], "depth_model": ["depth_model", 0], "seed": settings.seed, "resolution_depth": -1},
+                "inputs": {"layers": ["layers", 0], "depth_model": ["depth_model", 0], "seed": settings.seed, "resolution_depth": min(settings.resolution, DEPTH_MAX)},
             },
             "post": {"class_type": "SeeThrough_PostProcess", "inputs": {"layers_depth": ["depth", 0], "tblr_split": True, "use_lama": True}},
             "save": {"class_type": "SeeThrough_SavePSD", "inputs": {"parts": ["post", 0], "filename_prefix": prefix}},

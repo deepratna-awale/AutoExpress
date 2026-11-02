@@ -23,7 +23,7 @@ Only Pillow is needed.
 
 import re
 
-from PIL import Image, ImageChops, ImageFilter, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 
 from . import layers
 
@@ -59,25 +59,29 @@ def blocked_terms(*texts: str) -> list[str]:
 
 def drawing_score(image: Image.Image) -> float:
     """
-    How much the picture looks drawn (0..1): the share of the character made of flat colour.
+    How much the picture looks drawn (0..1); above 0.5 it is a drawing.
 
-    Cel-shaded art is mostly flat areas between lines; photos have grain and soft gradients
-    everywhere. Above about 0.45 it is a drawing.
+    Two things tell a drawing from a photo (or a photoreal render): drawings are calm, most of the
+    character is flat colour or a smooth gradient with no grain (photos have sensor noise and skin
+    texture everywhere), and they have ink lines, thin strokes much darker than what's around them.
+    A very flat picture is a drawing even with few lines; otherwise it needs both.
     """
     small = image.convert("RGB")
-    small.thumbnail((384, 384))
+    small.thumbnail((512, 512))
     grey = small.convert("L")
-    # Local contrast: max - min over 3x3.
-    spread = ImageChops.subtract(grey.filter(ImageFilter.MaxFilter(3)), grey.filter(ImageFilter.MinFilter(3)))
-    # Only the character: not the (often flat white) background.
     background = small.getpixel((0, 0))
     distance = ImageChops.difference(small, Image.new("RGB", small.size, background)).convert("L")
     subject = distance.point(lambda v: 255 if v > 24 else 0)
     total = ImageStat.Stat(subject).sum[0] / 255
     if total < 50:
         return 0.0
-    flat = ImageChops.multiply(subject, spread.point(lambda v: 255 if v <= 2 else 0))
-    return round(ImageStat.Stat(flat).sum[0] / 255 / total, 3)
+    residual = ImageChops.difference(grey, grey.filter(ImageFilter.MedianFilter(3)))
+    calm = ImageStat.Stat(ImageChops.multiply(subject, residual.point(lambda v: 255 if v <= 1 else 0))).sum[0] / 255 / total
+    ink = ImageChops.subtract(grey.filter(ImageFilter.MedianFilter(7)), grey).point(lambda v: 255 if v > 45 else 0)
+    lines = ImageStat.Stat(ImageChops.multiply(subject, ink)).sum[0] / 255 / total
+    if calm >= 0.85:
+        return round(calm, 3)
+    return round(calm, 3) if lines >= 0.012 else round(min(calm, 0.45) * 0.5, 3)
 
 
 def check(settings: dict, picture: Image.Image, name: str = "") -> tuple[bool, str]:
@@ -89,7 +93,7 @@ def check(settings: dict, picture: Image.Image, name: str = "") -> tuple[bool, s
     if settings.get("is_realistic") or settings.get("photo"):
         return False, "Swappable clothing is only made for drawn characters, never for photos."
     score = drawing_score(picture)
-    if score < 0.45:
+    if score < 0.5:
         return False, f"The picture looks like a photo (drawing score {score:.2f}), so no body or inner wear layers were made. They are only made for drawn characters."
     found = blocked_terms(name, settings.get("character_description", ""), settings.get("inner_wear", ""))
     if found:
@@ -137,10 +141,30 @@ def adapt(instruction: str, description: str) -> str:
 
 # Cutting the layers out ------------------------------------------------------------------------
 def _key_from_white(image: Image.Image) -> Image.Image:
-    """Alpha (mode L) of a character drawn on white: everything that isn't the white background."""
+    """
+    Alpha (mode L) of a character drawn on white: everything but the white background around it.
+
+    The background is the near-white area connected to the picture's border (flood filled), not
+    every light pixel, so pale skin inside the character's outline stays.
+    """
     rgb = image.convert("RGB")
-    distance = ImageChops.difference(rgb, Image.new("RGB", rgb.size, (255, 255, 255))).convert("L")
-    return distance.point(lambda v: 0 if v < 8 else 255 if v > 28 else (v - 8) * 255 // 20)
+    diff = ImageChops.difference(rgb, Image.new("RGB", rgb.size, (255, 255, 255)))
+    r, g, b = diff.split()
+    distance = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    scale = max(1, max(rgb.size) // 1024)
+    small = distance.resize((rgb.width // scale, rgb.height // scale), Image.Resampling.BILINEAR)
+    light = small.point(lambda v: 255 if v < 14 else 0)
+    width, height = light.size
+    seeds = [(x, y) for x in range(0, width, 8) for y in (0, height - 1)] + [(x, y) for y in range(0, height, 8) for x in (0, width - 1)]
+    for seed in seeds:
+        if light.getpixel(seed) == 255:
+            ImageDraw.floodfill(light, seed, 128)
+    background = light.point(lambda v: 255 if v == 128 else 0).resize(rgb.size, Image.Resampling.BILINEAR)
+    alpha = background.point(lambda v: 255 - v)
+    # A soft edge where the character meets the background.
+    edge = distance.point(lambda v: 0 if v < 8 else 255 if v > 40 else (v - 8) * 255 // 32)
+    near_background = background.filter(ImageFilter.MaxFilter(3))
+    return ImageChops.lighter(ImageChops.subtract(alpha, near_background), ImageChops.multiply(edge, ImageChops.multiply(alpha, near_background)))
 
 
 def _colour_distance(image: Image.Image, colour) -> Image.Image:
@@ -151,8 +175,8 @@ def body_layer(nude: Image.Image, parts: list, size) -> Image.Image | None:
     """
     The body layer (RGBA, canvas size) from the nude edit, already placed on the split's canvas.
 
-    Kept: inside the clothed character's body (the clothes and neck layers, grown a little, since the
-    body is under the clothes), below the chin, and not where the edit drew hair.
+    Kept: inside the clothed character's body (the clothes, arms and neck layers, since the body is
+    under the clothes), below the chin, and not where the edit drew hair.
     """
     body_tags = ("neck", "topwear", "bottomwear", "legwear", "footwear", "handwear", "neckwear")
     clothed = layers._alpha_union(parts, size, body_tags)
@@ -160,8 +184,9 @@ def body_layer(nude: Image.Image, parts: list, size) -> Image.Image | None:
     if box is None:
         return None
     face = layers._alpha_union(parts, size, ("face",)).getbbox()
-    grow = max(3, (box[2] - box[0]) // 60) * 2 + 1
-    region = clothed.point(lambda v: 255 if v > 64 else 0).filter(ImageFilter.MaxFilter(grow))
+    # Only a hair wider than the clothed body: the edit never puts the limbs exactly where they were,
+    # and a body sticking out past the clothes would show around them in the full outfit.
+    region = clothed.point(lambda v: 255 if v > 64 else 0).filter(ImageFilter.MaxFilter(3))
     alpha = ImageChops.multiply(_key_from_white(nude), region)
     if face:
         chin = face[3] - (face[3] - face[1]) * 0.12
