@@ -514,6 +514,7 @@ def test_generate_animated_sprites_with_the_idle_from_the_card(client, monkeypat
     assert "Hanabi idles in place" in FakeAnimWebUI.prompts[1] and "wink" in FakeAnimWebUI.prompts[1]
     assert any(note["kind"] == "idle_motion" for note in result["job"]["notes"])
 
+
     # A typed idle motion wins over the card.
     FakeAnimWebUI.prompts = []
     client.post("/generate", json=body(init_images=image, expressions=["neutral"], animate=True, animation={"idle_motion": "She stretches."}))
@@ -551,3 +552,14 @@ def test_character_card_route_and_upload(client, monkeypatch):
     saved = client.post("/llm-settings", json={"url": "http://127.0.0.1:11434/v1", "model": "llama3", "api_key": "k"}).get_json()
     assert saved == {"url": "http://127.0.0.1:11434/v1", "model": "llama3", "has_api_key": True}
     views.llm_settings.update(url="", model="", api_key="")
+
+
+def test_animated_instruction_edits_keep_the_mouth_closed(client, monkeypatch):
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_anim", FakeAnimWebUI)
+    views.state.connect("fake_anim", None)
+    FakeEditWebUI.instructions = []
+    assert client.post("/generate", json=body(method="instruct", expressions=["joy"], animate=True)).get_json()["status"] == "success"
+    assert "closed-mouth smile" in FakeEditWebUI.instructions[0][0]
+    FakeEditWebUI.instructions = []
+    assert client.post("/generate", json=body(method="instruct", expressions=["joy"])).get_json()["status"] == "success"
+    assert "wide open smile" in FakeEditWebUI.instructions[0][0]

@@ -148,7 +148,12 @@ def get_instructions(only: list[str] | None = None) -> dict[str, str]:
 
 
 def build_instruction(
-    expression: str, extra: str = "", style: str = ILLUSTRATION, intensity: float | None = None, pose: bool | str | None = None
+    expression: str,
+    extra: str = "",
+    style: str = ILLUSTRATION,
+    intensity: float | None = None,
+    pose: bool | str | None = None,
+    closed_mouth: bool = False,
 ) -> str:
     """
     The full edit instruction for one expression.
@@ -161,6 +166,8 @@ def build_instruction(
             (low for photos, where full-strength expressions look like a cartoon).
         pose (bool | str | None): Also change the pose: True for the expression's sprite pose (see get_poses()),
             or a custom pose sentence. The pose starts from the character's current one and keeps the outfit.
+        closed_mouth (bool): Keep the mouth closed (for animated sprites, where an open mouth in the still
+            opens and closes during the clip and looks like talking).
     """
     data = _load()
     if expression not in data["expressions"]:
@@ -170,11 +177,13 @@ def build_instruction(
     tier = expression_intensity.edit_tier(expression_intensity.resolve(intensity, realistic=style == PHOTO))
     gesture = pose_sentence(expression, pose)
     if gesture:
-        return _posed_instruction(expression, extra, style, tier, gesture)
+        return _posed_instruction(expression, extra, style, tier, gesture, closed_mouth)
     if style == PHOTO:
         sentence, clause = photo_sentence(expression), ""
+        if closed_mouth:
+            sentence += " " + CLOSED_MOUTH_PHOTO
     else:
-        sentence = data["subtle" if tier == "subtle" else "expressions"][expression]
+        sentence = _sentence(expression, tier, closed_mouth)
         clause = data["intensity"][tier]
     parts = [
         data["styles"][style]["prefix"],
@@ -186,14 +195,26 @@ def build_instruction(
     return " ".join(part for part in parts if part)
 
 
-def _posed_instruction(expression: str, extra: str, style: str, tier: str, gesture: str) -> str:
+CLOSED_MOUTH_PHOTO = "The mouth is closed."
+
+
+def _sentence(expression: str, tier: str, closed_mouth: bool = False) -> str:
+    """The expression's sentence for an intensity tier; the closed-mouth version when asked for and there is one."""
+    data = _load()
+    if closed_mouth and expression in data.get("closed_mouth", {}):
+        return data["closed_mouth"][expression]
+    return data["subtle" if tier == "subtle" else "expressions"][expression]
+
+
+def _posed_instruction(expression: str, extra: str, style: str, tier: str, gesture: str, closed_mouth: bool = False) -> str:
     """Expression plus pose: the "change only the face" prefix and suffix make way for the pose's own."""
     data, poses = _load(), _load_poses()
     if style == PHOTO:
         word = data["photo"]["words"].get(expression, expression)
-        parts = [f"Facial expression: {word}.", gesture, poses["keep"], poses["outfit"], (extra or "").strip(), poses["photo_suffix"]]
+        face = f"Facial expression: {word}." + (" " + CLOSED_MOUTH_PHOTO if closed_mouth else "")
+        parts = [face, gesture, poses["keep"], poses["outfit"], (extra or "").strip(), poses["photo_suffix"]]
     else:
-        sentence = HEAD_LOCK.sub("", data["subtle" if tier == "subtle" else "expressions"][expression])
+        sentence = HEAD_LOCK.sub("", _sentence(expression, tier, closed_mouth))
         parts = [poses["prefix"], sentence, data["intensity"][tier], gesture, poses["keep"], poses["outfit"], (extra or "").strip(), poses["suffix"]]
     return " ".join(part for part in parts if part)
 

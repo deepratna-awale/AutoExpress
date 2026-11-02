@@ -365,3 +365,17 @@ def test_paste_face_keeps_the_original_outside_the_face():
     result = paste_face(original, edited, mask)
     assert result.getpixel((100, 100)) == (0, 0, 255) and result.getpixel((5, 5)) == (255, 0, 0)
     assert paste_face(original, edited, Image.new("L", (10, 10), 0)) is edited
+
+
+def test_closed_mouth_for_animated_sprites():
+    # An open mouth in a still opens and closes in its clip, which looks like talking.
+    for name in ("surprise", "joy", "grief", "realization", "excitement", "fear"):
+        normal = instruction_edit.build_instruction(name, intensity=1.0)
+        closed = instruction_edit.build_instruction(name, intensity=1.0, closed_mouth=True)
+        assert closed != normal and "open" not in closed.split("Keep the same")[0].replace("eyes wide open", "")
+    assert "mouth closed" in instruction_edit.build_instruction("surprise", intensity=0.2, closed_mouth=True)
+    posed = instruction_edit.build_instruction("joy", pose=True, closed_mouth=True)
+    assert "closed-mouth smile" in posed and "Change the facial expression and the pose." in posed
+    # Expressions without an open mouth keep their usual sentence.
+    assert instruction_edit.build_instruction("love", closed_mouth=True) == instruction_edit.build_instruction("love")
+    assert "The mouth is closed." in instruction_edit.build_instruction("joy", style=instruction_edit.PHOTO, closed_mouth=True)

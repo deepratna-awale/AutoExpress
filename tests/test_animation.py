@@ -119,6 +119,7 @@ def test_motions_are_silent_reactions():
             assert word not in lowered, (name, word)
     assert "does not speak" in animation.build_motion_prompt("joy")
     assert "does not speak" in animation.build_motion_prompt("joy", style="photo")
+    assert "mouth does not open" in animation.build_motion_prompt("surprise")
     assert "talking" in animation.negative_prompt() and "lip sync" in animation.negative_prompt()
 
 
