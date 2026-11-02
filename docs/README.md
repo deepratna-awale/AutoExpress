@@ -16,6 +16,7 @@
 - [Prompt styles and expression intensity](prompt-styles.md): which prompt set fits which checkpoint, and how strong each expression is
 - [Expression LoRAs](expression-loras.md): the LoRAs AutoExpress adds, and where it finds your Civitai key
 - [Animated sprites](animated-sprites.md): 28 looping animated expressions and a persona idle animation from one character card, with Wan 2.2
+- [Live2D model kits](live2d.md): a character split into the layers of a Live2D model (Cubism-ready PSD), plus the 28 emotions for the SillyTavern Live2D extension
 
 ## Project
 

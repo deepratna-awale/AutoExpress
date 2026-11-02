@@ -551,3 +551,83 @@ def test_character_card_route_and_upload(client, monkeypatch):
     saved = client.post("/llm-settings", json={"url": "http://127.0.0.1:11434/v1", "model": "llama3", "api_key": "k"}).get_json()
     assert saved == {"url": "http://127.0.0.1:11434/v1", "model": "llama3", "has_api_key": True}
     views.llm_settings.update(url="", model="", api_key="")
+
+
+# Live2D model kits ------------------------------------------------------------
+class FakeLayerWebUI(FakeWebUI):
+    kind = "fake_layers"
+    edit_methods = ("inpaint", "instruct")
+    can_decompose = True
+
+    def ensure_decompose_ready(self):
+        pass
+
+    def instruction_edit(self, image, instruction, settings):
+        from autoexpress_core.images import b64_to_pil
+
+        return b64_to_pil(image).convert("RGB")
+
+    def decompose_layers(self, image, settings):
+        from autoexpress_core.live2d.layers import Part
+
+        face = Image.new("RGBA", (settings.resolution, settings.resolution), (0, 0, 0, 0))
+        face.paste((250, 220, 200, 255), (300, 200, 700, 700))
+        hair = Image.new("RGBA", (settings.resolution, settings.resolution), (0, 0, 0, 0))
+        hair.paste((40, 30, 30, 255), (280, 150, 720, 320))
+        return [Part("face", face, 0, 0, 0.5), Part("front hair", hair, 0, 0, 0.2)], (settings.resolution, settings.resolution)
+
+
+def test_live2d_needs_a_backend_that_splits_layers(client):
+    info = client.get("/live2d").get_json()
+    assert info["available"] is False and not info["ready"] and info["advice"]["best"]
+    response = client.post("/live2d", json={"images": [pil_to_b64(Image.new("RGB", (64, 64)))]})
+    assert response.status_code == 400 and "See-through" in response.get_json()["error"]["fields"]["backend"]
+
+
+def test_live2d_validates_the_request(client):
+    assert client.post("/live2d", json={"images": []}).status_code == 400
+    response = client.post("/live2d", json={"images": ["not an image"], "settings": {"resolution": 99999, "variants": "x"}})
+    fields = response.get_json()["error"]["fields"]
+    assert response.status_code == 400 and {"images[0]", "resolution", "variants"} <= set(fields)
+
+
+def test_live2d_check_ranks_pictures(client):
+    small = pil_to_b64(Image.new("RGB", (100, 100), (255, 255, 255)))
+    big = Image.new("RGB", (1400, 1400), (255, 255, 255))
+    big.paste((200, 50, 50), (400, 200, 1000, 1400))
+    response = client.post("/live2d/check", json={"images": [small, pil_to_b64(big)]})
+    data = response.get_json()
+    assert response.status_code == 200 and data["best"] == 1 and len(data["reports"]) == 2
+
+
+def test_live2d_builds_a_kit_job(client, monkeypatch, tmp_path):
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_layers", FakeLayerWebUI)
+    views.state.connect("fake_layers", None)
+    assert client.get("/live2d").get_json()["ready"] is True
+    picture = Image.new("RGB", (800, 1000), (255, 255, 255))
+    picture.paste((250, 220, 200), (250, 200, 550, 600))
+    response = client.post("/live2d", json={"images": [pil_to_b64(picture)], "name": "Mira", "settings": {"resolution": 1024}})
+    assert response.status_code == 202
+    job = wait_for(client, response.get_json()["job_id"])
+    assert job["status"] == "completed", job
+    kit = job["live2d"]
+    assert kit["zip"] == "/image/live2d/Mira_live2d_kit.zip" and kit["groups"] == ["Front hair", "Face"]
+    assert client.get(kit["zip"]).status_code == 200 and client.get(kit["preview"]).status_code == 200
+    assert (tmp_path / "out" / "live2d" / "Mira" / "Mira.psd").exists()
+
+
+def test_live2d_character_lora_search(client, monkeypatch):
+    from autoexpress_core.live2d import character_lora
+
+    seen = {}
+
+    def fake_search(name, architecture, api_key=None):
+        seen.update(name=name, architecture=architecture)
+        return [{"name": "Mira_IL", "title": "Mira", "civitai_model_id": 1, "civitai_version_id": 2, "weight": 0.8, "trigger": "mira"}]
+
+    monkeypatch.setattr(character_lora, "search", fake_search)
+    data = client.post("/live2d/character-lora", json={"name": "Mira", "checkpoint": "waiIllustriousSDXL_v150.safetensors"}).get_json()
+    assert seen == {"name": "Mira", "architecture": "illustrious"}
+    result = data["results"][0]
+    assert result["installed_name"] is None and "civitai.com/models/1" in result["install"]["url"]
+    assert client.post("/live2d/character-lora", json={}).status_code == 400

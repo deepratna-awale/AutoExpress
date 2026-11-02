@@ -31,6 +31,7 @@ import uuid
 from PIL import Image, ImageDraw, ImageFilter
 
 from .. import animation, instruction_edit
+from ..live2d import layers as live2d_layers
 from ..civitai_key import comfyui_sources
 from ..images import b64_to_pil
 from ..log import log
@@ -56,6 +57,17 @@ EDIT_ENCODERS = ("TextEncodeQwenImageEditPlus", "TextEncodeQwenImageEdit")
 FACE_MASK_NODES = ("UltralyticsDetectorProvider", "BboxDetectorSEGS", "SegsToCombinedMask", "MaskToImage")
 # Core ComfyUI nodes of the Wan 2.2 image to video workflow for animated sprites.
 ANIMATE_NODES = ("UNETLoader", "CLIPLoader", "VAELoader", "ModelSamplingSD3", "KSamplerAdvanced", "WanFirstLastFrameToVideo", "CLIPTextEncode", "VAEDecode")
+
+# ComfyUI-See-through's nodes, which split a character picture into Live2D layers.
+SEETHROUGH_NODES = (
+    "SeeThrough_LoadLayerDiffModel",
+    "SeeThrough_LoadDepthModel",
+    "SeeThrough_GenerateLayers",
+    "SeeThrough_GenerateDepth",
+    "SeeThrough_PostProcess",
+    "SeeThrough_SavePSD",
+)
+SEETHROUGH_INFO_LOG = "seethrough_psd_info.log"
 
 IMPACT_PACK = "https://github.com/ltdrdata/ComfyUI-Impact-Pack"
 IMPACT_SUBPACK = "https://github.com/ltdrdata/ComfyUI-Impact-Subpack"
@@ -177,6 +189,7 @@ class ComfyUIClient(RemoteBackend):
     default_url = "http://127.0.0.1:8188"
     edit_methods = (instruction_edit.INPAINT, instruction_edit.INSTRUCT)
     can_animate = True
+    can_decompose = True
 
     def __init__(self, url: str | None = None, timeout: float | None = None, poll_interval: float = 0.5, **options) -> None:
         self._object_info: dict[str, dict] = {}
@@ -463,6 +476,7 @@ class ComfyUIClient(RemoteBackend):
         # The instruction edit mode is optional at connect time; the pre-generation check marks it required.
         items.extend(self.edit_capabilities(selected=False))
         items.extend(self.animate_capabilities(selected=False))
+        items.extend(self.decompose_capabilities(selected=False))
         return items
 
     def animate_files(self) -> dict[str, str | None]:
@@ -532,6 +546,159 @@ class ComfyUIClient(RemoteBackend):
                 )
             )
         return items
+
+    def ensure_decompose_ready(self) -> None:
+        """What Live2D model kits need: the See-through nodes (their models download on first use)."""
+        self._object_info.clear()
+        missing = [node for node in SEETHROUGH_NODES if not self.object_info(node)]
+        if missing:
+            error = BackendNotReady(
+                f"ComfyUI is missing the See-through nodes ({', '.join(missing)}). Install ComfyUI-See-through "
+                f"({live2d_layers.SEETHROUGH_REPO}) and restart ComfyUI. " + live2d_layers.VRAM_NOTE
+            )
+            error.fix = custom_node_fix("ComfyUI-See-through", live2d_layers.SEETHROUGH_REPO)
+            raise error
+
+    def decompose_capabilities(self, selected: bool = False) -> list[Capability]:
+        """Readiness of Live2D model kits (the See-through layer split)."""
+        self._object_info.clear()
+        missing = [node for node in SEETHROUGH_NODES if not self.object_info(node)]
+        return [
+            Capability(
+                "seethrough_nodes", "See-through layer split (Live2D model kits)", not missing,
+                f"Missing: {', '.join(missing)}" if missing else "Nodes present",
+                required=selected,
+                fix=Fix(
+                    [
+                        "Optional, for Live2D model kits. Install ComfyUI-See-through on the machine or pod ComfyUI runs on, then restart ComfyUI.",
+                        live2d_layers.VRAM_NOTE,
+                    ],
+                    [f"cd ComfyUI/custom_nodes && git clone {live2d_layers.SEETHROUGH_REPO}", "pip install -r ComfyUI-See-through/requirements.txt"],
+                    [Fix.link("ComfyUI-See-through", live2d_layers.SEETHROUGH_REPO)],
+                ),
+            )
+        ]
+
+    def _seethrough_model(self, node: str, hint: str, default: str, low_vram: bool) -> str:
+        """A See-through loader's model: a copy in models/SeeThrough when ComfyUI lists one, else the Hugging Face repo."""
+        choices = self.options(node, "model")
+        fitting = [c for c in choices if hint in c.lower() and ("nf4" in c.lower()) == low_vram]
+        local = [c for c in fitting if c.count("/") != 1 or c.startswith(("models", "."))]
+        if local:
+            return local[0]
+        if not low_vram and default in choices:
+            return default
+        return fitting[0] if fitting else default
+
+    def build_decompose_workflow(self, image_name: str, prefix: str, settings: "live2d_layers.SplitSettings") -> dict:
+        """See-through: layers (LayerDiff 3D), depth (Marigold), left/right and hair splits, then the layers saved as PNGs."""
+        quant = "nf4" if settings.low_vram else "none"
+        workflow = {
+            "load_image": {"class_type": "LoadImage", "inputs": {"image": image_name}},
+            "layerdiff": {
+                "class_type": "SeeThrough_LoadLayerDiffModel",
+                "inputs": {
+                    "model": self._seethrough_model("SeeThrough_LoadLayerDiffModel", "layerdiff", "layerdifforg/seethroughv0.0.2_layerdiff3d", settings.low_vram),
+                    "quant_mode": quant,
+                    "cache_tag_embeds": True,
+                    "group_offload": False,
+                    "auto_download": True,
+                },
+            },
+            "depth_model": {
+                "class_type": "SeeThrough_LoadDepthModel",
+                "inputs": {
+                    "model": self._seethrough_model("SeeThrough_LoadDepthModel", "marigold", "layerdifforg/seethroughv0.0.1_marigold", settings.low_vram),
+                    "quant_mode": quant,
+                    "cache_tag_embeds": True,
+                    "group_offload": False,
+                    "auto_download": True,
+                },
+            },
+            "layers": {
+                "class_type": "SeeThrough_GenerateLayers",
+                "inputs": {
+                    "image": ["load_image", 0],
+                    "layerdiff_model": ["layerdiff", 0],
+                    "seed": settings.seed,
+                    "resolution": settings.resolution,
+                    "num_inference_steps": settings.steps,
+                },
+            },
+            "depth": {
+                "class_type": "SeeThrough_GenerateDepth",
+                "inputs": {"layers": ["layers", 0], "depth_model": ["depth_model", 0], "seed": settings.seed, "resolution_depth": -1},
+            },
+            "post": {"class_type": "SeeThrough_PostProcess", "inputs": {"layers_depth": ["depth", 0], "tblr_split": True, "use_lama": True}},
+            "save": {"class_type": "SeeThrough_SavePSD", "inputs": {"parts": ["post", 0], "filename_prefix": prefix}},
+        }
+        for node in workflow.values():
+            node["inputs"] = self._with_defaults(node["class_type"], node["inputs"])
+        return workflow
+
+    def _with_defaults(self, node: str, inputs: dict) -> dict:
+        """inputs without the ones this version of the node doesn't take, plus defaults for required ones it added."""
+        spec = self.object_info(node).get("input", {})
+        known = {**spec.get("required", {}), **spec.get("optional", {})}
+        if not known:
+            return inputs
+        result = {key: value for key, value in inputs.items() if key in known}
+        for key, value in spec.get("required", {}).items():
+            if key not in result and isinstance(value, (list, tuple)) and len(value) > 1 and isinstance(value[1], dict) and "default" in value[1]:
+                result[key] = value[1]["default"]
+        return result
+
+    def _output_file(self, filename: str, subfolder: str = "") -> bytes:
+        response = self._request("GET", "/view", params={"filename": filename, "subfolder": subfolder, "type": "output"}, timeout=120)
+        self._check(response, f"download of {filename}")
+        return response.content
+
+    def decompose_layers(self, image: str, settings: "live2d_layers.SplitSettings") -> tuple[list, tuple[int, int]] | None:
+        """
+        Split a base64 character picture into layers with See-through.
+
+        Returns ([Part ...], canvas size) on See-through's square canvas, or None on failure (reason in last_error).
+        """
+        self._interrupted.clear()
+        self.last_error = None
+        self._progress = None
+        stop_listening = None
+        try:
+            prefix = f"autoexpress_live2d_{uuid.uuid4().hex[:10]}"
+            workflow = self.build_decompose_workflow(self.upload_image(image), prefix, settings)
+            stop_listening = self._listen_for_progress()
+            self._prompt_id = self.queue_prompt(workflow)
+            self.wait_for(self._prompt_id)
+            # The save node names its files <prefix>_<time>_<id>_*; its log holds the name of the layer list it wrote last.
+            info_name = self._output_file(SEETHROUGH_INFO_LOG).decode("utf-8").strip()
+            if not info_name.startswith(prefix):
+                raise BackendRejected("Another See-through job finished at the same time; run the Live2D kit again.")
+            info = json.loads(self._output_file(info_name))
+            parts = []
+            for entry in info.get("layers", []):
+                layer = Image.open(io.BytesIO(self._output_file(entry["filename"])))
+                layer.load()
+                parts.append(
+                    live2d_layers.Part(
+                        tag=entry["name"],
+                        image=layer.convert("RGBA"),
+                        left=int(entry.get("left", 0)),
+                        top=int(entry.get("top", 0)),
+                        depth=float(entry.get("depth_median", 1.0)),
+                    )
+                )
+            if not parts:
+                raise BackendRejected("See-through found no layers in the picture.")
+            return parts, (int(info.get("width", settings.resolution)), int(info.get("height", settings.resolution)))
+        except BackendError as e:
+            return self._fail(e, "layer split")
+        except (KeyError, ValueError, TypeError, OSError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from ComfyUI's See-through nodes: {e}"), "layer split")
+        finally:
+            if stop_listening:
+                stop_listening.set()
+            self._prompt_id = None
+            self._progress = None
 
     def edit_capabilities(self, selected: bool = False) -> list[Capability]:
         """edit_requirements() as Capability items for the readiness report."""
