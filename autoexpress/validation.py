@@ -321,6 +321,8 @@ def validate_live2d(data, max_pixels: int) -> dict:
         settings["safe_mode"] = raw.get("safe_mode") is not False
     if "clothing_slots" in raw:
         settings["clothing_slots"] = raw.get("clothing_slots") is not False
+    if "expression_art" in raw:
+        settings["expression_art"] = raw.get("expression_art") is not False
     if "use_prompt_data" in raw:
         settings["use_prompt_data"] = raw.get("use_prompt_data") is not False
     for key in ("character_description", "inner_wear", "outfit_prompt"):

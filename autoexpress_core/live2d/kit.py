@@ -46,15 +46,29 @@ from . import DECOMPOSE, guidance, layers, model_files, outfits, prompt_data, ps
 MAX_SIDE = 2048
 EYES_CLOSED = "eyes_closed"
 MOUTH_OPEN = "mouth_open"
+# Drawn pieces for the strongest emotions (the rig bends the rest).
+ANGRY_BROWS = "angry_brows"
+GRIN = "grin"
+TEARS = "teary_eyes"
+EXPRESSION_ART = (ANGRY_BROWS, GRIN, TEARS)
 
 KEEP = "Keep everything else exactly the same: face shape, eyebrows, hair, outfit, pose, colors, line art, art style, background and framing."
 INSTRUCTIONS = {
     EYES_CLOSED: "Close both eyes gently, like a calm blink: relaxed closed eyelids drawn as soft curved lash lines, no other change to the face. " + KEEP,
     MOUTH_OPEN: "Open the mouth a little, as if saying \"ah\": a small relaxed open mouth showing a bit of the inside, no other change to the face. " + KEEP,
+    ANGRY_BROWS: "Make the eyebrows furious: sharply furrowed and slanted, the inner ends pulled hard down towards the nose in a fierce scowl. "
+    "Keep the eyes open and looking the same way, and the mouth unchanged. " + KEEP.replace("eyebrows, ", ""),
+    GRIN: "Give the character a wide, beaming grin: the corners of the mouth pulled up high, showing the upper teeth, held like a big happy smile. "
+    "Keep the eyes, eyebrows and everything else unchanged. " + KEEP,
+    TEARS: "Make the eyes teary: glistening, watery eyes with tears welling up along the lower lids and a tear running down each cheek. "
+    "Keep the eyes open, and the eyebrows and mouth unchanged. " + KEEP,
 }
 PROMPTS = {
     EYES_CLOSED: "closed eyes, calm expression, closed mouth",
     MOUTH_OPEN: "open mouth, :o, neutral expression, eyes open",
+    ANGRY_BROWS: "v-shaped eyebrows, furrowed brow, angry, eyes open, closed mouth",
+    GRIN: "grin, wide smile, upper teeth, happy, eyes open",
+    TEARS: "tears, teary eyes, streaming tears, eyes open, closed mouth",
 }
 
 AUTO, INPAINT, INSTRUCT = "auto", instruction_edit.INPAINT, instruction_edit.INSTRUCT
@@ -285,20 +299,19 @@ def change_outfit(backend, picture: Image.Image, settings: dict, name: str, log)
     return changed, ""
 
 
-SLOT_EDITS = (outfits.MID, outfits.OUTER_HALF, outfits.TOP_HALF, outfits.BOTTOM_HALF)
+SLOT_EDITS = (outfits.MID,)
 
 
 def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, log, check_cancel, progress) -> tuple[dict, list[str]]:
     """
-    The edits for the clothing slots: the picture without its outermost layer and with it slipped
-    halfway off (any character), and, when the inner wear was made (so the clothing check passed),
-    the top opened and the skirt lifted. Returns ({key: picture}, notes).
+    The edit for the clothing slots: the picture without its outermost layer, so the coat comes
+    off on its own. The half-off states aren't drawn: they fade part of each garment out and show
+    the layers under it (the same inner wear and body as when it's off). Returns ({key: picture}, notes).
     """
     description = settings.get("character_description", "")
     if settings.get("outfit_from_prompt"):
         description = (description + f". Her outfit: {settings['outfit_from_prompt']}").strip(". ")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
-    inner_wear = settings.get("inner_wear", "")
     edits: dict[str, Image.Image] = {}
     notes: list[str] = []
 
@@ -316,13 +329,7 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
         edits[key] = result
         return result
 
-    mid = run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
-    if mid is not None:
-        run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description), "the outer layer half off", 0.37)
-    if outfits.INNER in made:
-        base = mid if mid is not None else picture
-        run(outfits.TOP_HALF, base, outfits.top_half_instruction(inner_wear, description), "the top opened", 0.38)
-        run(outfits.BOTTOM_HALF, base, outfits.bottom_half_instruction(inner_wear, description), "the skirt lifted", 0.39)
+    run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
     return edits, notes
 
 
@@ -493,9 +500,10 @@ def build_kit(
             lora_prompt = lora_tag(character_lora["entry"], character_lora["installed_name"])
     variants: dict[str, Image.Image] = {}
     if method:
-        for index, which in enumerate((EYES_CLOSED, MOUTH_OPEN)):
+        wanted = (EYES_CLOSED, MOUTH_OPEN) + (EXPRESSION_ART if settings.get("expression_art", True) is not False else ())
+        for index, which in enumerate(wanted):
             check_cancel()
-            progress(f"drawing {which.replace('_', ' ')}", 0.05 + 0.15 * index)
+            progress(f"drawing {which.replace('_', ' ')}", 0.05 + 0.25 * index / len(wanted))
             log(f"Drawing the character with {which.replace('_', ' ')} ({'face inpainting' if method == INPAINT else 'Qwen-Image-Edit'}).")
             result = make_variant(backend, picture, which, method, settings, lora_prompt if method == INPAINT else "")
             if result is None:
@@ -550,6 +558,7 @@ def build_kit(
         base_canvas,
         to_canvas(variants[EYES_CLOSED], box, canvas_size) if EYES_CLOSED in variants else None,
         to_canvas(variants[MOUTH_OPEN], box, canvas_size) if MOUTH_OPEN in variants else None,
+        *(to_canvas(variants[which], box, canvas_size) if which in variants else None for which in EXPRESSION_ART),
     )
     extra = outfits.outfit_parts(
         parts,

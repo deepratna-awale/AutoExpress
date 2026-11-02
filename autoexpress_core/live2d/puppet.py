@@ -58,6 +58,9 @@ PARAMETERS = [
     ("ParamMouthForm", -1, 1, 0),
     ("ParamMouthOpenY", 0, 1, 0),
     ("ParamCheek", 0, 1, 0),
+    ("ParamBrowAngry", 0, 1, 0),
+    ("ParamMouthGrin", 0, 1, 0),
+    ("ParamTear", 0, 1, 0),
     ("ParamBodyAngleX", -10, 10, 0),
     ("ParamBodyAngleY", -10, 10, 0),
     ("ParamBodyAngleZ", -10, 10, 0),
@@ -170,9 +173,9 @@ _BODY_ROLES = {
     "Topwear": "clothing", "Bottomwear": "clothing", "Legwear": "clothing", "Footwear": "clothing", "Neckwear": "clothing",
     "Outer wear": "clothing", "Outer wear half": "clothing", "Topwear half": "clothing", "Bottomwear half": "clothing",
 }
-HEAD_ROLES = ("face", "brow", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "mouth", "mouth_open", "ear", "front_hair", "hair_under", "headwear", "back_hair")
+HEAD_ROLES = ("face", "brow", "brow_angry", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "mouth", "mouth_open", "mouth_grin", "ear", "front_hair", "hair_under", "headwear", "back_hair")
 # The eyes and mouth: small on the canvas, drawn large; their textures get upscaled.
-FEATURE_ROLES = ("eyes", "eyelash", "iris", "eye_white", "eye_closed", "brow", "mouth", "mouth_open")
+FEATURE_ROLES = ("eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "brow", "brow_angry", "mouth", "mouth_open", "mouth_grin")
 # The outer clothes: hidden by ParamClothesOuter when the puppet has a body layer under them.
 OUTER_ROLES = ("clothing", "arm")
 
@@ -185,8 +188,14 @@ def role_of(group: str, layer_name: str) -> tuple[str, str | None]:
         side = words[-1]
     if layer_name.endswith("closed"):
         return "eye_closed", (group.split()[-1] if group.startswith("Eye ") else None)
+    if layer_name.endswith("tears"):
+        return "eye_tears", (group.split()[-1] if group.startswith("Eye ") else None)
+    if layer_name.endswith("angry"):
+        return "brow_angry", side or (words[1] if len(words) > 2 and words[1] in ("L", "R") else None)
     if layer_name == "Mouth open":
         return "mouth_open", None
+    if layer_name == "Mouth grin":
+        return "mouth_grin", None
     if layer_name == "Hair underlay":
         return "hair_under", None
     if group.startswith("Eye "):
@@ -450,15 +459,18 @@ def build_rig(entries: list[dict], size: tuple[int, int]) -> dict:
     }
     rig.update(soft_body(entries, face, body_box))
     rig["Cloth"] = cloth(entries, body_box)
-    rig["Arms"] = arms(entries)
+    rig["Arms"] = arms(entries, face)
     return rig
 
 
-def arms(entries: list[dict]) -> dict:
+def arms(entries: list[dict], face=None) -> dict:
     """
-    Each arm's shoulder joint (its layer's top middle) and length, for posing: {"L": {"Pivot",
-    "Length", "Layers"}}. An arm layer without a side counts for both.
+    Each arm's joint for posing: {"L": {"Pivot", "Length", "Layers"}}. The joint is the point of the
+    layer nearest the shoulder (beside the neck, under the chin), so a raised or bent arm turns at
+    the shoulder and an arm layer that is only a hand (the sleeve in the clothes) turns at the
+    wrist. Length is the farthest the layer reaches from it. An arm layer without a side counts for both.
     """
+    neck = _union([_box(e) for e in entries if e["Role"] == "neck"])
     found = {}
     for entry in entries:
         if entry["Role"] != "arm":
@@ -466,11 +478,17 @@ def arms(entries: list[dict]) -> dict:
         side = entry.get("Side") or "LR"
         left, top, right, bottom = _box(entry)
         width = right - left
-        found[side] = {
-            "Pivot": [round(left + width / 2, 1), round(top + min(width, bottom - top) * 0.3, 1)],
-            "Length": round(bottom - top, 1),
-            "Layers": [entry["Id"]],
-        }
+        if face is not None:
+            face_w, face_h = face[2] - face[0], face[3] - face[1]
+            cx = (neck[0] + neck[2]) / 2 if neck else (face[0] + face[2]) / 2
+            middle = (left + right) / 2
+            sx = cx + (face_w * 0.95 if middle > cx else -face_w * 0.95)
+            sy = face[3] + face_h * 0.45
+            px, py = min(max(sx, left), right), min(max(sy, top), bottom)
+        else:
+            px, py = left + width / 2, top + min(width, bottom - top) * 0.3
+        reach = max(((cx_ - px) ** 2 + (cy_ - py) ** 2) ** 0.5 for cx_ in (left, right) for cy_ in (top, bottom))
+        found[side] = {"Pivot": [round(px, 1), round(py, 1)], "Length": round(max(1.0, reach), 1), "Layers": [entry["Id"]]}
     return found
 
 

@@ -915,8 +915,21 @@ def mouth_area(parts: list[Part], size, allowed: Image.Image | None) -> Image.Im
     return ImageChops.multiply(allowed, inner.filter(ImageFilter.GaussianBlur(1)))
 
 
-def edit_overlays(parts: list[Part], base: Image.Image, eyes_closed: Image.Image | None = None, mouth_open: Image.Image | None = None) -> list[Overlay]:
-    """Hidden layers for blinking and talking from the edited copies (both on the decomposition's canvas)."""
+def edit_overlays(
+    parts: list[Part],
+    base: Image.Image,
+    eyes_closed: Image.Image | None = None,
+    mouth_open: Image.Image | None = None,
+    angry_brows: Image.Image | None = None,
+    grin: Image.Image | None = None,
+    tears: Image.Image | None = None,
+) -> list[Overlay]:
+    """
+    Hidden layers from the edited copies (all on the decomposition's canvas): blinking and talking,
+    and drawn pieces for the strongest emotions, past what bending the rig can do: angry brows
+    ("Brow L angry", ParamBrowAngry), a wide grin ("Mouth grin", ParamMouthGrin) and teary eyes
+    ("Eye L tears", ParamTear).
+    """
     boxes = feature_boxes(parts, base.size)
     cores = feature_cores(parts)
     allowed = face_area(parts, base.size)
@@ -937,6 +950,31 @@ def edit_overlays(parts: list[Part], base: Image.Image, eyes_closed: Image.Image
         overlay = overlay_from_edit(base, mouth_open, boxes["Mouth"], "Mouth", "Mouth open", "ParamMouthOpenY", allowed=mouth_area(parts, base.size, allowed), core=cores["Mouth"])
         if overlay:
             overlays.append(overlay)
+    if angry_brows is not None:
+        for side in ("L", "R"):
+            brow = union_box([part_box(p) for p in parts if parse_tag(p.tag) in (("eyebrow", side), ("brow", side))])
+            if brow is None:
+                continue
+            # Around the brow, reaching down to the upper lid (a scowl pulls the brow down onto it).
+            box = grow_box(brow, 0.5, 1.6, base.size)
+            overlay = overlay_from_edit(base, angry_brows, box, "Face", f"Brow {side} angry", "ParamBrowAngry", allowed=allowed, core=brow)
+            if overlay:
+                overlays.append(overlay)
+    if grin is not None and "Mouth" in boxes:
+        box = grow_box(boxes["Mouth"], 0.5, 0.3, base.size)
+        overlay = overlay_from_edit(base, grin, box, "Mouth", "Mouth grin", "ParamMouthGrin", allowed=mouth_area(parts, base.size, allowed), core=cores["Mouth"])
+        if overlay:
+            overlays.append(overlay)
+    if tears is not None:
+        for group in ("Eye L", "Eye R"):
+            if group not in boxes:
+                continue
+            # The eye and the cheek under it, where the tears run.
+            left, top, right, bottom = boxes[group]
+            box = clamp_box((left, top, right, int(bottom + (bottom - top) * 1.2)), base.size)
+            overlay = overlay_from_edit(base, tears, box, group, f"{group} tears", "ParamTear", allowed=allowed, core=cores[group])
+            if overlay:
+                overlays.append(overlay)
     return overlays
 
 

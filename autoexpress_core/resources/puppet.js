@@ -23,8 +23,8 @@ const LOG = '[AutoExpress puppet]';
 
 // How far in front of the face each role sits, for the head-turn parallax (face = 0).
 const ROLE_DEPTH = {
-    front_hair: 0.75, hair_under: 0.75, headwear: 0.65, nose: 0.6, eyewear: 0.6, brow: 0.45, mouth: 0.45, mouth_open: 0.45,
-    eyelash: 0.4, eye_closed: 0.4, eyes: 0.4, iris: 0.35, eye_white: 0.35, cheek: 0.25, face: 0,
+    front_hair: 0.75, hair_under: 0.75, headwear: 0.65, nose: 0.6, eyewear: 0.6, brow: 0.45, brow_angry: 0.45, mouth: 0.45, mouth_open: 0.45,
+    mouth_grin: 0.45, eyelash: 0.4, eye_closed: 0.4, eye_tears: 0.39, eyes: 0.4, iris: 0.35, eye_white: 0.35, cheek: 0.25, face: 0,
     ear: -0.3, back_hair: -0.45,
 };
 const HEAD_ROLES = new Set(Object.keys(ROLE_DEPTH));
@@ -430,7 +430,9 @@ function definePuppetClass(PIXI) {
             if (x >= hl && x <= hr && y >= ht && y <= hb) return 'head';
             for (const [side, arm] of Object.entries(rig.Arms || {})) {
                 const entry = this.doc.Layers.find(e => e.Id === arm.Layers[0]);
-                if (entry && x >= entry.X && x <= entry.X + entry.Width && y >= arm.Pivot[1] + arm.Length * 0.3 && y <= entry.Y + entry.Height) return `arm ${side}`;
+                // Anywhere on the arm away from its joint (near the joint is the body's).
+                if (entry && x >= entry.X && x <= entry.X + entry.Width && y >= entry.Y && y <= entry.Y + entry.Height
+                    && Math.hypot(x - arm.Pivot[0], y - arm.Pivot[1]) >= arm.Length * 0.3) return `arm ${side}`;
             }
             const [bl, bt, br, bb] = rig.Body.Box;
             if (x >= bl && x <= br && y >= hb && y <= bt + (bb - bt) * 0.55) return 'torso';
@@ -458,9 +460,12 @@ function definePuppetClass(PIXI) {
                 set('ParamAngleX', start('ParamAngleX') + dx / Math.max(1, hr - hl) * 50);
                 set('ParamAngleY', start('ParamAngleY') - dy / Math.max(1, hb - ht) * 50);
             } else if (d.pose === 'torso') {
-                const [bl, , br] = rig.Body.Box;
-                set('ParamBodyAngleX', start('ParamBodyAngleX') + dx / Math.max(1, br - bl) * 25);
-                set('ParamBodyAngleZ', start('ParamBodyAngleZ') - dx / Math.max(1, br - bl) * 12);
+                // The torso leans the way it is pulled: around the hips, like the arms at the shoulder.
+                const [bl, bt, br, bb] = rig.Body.Box;
+                const hx = (bl + br) / 2, hy = bt + (bb - bt) * 0.75;
+                const lean = (Math.atan2(point.x - hx, hy - point.y) - Math.atan2(d.sx - hx, hy - d.sy)) * 180 / Math.PI;
+                set('ParamBodyAngleZ', start('ParamBodyAngleZ') + lean);
+                set('ParamBodyAngleX', start('ParamBodyAngleX') + dx / Math.max(1, br - bl) * 20);
             } else if (d.pose.startsWith('arm ')) {
                 const side = d.pose.slice(4);
                 const arm = rig.Arms[side];
@@ -792,7 +797,9 @@ function definePuppetClass(PIXI) {
         // Every frame -------------------------------------------------------------------------
         _tick() {
             if (!this.layers) return;
-            const dt = Math.min(0.1, this._ticker.deltaMS / 1000);
+            // Real time, so a slow frame rate never slows blinks and motions down (the springs
+            // sub-step); only a long pause (a hidden tab) is cut short.
+            const dt = Math.min(0.5, this._ticker.deltaMS / 1000);
             this._update(dt);
         }
 
@@ -1045,6 +1052,11 @@ function definePuppetClass(PIXI) {
             const mouthForm = P('ParamMouthForm');
             const hasMouthOpen = this.layers.some(l => l.role === 'mouth_open');
             const closedSides = new Set(this.layers.filter(l => l.role === 'eye_closed').map(l => l.side || 'LR'));
+            // Drawn pieces for the strongest emotions: angry brows, a grin, tears (each over what it replaces).
+            const hasArt = (role) => this.layers.some(l => l.role === role);
+            const angry = hasArt('brow_angry') ? smoothstep(0.1, 0.7, P('ParamBrowAngry')) : 0;
+            const grin = hasArt('mouth_grin') ? smoothstep(0.1, 0.7, P('ParamMouthGrin')) : 0;
+            const tears = smoothstep(0.05, 0.6, P('ParamTear'));
             const outer = this._hasBody ? P('ParamClothesOuter') : 1;
             const inner = P('ParamClothesInner');
 
@@ -1116,8 +1128,12 @@ function definePuppetClass(PIXI) {
                 if (role === 'eye_closed') alpha = 1 - smoothstep(0.2, 0.42, eyeOpen);
                 else if (role === 'eye_white' || role === 'iris') alpha = hasClosed ? smoothstep(0.22, 0.4, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen);
                 else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.2, 0.42, eyeOpen) : 1;
-                else if (role === 'mouth') alpha = hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1;
+                else if (role === 'mouth') alpha = (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1) * (1 - grin);
                 else if (role === 'mouth_open') alpha = smoothstep(0.15, 0.55, mouthOpen);
+                else if (role === 'mouth_grin') alpha = grin * (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1);
+                else if (role === 'brow') alpha = 1 - angry;
+                else if (role === 'brow_angry') alpha = angry;
+                else if (role === 'eye_tears') alpha = tears * (hasClosed ? smoothstep(0.2, 0.42, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen));
                 else if (role === 'cheek') alpha = clamp(P('ParamCheek'), 0, 1) * 0.85;
                 else if (role === 'cheek_hatch') alpha = smoothstep(0.35, 0.85, P('ParamCheek')) * 0.8;
                 else if (OUTER_ROLES.has(role)) alpha = clamp(outer, 0, 1);
@@ -1159,7 +1175,7 @@ function definePuppetClass(PIXI) {
                         const [el, et, er, eb] = eye.Box;
                         const n = clamp((x - (el + er) / 2) / Math.max(1, (er - el) / 2), -1, 1);
                         y -= eyeSmile * 0.3 * (eb - et) * (1 - n * n);
-                    } else if (role === 'brow' && eye) {
+                    } else if ((role === 'brow' || role === 'brow_angry') && eye) {
                         const [el, et, er, eb] = eye.Box;
                         const eh = eb - et;
                         const brow = eye.Brow || eye.Box;
@@ -1240,7 +1256,7 @@ function definePuppetClass(PIXI) {
                         const degrees = arm ? P(`ParamArm${side || 'L'}A`) : 0;
                         if (degrees) {
                             const [ax0, ay0] = arm.Pivot;
-                            const w = smoothstep(ay0 - arm.Length * 0.05, ay0 + arm.Length * 0.2, rest[k + 1]);
+                            const w = smoothstep(arm.Length * 0.04, arm.Length * 0.25, Math.hypot(rest[k] - ax0, rest[k + 1] - ay0));
                             const angle = degrees * Math.PI / 180 * w;
                             const ddx = x - ax0, ddy = y - ay0;
                             x = ax0 + ddx * Math.cos(angle) - ddy * Math.sin(angle);

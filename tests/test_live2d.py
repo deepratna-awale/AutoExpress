@@ -386,8 +386,11 @@ def test_build_kit_writes_the_whole_kit(tmp_path):
     result = kit.build_kit(backend, [character((300, 200)), character()], tmp_path, "hina", {"resolution": 1024}, log=lambda _: None)
     assert ("ready", DECOMPOSE) in backend.calls
     edits = [call[1] for call in backend.calls if call[0] == "edit"]
-    # Eyes closed and mouth open (Qwen: no character LoRA), then the coat off and half off for the clothing slots.
-    assert len(edits) == 4 and edits[2].startswith("Take off only her outermost") and "halfway off" in edits[3]
+    # Eyes closed and mouth open (Qwen: no character LoRA), angry brows, a grin and tears for the
+    # strongest emotions, then the coat off for the clothing slots (half-off states fade the
+    # garment instead of being drawn).
+    assert len(edits) == 6 and edits[2].startswith("Make the eyebrows furious") and "grin" in edits[3] and "teary" in edits[4]
+    assert edits[5].startswith("Take off only her outermost")
     folder = result.folder
     for name in ("hina.psd", "hina_seethrough.psd", "preview.png", "sheet.jpg", "README.txt", "manifest.json", "input.png", "eyes_closed.png", "mouth_open.png",
                  "runtime/sillytavern_settings.json", "runtime/expressions/joy.exp3.json", "runtime/motions/idle.motion3.json"):
@@ -479,7 +482,7 @@ def test_build_kit_uses_face_inpainting_with_an_installed_character_lora(tmp_pat
     lora = {"entry": {"name": "Hinata_IL_v2", "weight": 0.8, "trigger": "hyuuga hinata"}, "installed_name": "hinata_il"}
     result = kit.build_kit(backend, [character()], tmp_path, "h", {"resolution": 1024, "ad_prompt": "1girl"}, character_lora=lora)
     prompts = [json.dumps(call[1]) for call in backend.calls if call[0] == "inpaint"]
-    assert len(prompts) == 2 and all("<lora:hinata_il:0.8>, hyuuga hinata" in p for p in prompts)
+    assert len(prompts) == 5 and all("<lora:hinata_il:0.8>, hyuuga hinata" in p for p in prompts)
     assert result.manifest["variants"]["method"] == "inpaint"
 
 
@@ -854,7 +857,7 @@ def test_defringe_drops_the_pale_halo_but_keeps_the_outline():
     assert fixed.getpixel((20, 20))[:3] == (90, 60, 40)
 
 
-def test_slot_parts_split_the_coat_from_the_top_and_cut_half_off_art():
+def test_slot_parts_split_the_coat_from_the_top_and_fade_half_off_states():
     size = (400, 400)
     white = (255, 255, 255)
 
@@ -883,16 +886,13 @@ def test_slot_parts_split_the_coat_from_the_top_and_cut_half_off_art():
     ImageDraw.Draw(bottom_alpha).rectangle((140, 300, 260, 380), fill=255)
     bottom = picture.copy()
     bottom.putalpha(bottom_alpha)
-    parts = [layers.Part("topwear", top, 0, 0, 0.6), layers.Part("bottomwear", bottom, 0, 0, 0.6)]
+    face = layers.Part("face", Image.new("RGBA", (60, 70), (245, 215, 195, 255)), 170, 120, 0.4)
+    parts = [face, layers.Part("topwear", top, 0, 0, 0.6), layers.Part("bottomwear", bottom, 0, 0, 0.6)]
     inner = dressed(coat=False)
     inner_draw = ImageDraw.Draw(inner)
     inner_draw.rectangle((160, 220, 240, 300), fill=(245, 215, 195))
     inner_draw.rectangle((180, 235, 220, 255), fill=(20, 20, 20))
-    edits = {
-        outfits.MID: dressed(coat=False),
-        outfits.OUTER_HALF: dressed(coat_half=True),
-        outfits.TOP_HALF: dressed(coat=False, top_open=True),
-    }
+    edits = {outfits.MID: dressed(coat=False)}
     result = outfits.slot_parts(parts, size, picture, edits, nude=None, inner=inner)
     tags = {p.tag: p for p in result}
     assert {"outer wear", "outer wear half", "topwear half", "topwear", "bottomwear"} <= set(tags)
@@ -901,8 +901,14 @@ def test_slot_parts_split_the_coat_from_the_top_and_cut_half_off_art():
     shirt = layers._on_canvas(tags["topwear"], size)
     assert shirt.getpixel((200, 250))[3] > 200
     assert max(abs(a - b) for a, b in zip(shirt.getpixel((152, 250))[:3], (245, 215, 195))) < 30  # under the coat: what the edit drew
+    # Half off is the same garment with part of it faded out, so the layers under it show.
     opened = layers._on_canvas(tags["topwear half"], size)
-    assert opened.getpixel((168, 260))[3] > 200 and opened.getpixel((200, 245))[3] < 30  # the opening shows the inner wear
+    assert opened.getpixel((168, 260))[3] > 200 and opened.getpixel((200, 245))[3] < 30  # opened at the front
+    assert opened.getpixel((168, 260))[:3] == shirt.getpixel((168, 260))[:3]  # the same art, not redrawn
+    slipped = layers._on_canvas(tags["outer wear half"], size)
+    assert slipped.getpixel((150, 210))[3] < 30 and slipped.getpixel((150, 340))[3] > 200  # off the shoulders, hanging lower down
+    lifted = layers._on_canvas(tags["bottomwear half"], size)
+    assert lifted.getpixel((200, 375))[3] < 30 and lifted.getpixel((150, 305))[3] > 200
 
 
 def test_trim_neck_takes_the_chin_out_of_the_neck_layer():
@@ -933,3 +939,27 @@ def test_body_layer_keeps_an_arm_raised_beside_the_head():
     alpha = body.getchannel("A")
     assert alpha.getpixel((45, 40)) > 200  # the raised arm, above the chin
     assert alpha.getpixel((150, 120)) == 0  # nothing above the chin under the face
+
+
+def test_expression_art_becomes_switchable_layers_and_strong_emotions_use_it():
+    size = (400, 400)
+    base = character().convert("RGBA")
+    ImageDraw.Draw(base).rectangle((165, 128, 187, 133), fill=(60, 40, 30))  # the brow
+    parts = seethrough_parts() + [layers.Part("eyebrow-r", blob(size, (165, 128, 187, 133), (60, 40, 30, 255), "rectangle"), 0, 0, 0.45)]
+    angry = character().convert("RGBA")
+    ImageDraw.Draw(angry).line((165, 124, 189, 138), fill=(60, 40, 30), width=6)  # scowling, inner end down
+    grin = character().convert("RGBA")
+    ImageDraw.Draw(grin).chord((182, 200, 218, 222), 0, 180, fill=(255, 255, 255), outline=(150, 60, 60))
+    teary = character().convert("RGBA")
+    for x in (175, 225):
+        ImageDraw.Draw(teary).line((x, 176, x, 200), fill=(150, 200, 255), width=4)
+    overlays = {o.name: o for o in layers.edit_overlays(parts, base, None, None, angry_brows=angry, grin=grin, tears=teary)}
+    assert overlays["Brow R angry"].parameter == "ParamBrowAngry"
+    assert overlays["Mouth grin"].parameter == "ParamMouthGrin"
+    assert {"Eye L tears", "Eye R tears"} <= set(overlays) and overlays["Eye L tears"].parameter == "ParamTear"
+    assert puppet.role_of("Face", "Brow R angry") == ("brow_angry", "R")
+    assert puppet.role_of("Eye L", "Eye L tears") == ("eye_tears", "L")
+    assert puppet.role_of("Mouth", "Mouth grin") == ("mouth_grin", None)
+    assert model_files.expression_parameters("anger")["ParamBrowAngry"] == 1.0
+    assert model_files.expression_parameters("joy")["ParamMouthGrin"] == 1.0
+    assert model_files.expression_parameters("grief")["ParamTear"] == 1.0

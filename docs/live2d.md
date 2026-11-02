@@ -81,7 +81,7 @@ Avoid action poses, strong perspective, crowds and loose sketches.
 
 | File | What it is |
 | --- | --- |
-| `<name>.psd` | The Cubism PSD: one group per part (Front hair, Headwear, Face, Eye L, Eye R, Mouth, Ears, Body, Back hair ...), every layer an art mesh with its hidden area painted in. **Eye L closed**, **Eye R closed** and **Mouth open** are hidden layers on top of the parts they replace. L and R are the character's own left and right, like Live2D's parameters. |
+| `<name>.psd` | The Cubism PSD: one group per part (Front hair, Headwear, Face, Eye L, Eye R, Mouth, Ears, Body, Back hair ...), every layer an art mesh with its hidden area painted in. **Eye L closed**, **Eye R closed** and **Mouth open** are hidden layers on top of the parts they replace, and so are the drawn pieces for the strongest emotions: **Brow L angry**, **Brow R angry**, **Mouth grin**, **Eye L tears** and **Eye R tears** (three more Qwen-Image-Edit runs; turn off **Angry brows, grin and tears** or pass `--no-expression-art` to skip them). L and R are the character's own left and right, like Live2D's parameters. |
 | `<name>_seethrough.psd` | The same layers, flat and named the way See-through names them (`front hair`, `irides-l` ...). |
 | `layers/` | Every layer as its own PNG at its place on the canvas. |
 | `preview.png`, `sheet.jpg` | The layers put back together, and every layer on its own. |
@@ -105,11 +105,13 @@ The clothes are dressed in slots, the way Koikatsu does it: **coat** (the outerm
 jacket, blazer, cardigan, haori), **top**, **bottom**, **legwear**, **inner top** and **inner
 bottom**, over the body. Each slot is on (1), half off (0.5) or off (0):
 
-- Two more Qwen-Image-Edit runs take the coat off and slip it halfway off the shoulders, so the
-  coat is its own layer, the top under it is drawn complete, and the coat has a half-off art. These
-  are made for every character (turn off **Coat on its own layer** to skip them).
-- With the inner wear made, two more draw the top opened at the front and the skirt lifted, the
-  half-off art of the top and the bottom.
+- One more Qwen-Image-Edit run takes the coat off, so the coat is its own layer and the top under
+  it is drawn complete. It is made for every character (turn off **Coat on its own layer** to skip
+  it).
+- Half off isn't drawn: it is the same garment with part of it faded out, showing the very layers
+  under it (the same inner wear and body as when it's off). The coat slips off the shoulders, the
+  top opens at the front in a V, and the skirt lifts at the front. The opened top and lifted skirt
+  need the inner wear.
 - The inner wear is split at the bare midriff into **Inner top** and **Inner bottom** (a one-piece
   stays whole).
 
@@ -198,6 +200,7 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 | `ParamMouthOpenY` | Open the mouth: the **Mouth open** art fades in. |
 | `ParamMouthForm` | Smile (corners up) or frown. |
 | `ParamCheek` | Blush: a soft pink that takes the skin's tone, with anime hatching when it's strong. |
+| `ParamBrowAngry`, `ParamMouthGrin`, `ParamTear` | Drawn pieces for the strongest emotions: furious brows, a wide grin and teary eyes (Qwen-Image-Edit, over the brows, mouth and eyes they replace). Anger, joy, sadness, grief and others use them. |
 | `ParamBodyAngleX`, `ParamBodyAngleY`, `ParamBodyAngleZ` | Lean and turn the upper body. |
 | `ParamBreath` | Breathing (by itself when nothing else drives it). |
 | `ParamHairFront`, `ParamHairBack` | Push the hair; it also swings on its own when the head moves. |
@@ -205,14 +208,14 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 | `ParamClothesOuter`, `ParamClothesInner` | Show or hide the outer clothes and the inner wear (puppets with swappable clothing). |
 | `ParamClothesCoat`, `ParamClothesTop`, `ParamClothesBottom`, `ParamClothesLegs`, `ParamInnerTop`, `ParamInnerBottom` | One clothing slot each: 1 on, 0.5 half off (when the slot has half-off art), 0 off. |
 | `ParamAccessories` | Show or hide the accessories. |
-| `ParamArmLA`, `ParamArmRA` | Turn an arm at the shoulder (posing). |
+| `ParamArmLA`, `ParamArmRA` | Turn an arm at its joint (posing): the shoulder, or the wrist when the arm layer is only a hand. |
 
 Expression changes glide: every parameter eases towards its new value instead of jumping. Skirts
 and ribbons swing behind the body like hair.
 
 **Touch.** Dragging the bust or hips pulls them, only as far as skin and cloth stretch, and they
 spring back with a wobble; a quick click pokes them. Dragging the head, an arm or the torso poses
-the skeleton instead: the head turns and nods, the arm swings at the shoulder, the torso leans,
+the skeleton instead: the head turns and nods, the arm swings at its joint, the torso leans the way it's pulled,
 each stopping at its joint's limit, and the pose stays (**Reset pose** in the preview,
 `puppet.resetPose()`, or `puppet.poseable = false` to turn posing off). In SillyTavern dragging the
 rest of the character still moves the model.
