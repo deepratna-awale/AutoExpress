@@ -239,6 +239,84 @@ export interface Job {
   images: { expression: string; url: string; animation?: string }[];
   error: { code: string; message: string } | null;
   notes?: JobNote[];
+  /** Live2D model kit jobs: the finished kit. */
+  live2d?: Live2DKit | null;
+}
+
+export interface Live2DCheck {
+  id: string;
+  ok: boolean;
+  message: string;
+  level: "warning" | "error";
+}
+
+export interface Live2DPictureReport {
+  score: number;
+  checks: Live2DCheck[];
+  size: [number, number];
+}
+
+export interface Live2DAdvice {
+  title: string;
+  best: string[];
+  extras: string[];
+  avoid: string[];
+}
+
+export interface Live2DInfo {
+  available: boolean;
+  ready: boolean;
+  message: string;
+  fix: CapabilityFix | null;
+  backend: string;
+  variant_methods: string[];
+  defaults: { resolution: number; steps: number; seed: number; low_vram: boolean };
+  advice: Live2DAdvice;
+  vram_note: string;
+}
+
+export interface CharacterLoraEntry {
+  name: string;
+  title: string;
+  base_model: string | null;
+  trigger: string;
+  weight: number;
+  size_mb: number;
+  [key: string]: unknown;
+}
+
+export interface CharacterLoraResult {
+  entry: CharacterLoraEntry;
+  installed_name: string | null;
+  page: string;
+  install: { message: string; url: string; file_name: string } | null;
+}
+
+export interface Live2DKit {
+  name: string;
+  zip: string;
+  psd: string;
+  seethrough_psd: string;
+  preview: string;
+  sheet: string;
+  layers: number;
+  groups: string[];
+  switches: { layer: string; group: string; parameter: string }[];
+  missing: { part: string; message: string }[];
+  notes: string[];
+}
+
+export interface Live2DRequest {
+  images: string[];
+  name: string;
+  settings: {
+    resolution?: number;
+    low_vram?: boolean;
+    base_index?: number;
+    variants?: "auto" | "instruct" | "inpaint" | "none";
+    remove_background?: boolean;
+  };
+  character_lora?: { entry: CharacterLoraEntry; installed_name: string | null } | null;
 }
 
 /** An expression LoRA the WebUI lacks and AutoExpress couldn't install itself. */
@@ -370,6 +448,13 @@ export const api = {
         `/expression-defaults?checkpoint=${encodeURIComponent(checkpoint)}&family=${encodeURIComponent(family)}`
       )
     ),
+
+  live2d: () => optional(request<Live2DInfo>("/live2d")),
+  live2dCheck: (images: string[]) =>
+    postJson<{ best: number; reports: Live2DPictureReport[]; advice: Live2DAdvice }>("/live2d/check", { images }),
+  characterLora: (name: string, checkpoint?: string) =>
+    postJson<{ name: string; architecture: string; results: CharacterLoraResult[] }>("/live2d/character-lora", { name, checkpoint }),
+  buildLive2D: (data: Live2DRequest) => postJson<GenerateResponse>("/live2d", { ...data, wait: false }),
 
   setRealistic: (isRealistic: boolean) => postJson<unknown>("/toggle", { isRealistic }),
 

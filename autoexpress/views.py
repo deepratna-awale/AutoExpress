@@ -12,11 +12,13 @@ from werkzeug.utils import secure_filename
 
 from autoexpress import frontend
 from autoexpress.config import Settings, configure_logging
-from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, JobManager, JobSpec, run_expression_job
+from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, LIVE2D_KIT, JobManager, JobSpec, run_expression_job
 from autoexpress.modules import expression_sets, image_parser
 from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
-from autoexpress.validation import ValidationError, resolve_inside, safe_dir_name, validate_animation, validate_generate
-from autoexpress_core import animation, background, character_card, get_expressions, instruction_edit, resolve_flavor
+from autoexpress.validation import ValidationError, resolve_inside, safe_dir_name, validate_animation, validate_generate, validate_live2d
+from autoexpress_core import animation, background, character_card, expression_loras, get_expressions, instruction_edit, resolve_flavor
+from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance as live2d_guidance
+from autoexpress_core.live2d import layers as live2d_layers
 from autoexpress_core.backends.base import (
     BackendAuthError,
     BackendError,
@@ -589,6 +591,132 @@ def get_animation_info():
             "vram_note": animation.VRAM_NOTE,
         }
     )
+
+
+# Live2D model kits ------------------------------------------------------------
+@autoexpress.route("/live2d", methods=["GET"])
+def get_live2d_info():
+    """Whether the selected WebUI can build Live2D model kits, what it's missing, and which pictures work best."""
+    backend = current_backend()
+    ready, message = (False, f"{backend.label} can't split a character into layers. Use ComfyUI with the See-through nodes.")
+    if backend.can_decompose:
+        ready, message = backend.check_ready(DECOMPOSE)
+    defaults = live2d_layers.SplitSettings()
+    fix = getattr(backend.last_error, "fix", None) if not ready else None
+    return jsonify(
+        {
+            "available": backend.can_decompose,
+            "ready": ready,
+            "message": "ok" if ready else message,
+            "fix": dataclasses.asdict(fix) if fix else None,
+            "backend": backend.kind,
+            "variant_methods": [m for m in ("instruct", "inpaint") if m in backend.edit_methods],
+            "defaults": {"resolution": defaults.resolution, "steps": defaults.steps, "seed": defaults.seed, "low_vram": defaults.low_vram},
+            "advice": live2d_guidance.ADVICE,
+            "vram_note": live2d_layers.VRAM_NOTE,
+        }
+    )
+
+
+@autoexpress.route("/live2d/check", methods=["POST"])
+def check_live2d_pictures():
+    """Check pictures for a Live2D model. Body: {"images": [base64 ...]}. Returns a report per picture and the best one."""
+    data = request.get_json(silent=True) or {}
+    images = data.get("images")
+    if isinstance(images, str):
+        images = [images]
+    if not isinstance(images, list) or not images:
+        raise ValidationError({"images": "Send at least one picture."})
+    from autoexpress.validation import MAX_LIVE2D_IMAGES, decode_image
+
+    if len(images) > MAX_LIVE2D_IMAGES:
+        raise ValidationError({"images": f"Send at most {MAX_LIVE2D_IMAGES} pictures."})
+    decoded = [decode_image(image, settings.max_image_pixels) for image in images]
+    ranked = live2d_guidance.rank_images(decoded)
+    reports = [None] * len(decoded)
+    for index, report in ranked:
+        reports[index] = report
+    return jsonify({"best": ranked[0][0], "reports": reports, "advice": live2d_guidance.ADVICE})
+
+
+@autoexpress.route("/live2d/character-lora", methods=["POST"])
+def find_character_lora():
+    """
+    Look for the character's LoRA on Civitai.
+
+    Body: {"name": character name (optional), "image": character card (optional, for its name), "checkpoint": the
+           face inpainting checkpoint (optional, picks the LoRA's base model)}.
+    Returns the matches, best first, each with whether the WebUI already has it and how to install it if not.
+    """
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip() if isinstance(data.get("name"), str) else ""
+    if not name and isinstance(data.get("image"), str) and data["image"]:
+        card = character_card.read_card(data["image"])
+        name = card.name if card else ""
+    if not name:
+        raise ValidationError({"name": "Type the character's name, or send a character card."})
+    backend = current_backend()
+    checkpoint = data.get("checkpoint") if isinstance(data.get("checkpoint"), str) else None
+    architecture = expression_loras.guess_architecture(checkpoint or (backend.models[:1] or [""])[0], model_family if model_family != "auto" else None)
+    api_key, _ = civitai_key_for(backend)
+    try:
+        found = character_lora.search(name, architecture, api_key)
+    except OSError as e:
+        return error_response("civitai_unreachable", f"Couldn't reach Civitai: {e}", 502)
+    installed_names = backend.lora_stems
+    results = []
+    for entry in found[:5]:
+        installed = expression_loras._installed_name(entry, lora_dir=lora_settings["lora_dir"] or None, installed_names=installed_names or None)
+        results.append(
+            {
+                "entry": entry,
+                "installed_name": installed,
+                "page": expression_loras.civitai_page(entry),
+                "install": None if installed else expression_loras.manual_install(entry, backend.label, "its models/loras folder"),
+            }
+        )
+    return jsonify({"name": name, "architecture": architecture, "results": results})
+
+
+@autoexpress.route("/live2d", methods=["POST"])
+def build_live2d_kit():
+    """
+    Build a Live2D model kit from pictures of a character (ComfyUI with the See-through nodes).
+
+    Body: {"images": [base64 ...], "name": folder name, "output_dir": parent folder (default "live2d"),
+           "settings": {resolution, steps, seed, low_vram, base_index, variants: auto|instruct|inpaint|none,
+                        remove_background, plus ad_* / edit_* settings for the eyes-closed and mouth-open edits},
+           "character_lora": {"entry", "installed_name"} from /live2d/character-lora (optional), "wait": bool}
+    Returns a job (GET /jobs/<id>); when it completes, job.live2d has the kit's zip, PSDs and preview.
+    """
+    request_data = validate_live2d(request.get_json(silent=True), settings.max_image_pixels)
+    backend = current_backend()
+    if not backend.can_decompose:
+        raise ValidationError({"backend": f"{backend.label} can't split a character into layers. Use ComfyUI with the See-through nodes."})
+    output_path = resolve_inside(settings.output_dir, request_data["output_name"])
+    if output_path is None:
+        raise ValidationError({"output_dir": "Invalid folder name."})
+    job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
+    ready, message = job_backend.check_ready(DECOMPOSE)
+    if not ready:
+        raise job_backend.last_error or BackendNotReady(message)
+    job = jobs.submit(
+        JobSpec(
+            backend=job_backend,
+            image="",
+            settings={},
+            output_name=request_data["output_name"],
+            output_path=str(output_path),
+            expressions=[LIVE2D_KIT],
+            live2d={
+                "images": request_data["images"],
+                "name": request_data["name"],
+                "settings": request_data["settings"],
+                "character_lora": request_data["character_lora"],
+            },
+        )
+    )
+    return job_response(job, request_data["wait"])
 
 
 @autoexpress.route("/llm-settings", methods=["GET", "POST"])

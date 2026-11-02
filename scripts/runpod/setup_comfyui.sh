@@ -7,7 +7,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/scripts/runpod/setup_comfyui.sh | bash
 #
 # What it does:
-#   1. Clones ComfyUI, ComfyUI-Impact-Pack and ComfyUI-Impact-Subpack (face inpainting) and starts ComfyUI on port 8188.
+#   1. Clones ComfyUI, ComfyUI-Impact-Pack and ComfyUI-Impact-Subpack (face inpainting), ComfyUI-See-through
+#      (Live2D model kits) and starts ComfyUI on port 8188.
 #   2. Downloads the face detector, Qwen-Image-Edit 2511 (expressions and poses) and Wan 2.2 image to video 14B
 #      (animated sprites) with AutoExpress's own download commands.
 #   3. Optionally a checkpoint for face inpainting (CHECKPOINT_URL).
@@ -20,6 +21,7 @@
 #   AUTOEXPRESS_REF  branch or tag of AutoExpress to use (default main)
 #   SKIP_QWEN=1      skip Qwen-Image-Edit (about 31 GB)
 #   SKIP_WAN=1       skip Wan 2.2 (about 38 GB)
+#   SKIP_SEETHROUGH=1  skip the See-through nodes and their models (about 10 GB, Live2D model kits)
 #   CHECKPOINT_URL   a .safetensors checkpoint to put in models/checkpoints (for face inpainting)
 #   HF_TOKEN         Hugging Face token, only needed when downloads are rate limited
 #   COMFYUI_PORT     ComfyUI's port (default 8188)
@@ -41,6 +43,15 @@ for repo in ltdrdata/ComfyUI-Impact-Pack ltdrdata/ComfyUI-Impact-Subpack; do
   [ -d "$target/.git" ] || git clone -q "https://github.com/$repo" "$target"
   if [ -f "$target/requirements.txt" ]; then $PIP -r "$target/requirements.txt"; fi
 done
+
+if [ "${SKIP_SEETHROUGH:-0}" != "1" ]; then
+  echo "== ComfyUI-See-through (Live2D model kits)"
+  target="$COMFYUI_DIR/custom_nodes/ComfyUI-See-through"
+  [ -d "$target/.git" ] || git clone -q https://github.com/jtydhr88/ComfyUI-See-through "$target"
+  $PIP -r "$target/requirements.txt"
+  # Its models download on first use; fetch them now so the first kit doesn't wait.
+  python -c "from huggingface_hub import snapshot_download as d; [d(r) for r in ('layerdifforg/seethroughv0.0.2_layerdiff3d', 'layerdifforg/seethroughv0.0.1_marigold')]" || true
+fi
 
 echo "== AutoExpress ($AUTOEXPRESS_REF) in $AUTOEXPRESS_DIR"
 if [ ! -d "$AUTOEXPRESS_DIR/.git" ]; then
