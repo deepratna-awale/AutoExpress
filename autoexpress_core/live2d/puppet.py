@@ -315,6 +315,8 @@ def build_puppet(
                 better.save(path)
 
     rig = build_rig(entries, size)
+    if rig.get("Mouth"):
+        rig["Mouth"]["Jaw"] = jaw_line(folder, entries, rig["Mouth"]["Box"])
     radii, arm_alpha = None, {}
     if joints is None and neutral_pose:
         joints = skeleton.from_proportions(rig["Head"]["Box"], rig["Body"]["Box"])
@@ -374,6 +376,34 @@ def build_puppet(
     (folder / f"{name}{SUFFIX}").write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     write_preview(folder, name)
     return document
+
+
+def jaw_line(folder, entries: list[dict], mouth_box) -> list | None:
+    """
+    [[x, y], ...]: the bottom of the face (the jaw and chin) across and around the mouth, so the
+    player keeps a moving mouth, and the art that replaces it, inside the face instead of clipping
+    over the chin.
+    """
+    import numpy as np
+
+    face = next((e for e in entries if e["Role"] == "face"), None)
+    if face is None:
+        return None
+    try:
+        alpha = np.asarray(Image.open(pathlib.Path(folder) / face["Texture"]).convert("RGBA").getchannel("A")) > 128
+    except OSError:
+        return None
+    width = mouth_box[2] - mouth_box[0]
+    points = []
+    for i in range(9):
+        x = mouth_box[0] - width * 0.5 + width * 2 * i / 8
+        column = int(round(x - face["X"]))
+        if not 0 <= column < alpha.shape[1]:
+            continue
+        rows = np.nonzero(alpha[:, column])[0]
+        if len(rows):
+            points.append([round(x, 1), round(float(rows.max()) + face["Y"], 1)])
+    return points or None
 
 
 def limb_alphas(folder, entries: list[dict], size) -> tuple[dict, Image.Image]:
@@ -511,6 +541,12 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
     cores = {group: mask.filter(ImageFilter.MinFilter(2 * overlap + 1)) for group, mask in masks.items()}
     result = []
     renamed: dict[str, list[str]] = {}
+    skirts: dict[str, bool] = {}  # by switch: a half-off state is cut from the same garment
+    for entry in entries:
+        if entry.get("Garment") == "bottomwear" and entry.get("State") != "half" and entry["Role"] not in HEAD_ROLES:
+            image = Image.open(folder / entry["Texture"]).convert("RGBA")
+            box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
+            skirts[entry.get("Switch") or entry["Id"]] = _skirt(image.getchannel("A"), box, masks)
     for entry in entries:
         if entry["Role"] in HEAD_ROLES:
             result.append(entry)
@@ -543,7 +579,10 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
                 alpha = ImageChops.multiply(alpha, ImageChops.invert(cores[group].crop(box)))
             image.putalpha(alpha)
             image.save(path)
-        skirt = entry.get("Garment") == "bottomwear" and _skirt(alpha, box, masks)
+        skirt = False
+        if entry.get("Garment") == "bottomwear":
+            key = entry.get("Switch") or entry["Id"]
+            skirt = skirts[key] if key in skirts else _skirt(alpha, box, masks)
         if skirt or entry.get("Garment") == "outerwear":
             # Stray bits the split left far below the hem would stay behind when a leg moves.
             alpha = _trim_below_bulk(alpha)
@@ -1008,5 +1047,5 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
         tree.append(Group(group["name"], children))
     groups = [{**group, "layers": [info for info in group["layers"] if any(layer.name == info["name"] for g in tree if g.name == group["name"] for layer in g.children)]} for group in manifest["groups"]]
     output = pathlib.Path(output) if output else kit_folder / "puppet" / name
-    build_puppet(tree, {**manifest, "groups": groups}, size, output, name)
+    build_puppet(tree, {**manifest, "groups": groups}, size, output, name, neutral_pose=bool(manifest.get("neutral_pose")))
     return output

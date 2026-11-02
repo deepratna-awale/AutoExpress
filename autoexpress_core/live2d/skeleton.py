@@ -25,28 +25,28 @@ OPENPOSE = {
 }
 
 # name, parent, from joint, to joint, group, limits (degrees, clockwise on screen), thickness as a
-# share of the face width. Raising the left arm sideways turns it anticlockwise (towards the right
+# share of the face width. The limits keep to small, natural motion (a sway, a lean, an arm lifted a
+# little): a single drawing has nothing drawn behind its arms, so bigger poses tear the clothes. Raising the left arm sideways turns it anticlockwise (towards the right
 # of the picture), so its outward limit is the negative one; the right side is the mirror image.
 BONES = (
-    ("Hips", None, "pelvis", "spine", "torso", (-15, 15), None),
-    ("Spine", "Hips", "spine", "chest", "torso", (-25, 25), None),
-    ("Chest", "Spine", "chest", "neck", "torso", (-20, 20), None),
-    ("Neck", "Chest", "neck", "chin", "torso", (-25, 25), 0.28),
-    ("Head", "Neck", "chin", "crown", "head", (-30, 30), 0.6),
-    ("UpperArmL", "Chest", "shoulder_L", "elbow_L", "arm_L", (-170, 50), 0.24),
-    ("ForearmL", "UpperArmL", "elbow_L", "wrist_L", "arm_L", (-30, 150), 0.2),
-    ("HandL", "ForearmL", "wrist_L", "hand_L", "arm_L", (-45, 45), 0.22),
-    ("UpperArmR", "Chest", "shoulder_R", "elbow_R", "arm_R", (-50, 170), 0.24),
-    ("ForearmR", "UpperArmR", "elbow_R", "wrist_R", "arm_R", (-150, 30), 0.2),
-    ("HandR", "ForearmR", "wrist_R", "hand_R", "arm_R", (-45, 45), 0.22),
-    ("ThighL", "Hips", "hip_L", "knee_L", "leg_L", (-50, 20), 0.36),
-    ("ShinL", "ThighL", "knee_L", "ankle_L", "leg_L", (-30, 30), 0.26),
-    ("FootL", "ShinL", "ankle_L", "foot_L", "leg_L", (-25, 25), 0.24),
-    ("ThighR", "Hips", "hip_R", "knee_R", "leg_R", (-20, 50), 0.36),
-    ("ShinR", "ThighR", "knee_R", "ankle_R", "leg_R", (-30, 30), 0.26),
-    ("FootR", "ShinR", "ankle_R", "foot_R", "leg_R", (-25, 25), 0.24),
+    ("Hips", None, "pelvis", "spine", "torso", (-8, 8), None),
+    ("Spine", "Hips", "spine", "chest", "torso", (-10, 10), None),
+    ("Chest", "Spine", "chest", "neck", "torso", (-8, 8), None),
+    ("Neck", "Chest", "neck", "chin", "torso", (-15, 15), 0.28),
+    ("Head", "Neck", "chin", "crown", "head", (-20, 20), 0.6),
+    ("UpperArmL", "Chest", "shoulder_L", "elbow_L", "arm_L", (-35, 12), 0.24),
+    ("ForearmL", "UpperArmL", "elbow_L", "wrist_L", "arm_L", (-15, 40), 0.2),
+    ("HandL", "ForearmL", "wrist_L", "hand_L", "arm_L", (-20, 20), 0.22),
+    ("UpperArmR", "Chest", "shoulder_R", "elbow_R", "arm_R", (-12, 35), 0.24),
+    ("ForearmR", "UpperArmR", "elbow_R", "wrist_R", "arm_R", (-40, 15), 0.2),
+    ("HandR", "ForearmR", "wrist_R", "hand_R", "arm_R", (-20, 20), 0.22),
+    ("ThighL", "Hips", "hip_L", "knee_L", "leg_L", (-8, 5), 0.36),
+    ("ShinL", "ThighL", "knee_L", "ankle_L", "leg_L", (-8, 8), 0.26),
+    ("FootL", "ShinL", "ankle_L", "foot_L", "leg_L", (-10, 10), 0.24),
+    ("ThighR", "Hips", "hip_R", "knee_R", "leg_R", (-5, 8), 0.36),
+    ("ShinR", "ThighR", "knee_R", "ankle_R", "leg_R", (-8, 8), 0.26),
+    ("FootR", "ShinR", "ankle_R", "foot_R", "leg_R", (-10, 10), 0.24),
 )
-
 
 def _mid(a, b, t=0.5):
     return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)

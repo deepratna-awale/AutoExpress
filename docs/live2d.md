@@ -200,7 +200,7 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 | `ParamMouthOpenY` | Open the mouth: the **Mouth open** art fades in. |
 | `ParamMouthForm` | Smile (corners up) or frown. |
 | `ParamCheek` | Blush: a soft pink that takes the skin's tone, with anime hatching when it's strong. |
-| `ParamBrowAngry`, `ParamMouthGrin`, `ParamTear` | Drawn pieces for the strongest emotions: furious brows, a wide grin and teary eyes (Qwen-Image-Edit, over the brows, mouth and eyes they replace). Anger, joy, sadness, grief and others use them. |
+| `ParamBrowAngry`, `ParamMouthGrin`, `ParamTear` | Drawn pieces for the strongest emotions: furious brows, a wide grin and teary eyes (Qwen-Image-Edit, over the brows, mouth and eyes they replace, and moving with them). Anger, joy, sadness, grief and others use them. |
 | `ParamBodyAngleX`, `ParamBodyAngleY`, `ParamBodyAngleZ` | Lean and turn the upper body. |
 | `ParamBreath` | Breathing (by itself when nothing else drives it). |
 | `ParamHairFront`, `ParamHairBack` | Push the hair; it also swings on its own when the head moves. |
@@ -213,12 +213,17 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 
 **Skeleton.** By default the kit first redraws the character standing in a neutral A-pose, full
 body, with Qwen-Image-Edit (`--no-neutral-pose` or the **Neutral pose** switch off keeps the
-picture's pose). The puppet then gets a skeleton like a 3D model, stored under `Rig.Skeleton`
-(`Bones` with `Name`, `Parent`, `Head`, `Tail`, `Radius` and limits). Each layer is cut into a torso
-piece and arm and leg pieces with matching edges (`"Piece"` in the layer entry), arms draw over the
-torso and legs under it, and each vertex follows its two nearest bones. Dragging a hand, forearm,
-foot or shin bends the whole limb towards the cursor (inverse kinematics), so the character can be
-posed freely; the pose is saved in the parameters like any other.
+picture's pose). The puppet then gets a skeleton (hips, spine, chest, neck, head, and each arm and
+leg), stored under `Rig.Skeleton` (`Bones` with `Name`, `Parent`, `Head`, `Tail`, `Radius` and
+limits), fitted to the drawing: the hands from the split's arm layers, the legs from the body's
+outline. Each layer is cut into a torso piece and arm and leg pieces with matching edges (`"Piece"`
+in the layer entry): whole sleeves go with the arms, a skirt stays whole while the legs move under
+it, and the body behind a hand is painted in. Each vertex follows its nearest bones, and the
+weights blend across the seams: around the shoulder and the hip the body and the limb share the
+same bones, so the cloth there stretches with the arm or leg instead of splitting. Dragging a
+hand or a foot bends the limb towards the cursor (inverse kinematics). The joints keep to small,
+natural motion (a sway, a lean, an arm lifted a little): one drawing has nothing drawn behind the
+arms, so bigger poses would tear the clothes. A different pose is a new picture, not a bent one.
 
 Expression changes glide: every parameter eases towards its new value instead of jumping. Skirts
 and ribbons swing behind the body like hair.

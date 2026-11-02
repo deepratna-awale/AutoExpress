@@ -59,8 +59,8 @@ INSTRUCTIONS = {
     MOUTH_OPEN: "Open the mouth a little, as if saying \"ah\": a small relaxed open mouth showing a bit of the inside, no other change to the face. " + KEEP,
     ANGRY_BROWS: "Make the eyebrows furious: sharply furrowed and slanted, the inner ends pulled hard down towards the nose in a fierce scowl. "
     "Keep the eyes open and looking the same way, and the mouth unchanged. " + KEEP.replace("eyebrows, ", ""),
-    GRIN: "Give the character a wide, beaming grin: the corners of the mouth pulled up high, showing the upper teeth, held like a big happy smile. "
-    "Keep the eyes, eyebrows and everything else unchanged. " + KEEP,
+    GRIN: "Give the character a wide, beaming grin: the corners of the mouth pulled up high and the lips parted just enough to show the upper teeth. "
+    "The jaw doesn't drop: the chin and the outline of the face stay exactly where they are. Keep the eyes, eyebrows and everything else unchanged. " + KEEP,
     TEARS: "Make the eyes teary: glistening, watery eyes with tears welling up along the lower lids and a tear running down each cheek. "
     "Keep the eyes open, and the eyebrows and mouth unchanged. " + KEEP,
 }
@@ -68,7 +68,7 @@ PROMPTS = {
     EYES_CLOSED: "closed eyes, calm expression, closed mouth",
     MOUTH_OPEN: "open mouth, :o, neutral expression, eyes open",
     ANGRY_BROWS: "v-shaped eyebrows, furrowed brow, angry, eyes open, closed mouth",
-    GRIN: "grin, wide smile, upper teeth, happy, eyes open",
+    GRIN: "grin, wide smile, upper teeth, parted lips, happy, eyes open",
     TEARS: "tears, teary eyes, streaming tears, eyes open, closed mouth",
 }
 
@@ -608,23 +608,27 @@ def build_kit(
 
     # 5. Extra art, crop to the picture, write.
     progress("writing the kit", 0.9)
+    # Qwen hands its edits back a little zoomed and shifted: line each one up with the picture first.
+    face_box = layers._alpha_union(parts, canvas_size, ("face",)).getbbox()
+    variants = {which: layers.align_edit(base_canvas, to_canvas(image, box, canvas_size), face_box) for which, image in variants.items()}
+    outfit_edits = {which: layers.align_edit(base_canvas, to_canvas(image, box, canvas_size), face_box) for which, image in outfit_edits.items()}
     overlays = layers.edit_overlays(
         parts,
         base_canvas,
-        to_canvas(variants[EYES_CLOSED], box, canvas_size) if EYES_CLOSED in variants else None,
-        to_canvas(variants[MOUTH_OPEN], box, canvas_size) if MOUTH_OPEN in variants else None,
-        *(to_canvas(variants[which], box, canvas_size) if which in variants else None for which in EXPRESSION_ART),
+        variants.get(EYES_CLOSED),
+        variants.get(MOUTH_OPEN),
+        *(variants.get(which) for which in EXPRESSION_ART),
     )
     extra = outfits.outfit_parts(
         parts,
         canvas_size,
-        to_canvas(outfit_edits[outfits.NUDE], box, canvas_size) if outfits.NUDE in outfit_edits else None,
-        to_canvas(outfit_edits[outfits.INNER], box, canvas_size) if outfits.INNER in outfit_edits else None,
+        outfit_edits[outfits.NUDE] if outfits.NUDE in outfit_edits else None,
+        outfit_edits[outfits.INNER] if outfits.INNER in outfit_edits else None,
     )
     outfit_state["made"] = [part.tag for part in extra]
     if outfit_edits and not extra:
         notes.append("The body edit couldn't be cut out to a layer; the clothes stay one layer.")
-    slot_edits = {key: to_canvas(image, box, canvas_size) for key, image in outfit_edits.items() if key in SLOT_EDITS}
+    slot_edits = {key: image for key, image in outfit_edits.items() if key in SLOT_EDITS}
     if slot_edits:
         white = Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas)
         made = {p.tag for p in extra}
@@ -633,8 +637,8 @@ def build_kit(
             canvas_size,
             white,
             slot_edits,
-            nude=to_canvas(outfit_edits[outfits.NUDE], box, canvas_size) if "nude body" in made else None,
-            inner=to_canvas(outfit_edits[outfits.INNER], box, canvas_size) if made & {"inner wear", "inner top", "inner bottom"} else None,
+            nude=outfit_edits[outfits.NUDE] if "nude body" in made else None,
+            inner=outfit_edits[outfits.INNER] if made & {"inner wear", "inner top", "inner bottom"} else None,
         )
         outfit_state["slots"] = sorted({p.tag for p in parts} & {"outer wear", "outer wear half", "topwear half", "bottomwear half"})
     parts = layers.drop_specks(parts + extra) + ([underlay] if underlay else [])

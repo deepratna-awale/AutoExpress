@@ -28,6 +28,8 @@ const ROLE_DEPTH = {
     ear: -0.3, back_hair: -0.45,
 };
 const HEAD_ROLES = new Set(Object.keys(ROLE_DEPTH));
+// The bones where each limb joins the body.
+const ROOT_BONES = new Set(['UpperArmL', 'UpperArmR', 'ThighL', 'ThighR']);
 const EYE_ROLES = new Set(['eye_white', 'iris', 'eyelash', 'eyes']);
 // Layers of the body under the head: they jiggle with the soft parts and follow the mouse's pull.
 const SOFT_ROLES = new Set(['body', 'clothing', 'nude_body', 'inner']);
@@ -64,6 +66,11 @@ function segmentDistance(x, y, [ax, ay], [bx, by]) {
     const t = clamp(((x - ax) * dx + (y - ay) * dy) / Math.max(1e-6, dx * dx + dy * dy), 0, 1);
     return Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
 }
+/** How far along the bone (0 at its head, 1 at its tail) the point projects, unclamped. */
+function alongBone(x, y, [ax, ay], [bx, by]) {
+    const dx = bx - ax, dy = by - ay;
+    return ((x - ax) * dx + (y - ay) * dy) / Math.max(1e-6, dx * dx + dy * dy);
+}
 function applyMatrix(M, o, x, y) {
     return [M[o] * x + M[o + 2] * y + M[o + 4], M[o + 1] * x + M[o + 3] * y + M[o + 5]];
 }
@@ -74,6 +81,20 @@ function invertAt(M, o, x, y) {
     return [(d * px - c * py) / det, (-b * px + a * py) / det];
 }
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** The jaw's height at x, between its sampled points ([[x, y], ...] left to right). */
+function jawAt(points, x) {
+    if (!points || !points.length) return null;
+    if (x <= points[0][0]) return points[0][1];
+    for (let i = 1; i < points.length; i++) {
+        if (x <= points[i][0]) {
+            const [x0, y0] = points[i - 1];
+            const [x1, y1] = points[i];
+            return y0 + (y1 - y0) * (x - x0) / Math.max(1e-6, x1 - x0);
+        }
+    }
+    return points[points.length - 1][1];
+}
 
 export function isPuppetPath(source) {
     return typeof source === 'string' && source.split(/[?#]/)[0].toLowerCase().endsWith(SUFFIX);
@@ -732,7 +753,10 @@ function definePuppetClass(PIXI) {
                 // under an arm would be dragged along when the arm swings.
                 const piece = layer.entry?.Piece;
                 const candidates = !piece ? bodyBones : bodyBones.filter(b => {
-                    if (piece === 'torso') return b.Group === 'torso';
+                    // The torso also listens to the first bone of each limb, the way the arm's
+                    // piece listens to the chest: across the seam both pieces then carry the same
+                    // weights, so the cloth around the shoulder or hip stretches instead of splitting.
+                    if (piece === 'torso') return b.Group === 'torso' || ROOT_BONES.has(b.Name);
                     if (b.Group === piece) return true;
                     return b.Name === (piece.startsWith('arm') ? 'Chest' : 'Hips');
                 });
@@ -741,10 +765,20 @@ function definePuppetClass(PIXI) {
                     const x = layer.rest[v * 2], y = layer.rest[v * 2 + 1];
                     let best = -1, second = -1, sb = 0, ss = 0, nearest = null, nd = Infinity;
                     for (const b of pool) {
-                        const d = segmentDistance(x, y, b.Head, b.Tail);
-                        const q = d / Math.max(1, b.Radius);
-                        const score = Math.exp(-3 * q * q);
-                        if (d - b.Radius < nd) { nd = d - b.Radius; nearest = b; }
+                        // On the torso a limb's first bone only reaches around its joint (the
+                        // shoulder or hip), not all along the arm hanging beside the body.
+                        const joint = piece === 'torso' && ROOT_BONES.has(b.Name);
+                        const d = joint ? Math.hypot(x - b.Head[0], y - b.Head[1]) : segmentDistance(x, y, b.Head, b.Tail);
+                        const q = d / Math.max(1, joint ? b.Radius * 0.9 : b.Radius);
+                        let score = Math.exp(-3 * q * q) * (joint ? 0.8 : 1);
+                        if (piece && piece !== 'torso' && ROOT_BONES.has(b.Name)) {
+                            // Around the shoulder or hip joint the limb's own piece follows the body
+                            // too, so the top of a thigh stays tucked under a skirt and the top of
+                            // a sleeve under the jacket's shoulder instead of swinging out at a corner.
+                            const t = alongBone(x, y, b.Head, b.Tail);
+                            score *= clamp((t + 0.05) / (b.Name.startsWith('Thigh') ? 0.6 : 0.3), 0.05, 1);
+                        }
+                        if (!joint && d - b.Radius < nd) { nd = d - b.Radius; nearest = b; }
                         if (score > sb) { second = best; ss = sb; best = b.index; sb = score; }
                         else if (score > ss) { second = b.index; ss = score; }
                     }
@@ -1385,6 +1419,11 @@ function definePuppetClass(PIXI) {
                         if (role === 'mouth') y = mcy + (y - mcy) * (1 + (hasMouthOpen ? 1.5 : 4) * mouthOpen);
                         else y = mcy + (y - mcy) * (0.3 + 0.7 * mouthOpen);
                         y -= mouthForm * (S.mouth_form ?? 0.35) * mw * 0.3 * (n * n - 0.35);
+                    }
+                    if ((role === 'mouth' || role === 'mouth_open') && mouth && mouth.Jaw) {
+                        // Never past the jaw: an open or stretched mouth stays inside the face.
+                        const jaw = jawAt(mouth.Jaw, x);
+                        if (jaw !== null) y = Math.min(y, jaw - Math.max(3, (jaw - mouth.Center[1]) * 0.18));
                     }
 
                     // Hair and cloth sway ----------------------------------------------

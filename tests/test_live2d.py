@@ -1004,7 +1004,7 @@ def test_skeleton_from_a_pose_proportions_has_limbs_with_mirrored_limits():
     # A bust-up picture has no legs.
     short = skeleton.bones(skeleton.from_proportions(face, (150, 300, 850, 900)), face)
     assert not any(b["Name"].startswith("Shin") for b in short["Bones"])
-    assert ("ParamBoneHips", -15, 15, 0) in skeleton.parameters(sk)
+    assert ("ParamBoneHips", -8, 8, 0) in skeleton.parameters(sk)
 
 
 def test_skeleton_from_openpose_keypoints():
@@ -1074,6 +1074,12 @@ def test_split_limbs_keeps_a_skirt_whole_and_paints_behind_a_hand(tmp_path):
         {"Id": "skirt", "Role": "clothing", "Garment": "bottomwear", "Texture": "textures/skirt.png", "X": 0, "Y": 0, "Width": 400, "Height": 600},
         {"Id": "jacket", "Role": "clothing", "Garment": "topwear", "Texture": "textures/jacket.png", "X": 0, "Y": 0, "Width": 400, "Height": 600},
     ]
+    # The half-off skirt is cut short (it fades where it comes off), but it's still the skirt.
+    half = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(half).rectangle((140, 300, 260, 380), fill=(150, 30, 40, 255))
+    half.save(tmp_path / "textures" / "skirt_half.png")
+    entries.append({"Id": "skirt_half", "Role": "clothing", "Garment": "bottomwear", "State": "half", "Switch": "ParamClothesBottom", "Texture": "textures/skirt_half.png", "X": 0, "Y": 0, "Width": 400, "Height": 600})
+    entries[0]["Switch"] = "ParamClothesBottom"
     leg_l, leg_r, arm = (Image.new("L", size, 0) for _ in range(3))
     ImageDraw.Draw(leg_l).rectangle((200, 340, 300, 600), fill=255)
     ImageDraw.Draw(leg_r).rectangle((100, 340, 199, 600), fill=255)
@@ -1081,11 +1087,33 @@ def test_split_limbs_keeps_a_skirt_whole_and_paints_behind_a_hand(tmp_path):
     result = puppet.split_limbs(tmp_path, entries, {"leg_L": leg_l, "leg_R": leg_r, "arm_L": arm}, {})
     ids = {e["Id"]: e for e in result}
     assert set(ids) >= {"skirt", "jacket__torso", "jacket__arm_L"} and ids["skirt"]["Piece"] == "torso"
+    assert ids["skirt_half"]["Piece"] == "torso"
     torso = Image.open(tmp_path / "textures" / "jacket__torso.png")
     entry = ids["jacket__torso"]
     # The hole the hand leaves is painted in with the jacket's colour.
     r, g, b, a = torso.getpixel((200 - entry["X"], 200 - entry["Y"]))
     assert a == 255 and abs(r - 180) < 12 and abs(g - 150) < 12
+
+
+def test_edits_are_lined_up_with_the_picture_before_cutting():
+    size = (400, 600)
+    base = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(base)
+    draw.ellipse((150, 60, 250, 180), fill=(120, 80, 50, 255))  # head
+    draw.rectangle((120, 180, 280, 560), fill=(200, 160, 140, 255))  # body
+    face = (165, 90, 235, 175)
+    # The edit: the same character drawn 3% bigger and 14 px higher, on white.
+    edited = Image.new("RGBA", size, (255, 255, 255, 255))
+    scale = 1.03
+    moved = base.resize((round(size[0] * scale), round(size[1] * scale)))
+    edited.alpha_composite(moved, (round(200 - 200 * scale), round(300 - 300 * scale) - 14))
+    aligned = layers.align_edit(base, edited, face)
+    a = layers._silhouette(base)
+    b = layers._silhouette(aligned)
+    # The head lines up within a pixel or two.
+    rows = slice(60, 200)
+    assert abs(int(a[rows].sum()) - int(b[rows].sum())) < a[rows].sum() * 0.03
+    assert (a[rows] ^ b[rows]).sum() < a[rows].sum() * 0.06
 
 
 def test_expression_piece_follows_an_edit_drawn_a_few_pixels_off():

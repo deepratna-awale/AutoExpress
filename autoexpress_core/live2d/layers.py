@@ -915,6 +915,77 @@ def mouth_area(parts: list[Part], size, allowed: Image.Image | None) -> Image.Im
     return ImageChops.multiply(allowed, inner.filter(ImageFilter.GaussianBlur(1)))
 
 
+def _silhouette(image: Image.Image):
+    """Where the character is (numpy bool): not transparent and not the white background."""
+    import numpy as np
+
+    white = Image.alpha_composite(Image.new("RGBA", image.size, (255, 255, 255, 255)), image.convert("RGBA")).convert("RGB")
+    return np.asarray(ImageChops.difference(white, Image.new("RGB", image.size, (255, 255, 255))).convert("L")) > 24
+
+
+def _edges(mask, top: int, bottom: int):
+    import numpy as np
+
+    rows = mask[top:bottom]
+    has = rows.any(axis=1)
+    left = np.where(has, rows.argmax(axis=1), np.nan)
+    right = np.where(has, rows.shape[1] - 1 - rows[:, ::-1].argmax(axis=1), np.nan)
+    return left.astype(float), right.astype(float)
+
+
+def align_edit(base: Image.Image, edited: Image.Image | None, face) -> Image.Image | None:
+    """
+    edited (on base's canvas) moved and scaled to lie exactly over base. Qwen hands its edits back
+    a little zoomed and shifted (often 10-25 px on a 2 K picture), so pieces cut from an edit at the
+    picture's coordinates land beside the features they replace. The head's outline (the hair and the
+    shoulders, which an expression or outfit edit leaves alone) is matched row by row, from the top of
+    the character to below the chin. face is the face's box on the canvas.
+    """
+    import numpy as np
+
+    if edited is None or face is None:
+        return edited
+    edited = edited.convert("RGBA")
+    if edited.size != base.size:
+        edited = edited.resize(base.size)
+    mb, me = _silhouette(base), _silhouette(edited)
+    rows = np.nonzero(mb.any(axis=1))[0]
+    if not len(rows):
+        return edited
+    face_h = face[3] - face[1]
+    top, bottom = int(rows.min()), int(min(mb.shape[0], face[3] + face_h * 0.8))
+    if bottom - top < 20:
+        return edited
+    lb, rb = _edges(mb, top, bottom)
+    le_all, re_all = _edges(me, 0, mb.shape[0])
+    ys = np.arange(top, bottom, dtype=float)
+    cy = (top + bottom) / 2
+    reach = max(8, int(face_h * 0.3))
+    best = None
+    for scale in np.arange(0.92, 1.08, 0.0025):
+        for dy in range(-reach, reach + 1):
+            ye = np.round(cy + (ys - cy) * scale + dy).astype(int)
+            ok = (ye >= 0) & (ye < mb.shape[0])
+            le = np.full(len(ys), np.nan)
+            re = np.full(len(ys), np.nan)
+            le[ok], re[ok] = le_all[ye[ok]], re_all[ye[ok]]
+            wb, we = rb - lb, re - le
+            valid = ~np.isnan(wb) & ~np.isnan(we)
+            if valid.sum() < (bottom - top) * 0.6:
+                continue
+            error = float(np.abs(we[valid] - scale * wb[valid]).mean()) + 0.01 * abs(dy) + 2 * abs(scale - 1)
+            if best is None or error < best[0]:
+                centre_b = ((lb + rb) / 2)[valid]
+                centre_e = ((le + re) / 2)[valid]
+                best = (error, scale, dy, float(np.median(centre_e - scale * centre_b)))
+    if best is None:
+        return edited
+    _, scale, dy, ex = best
+    if abs(scale - 1) < 1e-3 and dy == 0 and abs(ex) < 0.5:
+        return edited
+    return edited.transform(base.size, Image.AFFINE, (scale, 0, ex, 0, scale, cy - cy * scale + dy), resample=Image.BICUBIC)
+
+
 def best_shift(base: Image.Image, edited: Image.Image, box, reach: int = 12) -> tuple[int, int]:
     """
     How far (dx, dy) the edit is drawn from the picture around box: Qwen redraws the whole picture
@@ -1059,7 +1130,8 @@ def edit_overlays(
         mx, my = (mouth[0] + mouth[2]) / 2, (mouth[1] + mouth[3]) / 2
         nose = union_box([part_box(p) for p in parts if parse_tag(p.tag)[0] == "nose"])
         top = nose[3] + face_h * 0.01 if nose and nose[3] < my else my - face_h * 0.12
-        region = (mx - face_w * 0.3, top, mx + face_w * 0.3, min(face_box[3] - face_h * 0.02, my + face_h * 0.2))
+        # A wide open grin reaches well down towards the chin (the skin mask keeps it inside the jaw).
+        region = (mx - face_w * 0.34, top, mx + face_w * 0.34, face_box[3] - face_h * 0.02)
         overlay = expression_piece(base, grin, region, skin, "Mouth", "Mouth grin", "ParamMouthGrin", core=mouth)
         if overlay:
             overlays.append(overlay)
