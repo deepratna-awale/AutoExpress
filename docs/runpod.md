@@ -19,7 +19,7 @@ pip install requests
 RUNPOD_API_KEY=... python scripts/runpod/create_pod.py
 ```
 
-`create_pod.py` tries the GPUs above in order and prints the Jupyter and ComfyUI addresses.
+`create_pod.py` tries the GPUs above in order and prints the Jupyter and ComfyUI addresses. Jupyter's password is `JUPYTER_PASSWORD` if you set it, else a new one saved to `runpod_jupyter_password.txt`.
 
 ## ComfyUI and the models
 
