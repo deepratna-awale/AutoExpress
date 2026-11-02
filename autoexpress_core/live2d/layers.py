@@ -20,7 +20,7 @@ Only Pillow is needed.
 import dataclasses
 import re
 
-from PIL import Image, ImageChops, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 
 from .psd import Group, Layer
 
@@ -247,23 +247,101 @@ def changed_region(base: Image.Image, edited: Image.Image, box: tuple[int, int, 
 
 
 def overlay_from_edit(
-    base: Image.Image, edited: Image.Image, box: tuple[int, int, int, int], group: str, name: str, parameter: str, threshold: int = 28
+    base: Image.Image,
+    edited: Image.Image,
+    box: tuple[int, int, int, int],
+    group: str,
+    name: str,
+    parameter: str,
+    threshold: int = 28,
+    allowed: Image.Image | None = None,
+    core: tuple[int, int, int, int] | None = None,
+    fill: bool = False,
 ) -> Overlay | None:
-    """The changed pixels of edited inside box as a hidden layer, or None when the edit changed nothing there."""
+    """
+    The changed pixels of edited inside box as a hidden layer, or None when the edit changed nothing there.
+
+    allowed (mode L, canvas size) limits it to where the new art may go: the face, not the front hair,
+    which an edit often redraws a little differently and which sits above the eyes anyway.
+    core (canvas coordinates) is the feature itself: the change is kept to an ellipse around the box,
+    and only the pieces of it that reach the core are kept, so stray redrawn strands and outlines
+    elsewhere in the box are dropped. fill also covers the whole core (closed eyes have to hide the
+    open eye completely, even where the edit's skin happens to match), and evens the edit's colours
+    out to the picture's around it.
+    """
     box = clamp_box(box, base.size)
     if box[2] - box[0] < 4 or box[3] - box[1] < 4:
         return None
     mask = changed_region(base, edited, box, threshold)
     if mask is None:
         return None
+    if allowed is not None:
+        mask = ImageChops.multiply(mask, allowed.crop(box))
+    if core is not None:
+        mask = ImageChops.multiply(mask, ellipse_mask((box[2] - box[0], box[3] - box[1])))
+        local = (core[0] - box[0], core[1] - box[1], core[2] - box[0], core[3] - box[1])
+        mask = keep_touching(mask, local)
+        if fill:
+            inner = Image.new("L", mask.size, 0)
+            inner.paste(ellipse_mask((max(1, local[2] - local[0]), max(1, local[3] - local[1]))), (local[0], local[1]))
+            if allowed is not None:
+                inner = ImageChops.multiply(inner, allowed.crop(box))
+            mask = ImageChops.lighter(mask, inner)
+    if mask.getbbox() is None:
+        return None
     edited = edited.convert("RGBA").resize(base.size) if edited.size != base.size else edited.convert("RGBA")
     art = edited.crop(box)
+    if fill:
+        art = match_colours(art, base.convert("RGBA").crop(box), mask)
     alpha = ImageChops.multiply(art.getchannel("A"), mask)
     art.putalpha(alpha)
     bbox = alpha.getbbox()
     if bbox is None:
         return None
     return Overlay(group, name, art.crop(bbox), box[0] + bbox[0], box[1] + bbox[1], parameter)
+
+
+def match_colours(art: Image.Image, base: Image.Image, mask: Image.Image) -> Image.Image:
+    """art with its colours scaled to base's, judged on a ring just outside mask where both show the same skin."""
+    solid = mask.point(lambda v: 255 if v > 32 else 0)
+    ring = ImageChops.subtract(solid.filter(ImageFilter.MaxFilter(9)), solid)
+    if ring.getbbox() is None:
+        return art
+    art_mean = ImageStat.Stat(art.convert("RGB"), ring).mean
+    base_mean = ImageStat.Stat(base.convert("RGB"), ring).mean
+    gains = [max(0.8, min(1.25, b / a)) if a > 1 else 1.0 for a, b in zip(art_mean, base_mean)]
+    channels = [channel.point(lambda v, g=gain: min(255, int(v * g))) for channel, gain in zip(art.split()[:3], gains)]
+    return Image.merge("RGBA", (*channels, art.getchannel("A")))
+
+
+def ellipse_mask(size: tuple[int, int]) -> Image.Image:
+    """A soft-edged ellipse filling size (mode L)."""
+    width, height = size
+    mask = Image.new("L", size, 0)
+    inset = max(1, min(width, height) // 20)
+    ImageDraw.Draw(mask).ellipse((inset, inset, width - 1 - inset, height - 1 - inset), fill=255)
+    return mask.filter(ImageFilter.GaussianBlur(max(1, inset)))
+
+
+def keep_touching(mask: Image.Image, core: tuple[int, int, int, int], level: int = 64) -> Image.Image:
+    """mask with only the connected pieces that reach into the core box (all in mask's coordinates)."""
+    width, height = mask.size
+    pixels = mask.load()
+    left, top = max(0, int(core[0])), max(0, int(core[1]))
+    right, bottom = min(width, int(core[2])), min(height, int(core[3]))
+    keep = bytearray(width * height)
+    stack = [(x, y) for y in range(top, bottom) for x in range(left, right) if pixels[x, y] > level]
+    for x, y in stack:
+        keep[y * width + x] = 1
+    while stack:
+        x, y = stack.pop()
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < width and 0 <= ny < height and not keep[ny * width + nx] and pixels[nx, ny] > level:
+                keep[ny * width + nx] = 1
+                stack.append((nx, ny))
+    region = Image.frombytes("L", mask.size, bytes(keep)).point(lambda v: 255 if v else 0)
+    # Keep the feathered edge around the kept pieces.
+    return ImageChops.multiply(mask, region.filter(ImageFilter.MaxFilter(3)))
 
 
 def clamp_box(box, size) -> tuple[int, int, int, int]:
@@ -292,8 +370,8 @@ def part_box(part: Part) -> tuple[int, int, int, int] | None:
     return part.left + bbox[0], part.top + bbox[1], part.left + bbox[2], part.top + bbox[3]
 
 
-def feature_boxes(parts: list[Part], size) -> dict[str, tuple[int, int, int, int]]:
-    """Where to look for blink and mouth changes: around each eye (with its brow and lashes) and around the mouth."""
+def feature_cores(parts: list[Part]) -> dict[str, tuple[int, int, int, int]]:
+    """The box of each eye's own layers (lash, iris, eye white) and of the mouth."""
     boxes: dict[str, list] = {"Eye L": [], "Eye R": [], "Mouth": [], "Eyes": []}
     for part in parts:
         base, side = parse_tag(part.tag)
@@ -303,11 +381,14 @@ def feature_boxes(parts: list[Part], size) -> dict[str, tuple[int, int, int, int
             boxes["Eyes"].append(part_box(part))
         elif base == "mouth":
             boxes["Mouth"].append(part_box(part))
+    unions = {name: union_box(items) for name, items in boxes.items()}
+    return {name: union for name, union in unions.items() if union is not None}
+
+
+def feature_boxes(parts: list[Part], size) -> dict[str, tuple[int, int, int, int]]:
+    """Where to look for blink and mouth changes: around each eye (with its brow and lashes) and around the mouth."""
     found = {}
-    for name, items in boxes.items():
-        union = union_box(items)
-        if union is None:
-            continue
+    for name, union in feature_cores(parts).items():
         if name == "Mouth":
             # An open mouth reaches well above and below a closed one, which is often a thin line.
             width, height = union[2] - union[0], union[3] - union[1]
@@ -317,9 +398,59 @@ def feature_boxes(parts: list[Part], size) -> dict[str, tuple[int, int, int, int
     return found
 
 
+_FACE_TAGS = ("face", "eyewhite", "irides", "eyelash", "eyebrow", "brow", "eye", "eyes", "mouth", "nose")
+
+
+def _alpha_union(parts: list[Part], size, tags) -> Image.Image:
+    union = Image.new("L", size, 0)
+    for part in parts:
+        if parse_tag(part.tag)[0] in tags:
+            alpha = Image.new("L", size, 0)
+            alpha.paste(part.image.getchannel("A"), (part.left, part.top))
+            union = ImageChops.lighter(union, alpha)
+    return union
+
+
+def face_area(parts: list[Part], size) -> Image.Image | None:
+    """Where blink and mouth art may go (mode L): the face and its features, minus the front hair. None without a face layer."""
+    face = _alpha_union(parts, size, _FACE_TAGS)
+    if face.getbbox() is None:
+        return None
+    face = face.point(lambda v: 255 if v > 24 else 0).filter(ImageFilter.MaxFilter(5))
+    hair = _alpha_union(parts, size, ("front hair",)).point(lambda v: 255 if v > 96 else 0)
+    return ImageChops.subtract(face, hair).filter(ImageFilter.GaussianBlur(1))
+
+
+def eye_area(parts: list[Part], size, allowed: Image.Image | None) -> Image.Image | None:
+    """Where closed eyes may go: the face area minus the eyebrows, which don't move when the eyes close."""
+    if allowed is None:
+        return None
+    brows = _alpha_union(parts, size, ("eyebrow", "brow"))
+    if brows.getbbox() is None:
+        return allowed
+    brows = brows.point(lambda v: 255 if v > 48 else 0).filter(ImageFilter.MaxFilter(5))
+    return ImageChops.subtract(allowed, brows)
+
+
+def mouth_area(parts: list[Part], size, allowed: Image.Image | None) -> Image.Image | None:
+    """Where an open mouth may go: inside the face, kept clear of its outline (which edits tend to redraw)."""
+    if allowed is None:
+        return None
+    face = _alpha_union(parts, size, ("face",))
+    box = face.getbbox()
+    if box is None:
+        return allowed
+    margin = max(3, (box[2] - box[0]) // 40) * 2 + 1
+    inner = face.point(lambda v: 255 if v > 200 else 0).filter(ImageFilter.MinFilter(margin))
+    return ImageChops.multiply(allowed, inner.filter(ImageFilter.GaussianBlur(1)))
+
+
 def edit_overlays(parts: list[Part], base: Image.Image, eyes_closed: Image.Image | None = None, mouth_open: Image.Image | None = None) -> list[Overlay]:
     """Hidden layers for blinking and talking from the edited copies (both on the decomposition's canvas)."""
     boxes = feature_boxes(parts, base.size)
+    cores = feature_cores(parts)
+    allowed = face_area(parts, base.size)
+    eyes_allowed = eye_area(parts, base.size, allowed)
     overlays = []
     if eyes_closed is not None:
         eye_groups = [name for name in ("Eye L", "Eye R") if name in boxes]
@@ -329,11 +460,11 @@ def edit_overlays(parts: list[Part], base: Image.Image, eyes_closed: Image.Image
             side = group.split(" ")[1] if " " in group else ""
             parameter = f"ParamEye{side}Open" if side else "ParamEyeLOpen, ParamEyeROpen"
             name = f"Eye {side} closed".replace("  ", " ") if side else "Eyes closed"
-            overlay = overlay_from_edit(base, eyes_closed, boxes[group], group if side else "Face", name, parameter)
+            overlay = overlay_from_edit(base, eyes_closed, boxes[group], group if side else "Face", name, parameter, allowed=eyes_allowed, core=cores[group], fill=True)
             if overlay:
                 overlays.append(overlay)
     if mouth_open is not None and "Mouth" in boxes:
-        overlay = overlay_from_edit(base, mouth_open, boxes["Mouth"], "Mouth", "Mouth open", "ParamMouthOpenY")
+        overlay = overlay_from_edit(base, mouth_open, boxes["Mouth"], "Mouth", "Mouth open", "ParamMouthOpenY", allowed=mouth_area(parts, base.size, allowed), core=cores["Mouth"])
         if overlay:
             overlays.append(overlay)
     return overlays

@@ -156,6 +156,32 @@ def test_edit_overlays_ignore_unchanged_and_whole_picture_edits():
     assert layers.edit_overlays(parts, base, shifted, shifted) == []
 
 
+def test_keep_touching_drops_pieces_away_from_the_feature():
+    mask = Image.new("L", (100, 60), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rectangle((40, 25, 60, 35), fill=255)  # the feature
+    draw.line((5, 0, 5, 59), fill=255, width=3)  # a redrawn hair strand at the edge of the box
+    kept = layers.keep_touching(mask, (35, 20, 65, 40))
+    assert kept.getpixel((50, 30)) == 255 and kept.getpixel((5, 30)) == 0
+
+
+def test_eye_overlays_skip_the_brows_and_stray_strands():
+    brow_box = (217, 133, 235, 137)
+    parts = seethrough_parts() + [layers.Part("eyebrow-l", blob((400, 400), brow_box, (90, 60, 40, 255), "rectangle"), 0, 0, 0.47)]
+    base = character().convert("RGBA")
+    closed = character(eyes_closed=True).convert("RGBA")
+    ImageDraw.Draw(base).rectangle(brow_box, fill=(90, 60, 40, 255))
+    ImageDraw.Draw(closed).rectangle((brow_box[0], brow_box[1] - 1, brow_box[2], brow_box[3] + 1), fill=(10, 10, 10, 255))  # the edit redrew the brow
+    ImageDraw.Draw(closed).line((239, 130, 239, 180), fill=(80, 50, 35, 255), width=2)  # and a stray strand in the box
+    overlays = {overlay.name: overlay for overlay in layers.edit_overlays(parts, base, closed, None)}
+    eye = overlays["Eye L closed"]
+    alpha = Image.new("L", base.size, 0)
+    alpha.paste(eye.image.getchannel("A"), (eye.left, eye.top))
+    centre = ((brow_box[0] + brow_box[2]) // 2, (brow_box[1] + brow_box[3]) // 2)
+    assert alpha.getpixel(centre) < 32
+    assert alpha.getpixel((226, 160)) > 200  # the closed eye itself
+
+
 def test_square_placement_matches_see_through_padding():
     assert layers.square_placement((400, 800), 1280) == (320, 0, 960, 1280)
     assert layers.square_placement((1000, 500), 1000) == (0, 250, 1000, 750)
