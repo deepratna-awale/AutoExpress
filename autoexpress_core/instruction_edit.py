@@ -372,11 +372,11 @@ def find_model(role: str, choices: list[str], wanted: str | None = None) -> str 
     return matches[0] if matches else None
 
 
-def missing_models(comfyui_dir: str | os.PathLike, include_optional: bool = True) -> list[ModelFile]:
-    """The model files that are not in a ComfyUI install's models folder yet."""
+def missing_models(comfyui_dir: str | os.PathLike, include_optional: bool = True, models: tuple[ModelFile, ...] = MODELS) -> list[ModelFile]:
+    """The model files (Qwen-Image-Edit's unless models is given) that are not in a ComfyUI install's models folder yet."""
     models_dir = pathlib.Path(comfyui_dir) / "models"
     missing = []
-    for model in MODELS:
+    for model in models:
         if not model.required and not include_optional:
             continue
         folder = models_dir / model.folder
@@ -388,9 +388,11 @@ def missing_models(comfyui_dir: str | os.PathLike, include_optional: bool = True
     return missing
 
 
-def download_models(comfyui_dir: str | os.PathLike, include_optional: bool = True, token: str | None = None, log=print) -> list[pathlib.Path]:
+def download_models(
+    comfyui_dir: str | os.PathLike, include_optional: bool = True, token: str | None = None, log=print, models: tuple[ModelFile, ...] = MODELS
+) -> list[pathlib.Path]:
     """
-    Download the missing Qwen-Image-Edit files into a ComfyUI install.
+    Download the missing Qwen-Image-Edit files (or the given models) into a ComfyUI install.
 
     Args:
         comfyui_dir: The ComfyUI folder (the one with models/ in it).
@@ -405,7 +407,7 @@ def download_models(comfyui_dir: str | os.PathLike, include_optional: bool = Tru
     token = token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     downloaded = []
-    for model in missing_models(comfyui_dir, include_optional):
+    for model in missing_models(comfyui_dir, include_optional, models):
         target = pathlib.Path(comfyui_dir) / "models" / model.folder / model.name
         target.parent.mkdir(parents=True, exist_ok=True)
         partial = target.with_suffix(target.suffix + ".part")

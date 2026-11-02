@@ -20,6 +20,9 @@ import {
   type ExpressionFamily,
   type LoraSelection,
   type UploadResponse,
+  type AnimationInfo,
+  type CharacterCard,
+  type IdleSource,
 } from "@/lib/api";
 import { FAMILY_DEFAULTS, detectFamily, reconcileSelections, type Adjustment } from "@/lib/model-defaults";
 
@@ -68,6 +71,23 @@ const JOB_POLL_INTERVAL_MS = 1500;
 const SETTINGS_KEY = "autoexpress-connection";
 const REMOVE_BACKGROUND_KEY = "autoexpress-remove-background";
 const POSE_KEY = "autoexpress-pose";
+const ANIMATE_KEY = "autoexpress-animate";
+
+function remember(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage can be blocked; the choice then lasts until reload.
+  }
+}
+
+function recall(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 
 type Adjustments = Partial<Record<"model" | "sampler" | "scheduler", Adjustment>>;
 
@@ -142,6 +162,21 @@ interface AutoExpressState {
   backgroundRemoval: BackgroundRemovalInfo | null;
   removeBackground: boolean;
   setRemoveBackground: (value: boolean) => void;
+  /** Animated sprites on the connected WebUI; null when the server has no such endpoint. */
+  animationInfo: AnimationInfo | null;
+  animate: boolean;
+  setAnimate: (value: boolean) => void;
+  /** The character card in the input PNG, if it has one. */
+  character: CharacterCard | null;
+  /** The idle (neutral) clip's motion; filled in from the card, editable. */
+  idleMotion: string;
+  setIdleMotion: (value: string) => void;
+  idleSource: IdleSource;
+  /** Re-derive the idle motion from the card, the card plus a wiki lookup, or the LLM. */
+  suggestIdleMotion: (source: IdleSource) => Promise<void>;
+  suggestingIdle: boolean;
+  animationFormats: string[];
+  setAnimationFormats: (formats: string[]) => void;
   generating: boolean;
   /** The running job on backends with the job API, null otherwise. */
   job: Job | null;
@@ -295,6 +330,34 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       })
       .catch(() => setBackgroundRemoval(null));
   }, []);
+  const [animate, setAnimateState] = useState(false);
+  const setAnimate = useCallback((value: boolean) => {
+    setAnimateState(value);
+    remember(ANIMATE_KEY, value ? "1" : "0");
+  }, []);
+  useEffect(() => setAnimateState(recall(ANIMATE_KEY) === "1"), []);
+  const [character, setCharacter] = useState<CharacterCard | null>(null);
+  const [idleMotion, setIdleMotion] = useState("");
+  const [idleSource, setIdleSource] = useState<IdleSource>("card");
+  const [suggestingIdle, setSuggestingIdle] = useState(false);
+  const [animationFormats, setAnimationFormats] = useState<string[]>(["webp"]);
+  const imageRef = useRef<string | null>(null);
+  const suggestIdleMotion = useCallback(async (source: IdleSource) => {
+    if (!imageRef.current) return;
+    setSuggestingIdle(true);
+    try {
+      const result = await api.characterCard(imageRef.current, source);
+      if (result) {
+        setIdleMotion(result.idle_motion);
+        setIdleSource(source);
+        if (source !== "card" && result.idle_source === "card") toast.info("Nothing more found, so the idle comes from the card.");
+      }
+    } catch (error) {
+      toast.error(`Could not describe the idle motion: ${error instanceof Error ? error.message : error}`);
+    } finally {
+      setSuggestingIdle(false);
+    }
+  }, []);
   const [generating, setGenerating] = useState(false);
   const [images, setImages] = useState<string[]>([]);
   const [galleryDir, setGalleryDir] = useState("");
@@ -349,6 +412,14 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     toast.success(`Applied ${family.label} defaults`);
   }, []);
 
+  const [animationInfo, setAnimationInfo] = useState<AnimationInfo | null>(null);
+  const loadAnimationInfo = useCallback(() => {
+    api
+      .animation()
+      .then(setAnimationInfo)
+      .catch(() => setAnimationInfo(null));
+  }, []);
+
   /** Which methods the selected WebUI supports; falls back to inpainting when the chosen one isn't. */
   const loadEditMethods = useCallback(() => {
     api
@@ -361,7 +432,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         );
       })
       .catch(() => setEditMethods(null));
-  }, []);
+    loadAnimationInfo();
+  }, [loadAnimationInfo]);
 
   // Restore the last used connection. Unless the user picked a WebUI, prefer
   // detecting it, then whatever the server is set to.
@@ -551,25 +623,36 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     async (next: File | null) => {
       setFileState(next);
       setRawMetadata(null);
+      setCharacter(null);
+      setIdleMotion("");
+      setIdleSource("card");
       if (!next) {
         setImageDataUrl(null);
+        imageRef.current = null;
         return;
       }
       setOutputDirectory(next.name.trim().split(".").slice(0, -1).join(".") || next.name);
-      setImageDataUrl(await readDataUrl(next));
+      const dataUrl = await readDataUrl(next);
+      imageRef.current = dataUrl;
+      setImageDataUrl(dataUrl);
 
       setUploading(true);
       try {
         const data = await api.upload(next);
         setRawMetadata(data.uncleaned_data && data.uncleaned_data !== "None" ? data.uncleaned_data : null);
         applyImageData(data);
+        if (data.character) {
+          setCharacter(data.character);
+          setOutputDirectory(data.character.name);
+          suggestIdleMotion("card");
+        }
       } catch (error) {
         toast.error(`Could not read image metadata: ${error instanceof Error ? error.message : error}`);
       } finally {
         setUploading(false);
       }
     },
-    [applyImageData]
+    [applyImageData, suggestIdleMotion]
   );
 
   const loadImages = useCallback(
@@ -603,7 +686,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       loadImages(finished.output_dir, false);
       if (finished.status === "completed") {
         toast.success(`Finished generating expressions in Output/${finished.output_dir}`);
-        if (finished.notes?.length) toast.warning("Some expression LoRAs were missing, see the note above the prompt.");
+        if (finished.notes?.some((note) => note.kind === "missing_lora"))
+          toast.warning("Some expression LoRAs were missing, see the note above the prompt.");
       } else if (finished.status === "cancelled") {
         toast.info(`Stopped after ${finished.progress.done} of ${finished.progress.total} expressions.`);
       } else {
@@ -690,6 +774,15 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         ...(intensity !== null ? { expression_intensity: intensity } : {}),
         ...(removeBackground && backgroundRemoval?.available ? { remove_background: true } : {}),
         ...(pose && posesAvailable ? { pose: true } : {}),
+        ...(animate && animationInfo?.available
+          ? {
+              animate: true,
+              animation: {
+                formats: animationFormats,
+                ...(idleMotion.trim() ? { idle_motion: idleMotion.trim() } : { idle_source: idleSource }),
+              },
+            }
+          : {}),
       });
       if (result.job_id && result.job && isActiveJob(result.job)) {
         tracking = true;
@@ -715,7 +808,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         loadImages(dir, false);
       }
     }
-  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, pose, posesAvailable, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, pose, posesAvailable, animate, animationInfo, animationFormats, idleMotion, idleSource, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
 
   const interrupt = useCallback(async () => {
     try {
@@ -775,6 +868,17 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       backgroundRemoval,
       removeBackground,
       setRemoveBackground,
+      animationInfo,
+      animate,
+      setAnimate,
+      character,
+      idleMotion,
+      setIdleMotion,
+      idleSource,
+      suggestIdleMotion,
+      suggestingIdle,
+      animationFormats,
+      setAnimationFormats,
       generating,
       job,
       generate,
@@ -789,7 +893,9 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       capabilities, checkingCapabilities, checkCapabilities, editMethods, vramNote, method, setMethod, photoStyle, setPhotoStyle, pose, setPose, posesAvailable, intensity, familyDefaults,
       families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
-      outputDirectory, backgroundRemoval, removeBackground, setRemoveBackground, generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
+      outputDirectory, backgroundRemoval, removeBackground, setRemoveBackground,
+      animationInfo, animate, setAnimate, character, idleMotion, idleSource, suggestIdleMotion, suggestingIdle, animationFormats,
+      generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]
   );
 

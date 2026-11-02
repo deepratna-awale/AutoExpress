@@ -445,3 +445,109 @@ def test_remove_background_needs_rembg(client, monkeypatch):
     assert response.status_code == 400
     assert "rembg" in response.get_json()["error"]["fields"]["remove_background"]
     assert client.post("/generate", json=body(remove_background="yes")).status_code == 400
+
+
+# Animated sprites --------------------------------------------------------------
+class FakeAnimWebUI(FakeEditWebUI):
+    kind = "fake_anim"
+    can_animate = True
+    prompts = []
+
+    def ensure_animate_ready(self):
+        if not FakeWebUI.ready:
+            raise BackendNotReady("Fake WebUI has no Wan 2.2.")
+
+    def animate(self, image, prompt, negative, settings):
+        FakeAnimWebUI.prompts.append(prompt)
+        return [Image.new("RGB", (16, 16), (i * 20, 0, 0)) for i in range(5)]
+
+
+def card_image(name="Hanabi", description="A playful kunoichi who loves jokes and charming winks."):
+    import base64
+    import json
+
+    from PIL import PngImagePlugin
+
+    info = PngImagePlugin.PngInfo()
+    info.add_text("chara", base64.b64encode(json.dumps({"spec": "chara_card_v2", "data": {"name": name, "description": description}}).encode()).decode())
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 32)).save(buffer, format="PNG", pnginfo=info)
+    return buffer.getvalue()
+
+
+def test_animate_needs_a_backend_that_can(client):
+    info = client.get("/animation").get_json()
+    assert info["available"] is False and info["formats"] == ["webp", "apng", "gif"] and len(info["motions"]) == 28
+    response = client.post("/generate", json=body(animate=True))
+    assert response.status_code == 400 and "Wan 2.2" in response.get_json()["error"]["fields"]["animate"]
+    assert client.post("/generate", json=body(animate="yes")).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "animation, field",
+    [({"frames": 5}, "animation.frames"), ({"formats": ["mp4"]}, "animation.formats"), ({"idle_source": "tarot"}, "animation.idle_source"), ("x", "animation")],
+)
+def test_animation_settings_are_validated(client, monkeypatch, animation, field):
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_anim", FakeAnimWebUI)
+    views.state.connect("fake_anim", None)
+    response = client.post("/generate", json=body(animate=True, animation=animation))
+    assert response.status_code == 400 and field in response.get_json()["error"]["fields"]
+
+
+def test_generate_animated_sprites_with_the_idle_from_the_card(client, monkeypatch, tmp_path):
+    import base64
+
+    monkeypatch.setitem(registry.REMOTE_BACKENDS, "fake_anim", FakeAnimWebUI)
+    FakeAnimWebUI.prompts = []
+    views.state.connect("fake_anim", None)
+    image = "data:image/png;base64," + base64.b64encode(card_image()).decode()
+    result = client.post(
+        "/generate", json=body(init_images=image, expressions=["joy", "neutral"], animate=True, animation={"formats": ["webp", "gif"]})
+    ).get_json()
+    assert result["status"] == "success"
+    files = sorted(p.name for p in (tmp_path / "out" / "Alice").iterdir())
+    assert files == ["joy.gif", "joy.png", "joy.webp", "neutral.gif", "neutral.png", "neutral.webp"]
+    with Image.open(tmp_path / "out" / "Alice" / "joy.webp") as clip:
+        assert clip.n_frames == 4  # the repeated loop frame is dropped
+    neutral = next(i for i in result["job"]["images"] if i["expression"] == "neutral")
+    assert neutral["animation"] == "/image/Alice/neutral.webp" and neutral["animations"]["gif"] == "/image/Alice/neutral.gif"
+    assert "Hanabi idles in place" in FakeAnimWebUI.prompts[1] and "wink" in FakeAnimWebUI.prompts[1]
+    assert any(note["kind"] == "idle_motion" for note in result["job"]["notes"])
+
+    # A typed idle motion wins over the card.
+    FakeAnimWebUI.prompts = []
+    client.post("/generate", json=body(init_images=image, expressions=["neutral"], animate=True, animation={"idle_motion": "She stretches."}))
+    assert "She stretches." in FakeAnimWebUI.prompts[0]
+
+    # Animate the stills already there, without generating them again.
+    FakeAnimWebUI.prompts, calls = [], FakeWebUI.calls
+    result = client.post("/animate", json={"output_dir": "Alice", "expressions": ["joy"], "animation": {"formats": ["apng"]}}).get_json()
+    assert result["status"] == "success" and FakeWebUI.calls == calls and len(FakeAnimWebUI.prompts) == 1
+    assert (tmp_path / "out" / "Alice" / "joy.apng").is_file()
+    assert client.post("/animate", json={"output_dir": "Nobody"}).status_code == 400
+
+    FakeWebUI.ready = False
+    assert client.post("/generate", json=body(animate=True)).status_code == 409
+    response = client.post("/animate", json={"output_dir": "Alice"})
+    assert response.status_code == 409 and "Wan 2.2" in response.get_json()["message"]
+
+
+def test_character_card_route_and_upload(client, monkeypatch):
+    import base64
+
+    image = "data:image/png;base64," + base64.b64encode(card_image()).decode()
+    result = client.post("/character-card", json={"image": image}).get_json()
+    assert result["character"]["name"] == "Hanabi" and result["idle_source"] == "card" and "wink" in result["idle_motion"]
+    assert client.post("/character-card", json={"image": image, "idle_source": "astrology"}).status_code == 400
+    plain = client.post("/character-card", json={"persona": "A shy, timid girl.", "name": "Mira"}).get_json()
+    assert plain["character"]["name"] == "Mira" and "shyly" in plain["idle_motion"]
+
+    uploaded = client.post("/upload", data={"file": (io.BytesIO(card_image()), "hanabi.png")}, content_type="multipart/form-data").get_json()
+    assert uploaded["character"]["name"] == "Hanabi"
+
+    assert client.get("/llm-settings").get_json() == {"url": "", "model": "", "has_api_key": False}
+    monkeypatch.setitem(views.llm_settings, "url", "")
+    assert client.post("/llm-settings", json={"url": "ftp://x"}).status_code == 400
+    saved = client.post("/llm-settings", json={"url": "http://127.0.0.1:11434/v1", "model": "llama3", "api_key": "k"}).get_json()
+    assert saved == {"url": "http://127.0.0.1:11434/v1", "model": "llama3", "has_api_key": True}
+    views.llm_settings.update(url="", model="", api_key="")

@@ -30,7 +30,7 @@ import uuid
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from .. import instruction_edit
+from .. import animation, instruction_edit
 from ..civitai_key import comfyui_sources
 from ..images import b64_to_pil
 from ..log import log
@@ -54,6 +54,8 @@ EDIT_NODES = ("UNETLoader", "CLIPLoader", "VAELoader", "ModelSamplingAuraFlow", 
 EDIT_ENCODERS = ("TextEncodeQwenImageEditPlus", "TextEncodeQwenImageEdit")
 # Impact Pack nodes that find the face for pasting a photo edit back onto the original.
 FACE_MASK_NODES = ("UltralyticsDetectorProvider", "BboxDetectorSEGS", "SegsToCombinedMask", "MaskToImage")
+# Core ComfyUI nodes of the Wan 2.2 image to video workflow for animated sprites.
+ANIMATE_NODES = ("UNETLoader", "CLIPLoader", "VAELoader", "ModelSamplingSD3", "KSamplerAdvanced", "WanFirstLastFrameToVideo", "CLIPTextEncode", "VAEDecode")
 
 IMPACT_PACK = "https://github.com/ltdrdata/ComfyUI-Impact-Pack"
 IMPACT_SUBPACK = "https://github.com/ltdrdata/ComfyUI-Impact-Subpack"
@@ -174,6 +176,7 @@ class ComfyUIClient(RemoteBackend):
     label = "ComfyUI"
     default_url = "http://127.0.0.1:8188"
     edit_methods = (instruction_edit.INPAINT, instruction_edit.INSTRUCT)
+    can_animate = True
 
     def __init__(self, url: str | None = None, timeout: float | None = None, poll_interval: float = 0.5, **options) -> None:
         self._object_info: dict[str, dict] = {}
@@ -459,6 +462,75 @@ class ComfyUIClient(RemoteBackend):
         )
         # The instruction edit mode is optional at connect time; the pre-generation check marks it required.
         items.extend(self.edit_capabilities(selected=False))
+        items.extend(self.animate_capabilities(selected=False))
+        return items
+
+    def animate_files(self) -> dict[str, str | None]:
+        """The Wan 2.2 file ComfyUI lists for each model role, or None where it's missing."""
+        lists = {
+            "high_noise": self.options("UNETLoader", "unet_name"),
+            "low_noise": self.options("UNETLoader", "unet_name"),
+            "text_encoder": self.options("CLIPLoader", "clip_name"),
+            "vae": self.options("VAELoader", "vae_name"),
+            "lightning_high": self.options("LoraLoaderModelOnly", "lora_name"),
+            "lightning_low": self.options("LoraLoaderModelOnly", "lora_name"),
+        }
+        return {role: animation.find_model(role, choices) for role, choices in lists.items()}
+
+    def ensure_animate_ready(self) -> None:
+        """What animated sprites need: recent core nodes and the Wan 2.2 image to video files."""
+        self._object_info.clear()
+        missing = [node for node in ANIMATE_NODES if not self.object_info(node)]
+        if missing:
+            raise BackendNotReady(f"ComfyUI is missing {', '.join(missing)}. Update ComfyUI for Wan 2.2 animated sprites.")
+        if "wan" not in self.options("CLIPLoader", "type"):
+            raise BackendNotReady("This ComfyUI's CLIPLoader has no wan type. Update ComfyUI for Wan 2.2 animated sprites.")
+        files = self.animate_files()
+        missing_files = [
+            f"models/{animation.MODEL_BY_ROLE[role].folder}/{animation.MODEL_BY_ROLE[role].name}"
+            for role, found in files.items()
+            if not found and animation.MODEL_BY_ROLE[role].required
+        ]
+        if missing_files:
+            raise BackendNotReady(
+                f"ComfyUI is missing the Wan 2.2 files {', '.join(missing_files)}. "
+                "Run: python -m autoexpress_core.animation download <ComfyUI folder>. " + animation.VRAM_NOTE
+            )
+
+    def animate_capabilities(self, selected: bool = False) -> list[Capability]:
+        """Readiness of animated sprites, one item for the nodes and one for the model files."""
+        self._object_info.clear()
+        missing_nodes = [node for node in ANIMATE_NODES if not self.object_info(node)]
+        items = [
+            Capability(
+                "wan_nodes", "Wan 2.2 image to video nodes (animated sprites)", not missing_nodes,
+                f"Missing: {', '.join(missing_nodes)}" if missing_nodes else "Core nodes present",
+                required=selected,
+                fix=Fix(
+                    ["Update ComfyUI (ComfyUI Manager > Update ComfyUI, or git pull in the ComfyUI folder).", "Restart ComfyUI."],
+                    ["cd ComfyUI && git pull && pip install -r requirements.txt"],
+                ),
+            )
+        ]
+        if not missing_nodes:
+            files = self.animate_files()
+            missing = [animation.MODEL_BY_ROLE[role] for role, found in files.items() if not found]
+            needed = [model for model in missing if model.required]
+            items.append(
+                Capability(
+                    "wan_models", "Wan 2.2 image to video models (animated sprites)", not needed,
+                    "Missing: " + ", ".join(f"models/{m.folder}/{m.name}" for m in missing) if missing else "All files present",
+                    required=selected,
+                    fix=Fix(
+                        [
+                            "In the folder AutoExpress is installed in, on the machine or pod ComfyUI runs on, download the files, then re-check.",
+                            animation.VRAM_NOTE,
+                        ],
+                        ["python -m autoexpress_core.animation download /path/to/ComfyUI"],
+                        [Fix.link(m.name, m.urls[0]) for m in missing],
+                    ),
+                )
+            )
         return items
 
     def edit_capabilities(self, selected: bool = False) -> list[Capability]:
@@ -689,6 +761,75 @@ class ComfyUIClient(RemoteBackend):
                 log.warning("No Impact Pack face detector in ComfyUI, so the whole re-rendered photo is kept instead of only the face.")
         return workflow
 
+    def build_animation_workflow(self, prompt: str, negative: str, image_name: str, size: tuple[int, int], settings: "animation.AnimationSettings") -> dict:
+        """
+        A Wan 2.2 image to video workflow (high noise then low noise model) that animates the uploaded still.
+
+        With settings.loop the still is both the first and the last frame, so the clip loops.
+        Every decoded frame comes back through one PreviewImage node.
+        """
+        files = self.animate_files()
+        if not all(files[role] for role in ("high_noise", "low_noise", "text_encoder", "vae")):
+            self.ensure_animate_ready()  # raises with the list of missing files
+        lightning = settings.lightning if settings.lightning is not None else bool(files["lightning_high"] and files["lightning_low"])
+        if lightning and not (files["lightning_high"] and files["lightning_low"]):
+            log.warning("Wan 2.2 4-step LoRAs not found, sampling 20 steps instead.")
+            lightning = False
+        steps = settings.resolved_steps(lightning)
+        switch = max(1, steps // 2)
+        seed = settings.seed if settings.seed >= 0 else random.randint(0, 2**32 - 1)
+
+        workflow = {}
+        for stage in ("high", "low"):
+            workflow[f"{stage}_unet"] = self._node("UNETLoader", {"unet_name": files[f"{stage}_noise"], "weight_dtype": "default"})
+            model = [f"{stage}_unet", 0]
+            if lightning:
+                workflow[f"{stage}_lightning"] = self._node(
+                    "LoraLoaderModelOnly", {"model": model, "lora_name": files[f"lightning_{stage}"], "strength_model": 1.0}
+                )
+                model = [f"{stage}_lightning", 0]
+            workflow[f"{stage}_shift"] = self._node("ModelSamplingSD3", {"model": model, "shift": settings.shift})
+        workflow["clip"] = self._node("CLIPLoader", {"clip_name": files["text_encoder"], "type": "wan", "device": "default"})
+        workflow["vae"] = self._node("VAELoader", {"vae_name": files["vae"]})
+        workflow["positive"] = self._node("CLIPTextEncode", {"clip": ["clip", 0], "text": prompt})
+        workflow["negative"] = self._node("CLIPTextEncode", {"clip": ["clip", 0], "text": negative})
+        workflow["image"] = self._node("LoadImage", {"image": image_name})
+        width, height = size
+        video_inputs = {
+            "positive": ["positive", 0],
+            "negative": ["negative", 0],
+            "vae": ["vae", 0],
+            "width": width,
+            "height": height,
+            "length": settings.frame_count,
+            "batch_size": 1,
+            "start_image": ["image", 0],
+        }
+        if settings.loop:
+            video_inputs["end_image"] = ["image", 0]
+        workflow["video"] = self._node("WanFirstLastFrameToVideo", video_inputs)
+        cfg = settings.resolved_cfg(lightning)
+        common = {
+            "noise_seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "positive": ["video", 0],
+            "negative": ["video", 1],
+        }
+        workflow["sample_high"] = self._node(
+            "KSamplerAdvanced",
+            {**common, "model": ["high_shift", 0], "add_noise": "enable", "latent_image": ["video", 2], "start_at_step": 0, "end_at_step": switch, "return_with_leftover_noise": "enable"},
+        )
+        workflow["sample_low"] = self._node(
+            "KSamplerAdvanced",
+            {**common, "model": ["low_shift", 0], "add_noise": "disable", "latent_image": ["sample_high", 0], "start_at_step": switch, "end_at_step": 10000, "return_with_leftover_noise": "disable"},
+        )
+        workflow["decode"] = self._node("VAEDecode", {"samples": ["sample_low", 0], "vae": ["vae", 0]})
+        workflow["output"] = {"class_type": "PreviewImage", "inputs": {"images": ["decode", 0]}}
+        return workflow
+
     # Running --------------------------------------------------------------
     def upload_image(self, b64_image: str) -> str:
         """Upload the input image once per server and return the name LoadImage should use."""
@@ -884,6 +1025,70 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e, "instruction edit")
         except (KeyError, ValueError, TypeError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "instruction edit")
+        finally:
+            if stop_listening:
+                stop_listening.set()
+            self._prompt_id = None
+            self._progress = None
+
+    def fetch_images(self, entry: dict, node: str = "output") -> list[Image.Image]:
+        """Every image a node produced (the frames of a clip), in order."""
+        images = entry.get("outputs", {}).get(node, {}).get("images", [])
+        if not images:
+            raise BackendRejected("ComfyUI finished without any frames.")
+        frames = []
+        for image in images:
+            response = self._request(
+                "GET",
+                "/view",
+                params={"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "temp")},
+                timeout=120,
+            )
+            self._check(response, "frame download")
+            frame = Image.open(io.BytesIO(response.content))
+            frame.load()
+            frames.append(frame)
+        return frames
+
+    def animate(self, image: str, prompt: str, negative: str, settings: "animation.AnimationSettings") -> list[Image.Image] | None:
+        """
+        Animate a base64 still with Wan 2.2 image to video.
+
+        Returns the frames at the video size (first and last equal to the still when looping), or None on failure.
+        """
+        self._interrupted.clear()
+        self.last_error = None
+        self._progress = None
+        stop_listening = None
+        try:
+            if settings.seed < 0:
+                settings = dataclasses.replace(settings, seed=random.randint(0, 2**32 - 1))
+            source = b64_to_pil(image)
+            size = animation.video_size(*source.size, settings.resolution)
+            workflow = self.build_animation_workflow(prompt, negative, self.upload_image(image), size, settings)
+            stop_listening = self._listen_for_progress()
+            self._prompt_id = self.queue_prompt(workflow)
+            frames = self.fetch_images(self.wait_for(self._prompt_id))
+            sampler = workflow["sample_high"]["inputs"]
+            params = ", ".join(
+                f"{key}: {value}"
+                for key, value in {
+                    "Steps": sampler["steps"],
+                    "CFG scale": f"{sampler['cfg']:g}",
+                    "Seed": sampler["noise_seed"],
+                    "Size": f"{size[0]}x{size[1]}",
+                    "Frames": len(frames),
+                    "Model": workflow["high_unet"]["inputs"]["unet_name"],
+                    "Version": "ComfyUI",
+                }.items()
+            )
+            for frame in frames[:1]:
+                frame.info["parameters"] = f"{prompt}\nNegative prompt: {negative}\n{params}"
+            return frames
+        except BackendError as e:
+            return self._fail(e, "animation")
+        except (KeyError, ValueError, TypeError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "animation")
         finally:
             if stop_listening:
                 stop_listening.set()

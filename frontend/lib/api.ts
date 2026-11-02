@@ -133,11 +133,49 @@ export interface CleanedImageData {
   ad_negative_prompt: string | null;
 }
 
+export interface CharacterCard {
+  name: string;
+  description: string;
+  personality: string;
+  tags: string[];
+  spec: string;
+  persona: string;
+}
+
 export interface UploadResponse {
   cleaned_data: CleanedImageData | null;
   uncleaned_data: string | null;
   width: number | null;
   height: number | null;
+  /** The character card (V1/V2/V3) embedded in the PNG, if any. */
+  character?: CharacterCard | null;
+}
+
+/** Where the idle animation's motion comes from. */
+export type IdleSource = "card" | "web" | "llm";
+
+export interface AnimationSettings {
+  frames?: number;
+  fps?: number;
+  resolution?: number;
+  formats?: string[];
+  idle_motion?: string;
+  idle_source?: IdleSource | "none";
+}
+
+export interface AnimationInfo {
+  available: boolean;
+  backend: string;
+  formats: string[];
+  defaults: { frames: number; fps: number; resolution: number; formats: string[]; loop: boolean };
+  llm: { configured: boolean; model: string };
+  vram_note: string;
+}
+
+export interface CharacterCardResponse {
+  character: CharacterCard | null;
+  idle_motion: string;
+  idle_source: string;
 }
 
 export interface GenerateRequest {
@@ -163,6 +201,9 @@ export interface GenerateRequest {
   remove_background?: boolean;
   /** Also change the pose: a small sprite gesture per expression (needs Qwen-Image-Edit on ComfyUI). */
   pose?: boolean;
+  /** Also animate every expression into a looping clip (Wan 2.2 on ComfyUI). */
+  animate?: boolean;
+  animation?: AnimationSettings;
 }
 
 /** What works best for a model family: method, expression intensity and instruction edit wording. */
@@ -195,7 +236,7 @@ export interface Job {
   backend_name: string;
   output_dir: string;
   progress: JobProgress;
-  images: { expression: string; url: string }[];
+  images: { expression: string; url: string; animation?: string }[];
   error: { code: string; message: string } | null;
   notes?: JobNote[];
 }
@@ -320,6 +361,9 @@ export const api = {
 
   editMethods: () => optional(request<EditMethodsResponse>("/edit-methods")),
   backgroundRemoval: () => optional(request<BackgroundRemovalInfo>("/background-removal")),
+  animation: () => optional(request<AnimationInfo>("/animation")),
+  characterCard: (image: string, idleSource: IdleSource) =>
+    optional(postJson<CharacterCardResponse>("/character-card", { image, idle_source: idleSource })),
   expressionDefaults: (checkpoint: string, family: string) =>
     optional(
       request<ExpressionDefaultsResponse>(
@@ -329,13 +373,23 @@ export const api = {
 
   setRealistic: (isRealistic: boolean) => postJson<unknown>("/toggle", { isRealistic }),
 
-  /** PNG file names in Output/<dir>, or null when the folder does not exist yet. */
+  /**
+   * Sprite file names in Output/<dir>, one per expression: the animated WebP (or APNG, GIF) when there is one,
+   * else the PNG. null when the folder does not exist yet.
+   */
   listImages: async (dir: string): Promise<string[] | null> => {
     try {
       const files = await request<unknown>(`/images/${encodePath(dir)}`);
-      return Array.isArray(files)
-        ? files.filter((f): f is string => typeof f === "string" && f.toLowerCase().endsWith(".png")).sort()
-        : [];
+      if (!Array.isArray(files)) return [];
+      const byStem = new Map<string, string>();
+      const rank = (name: string) => [".webp", ".apng", ".gif", ".png"].indexOf(name.slice(name.lastIndexOf(".")).toLowerCase());
+      for (const f of files) {
+        if (typeof f !== "string" || rank(f) < 0) continue;
+        const stem = f.replace(/\.[^.]+$/, "");
+        const current = byStem.get(stem);
+        if (!current || rank(f) < rank(current)) byStem.set(stem, f);
+      }
+      return [...byStem.values()].sort();
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return null;
       throw error;

@@ -33,6 +33,7 @@ The WebUI only needs to be reachable from the AutoExpress app, not from SillyTav
 | Character prompt | Describes the character, e.g. `1girl, long silver hair, blue eyes`. Read from the image when it has one. |
 | Remove background | Saves the sprites with a transparent background (needs rembg on the AutoExpress machine). |
 | Change the pose too | A small gesture per expression, keeping the outfit and background. Needs Qwen-Image-Edit on ComfyUI. |
+| Animate | Turns every sprite into a looping animated WebP with Wan 2.2 on ComfyUI. Neutral becomes the idle animation, written from the character's card (and its wiki page). Transparent with Remove background on. See [Animated sprites](animated-sprites.md). |
 | Keep existing sprites | Uploads each sprite as `joy-autoexpress.png` next to the existing `joy.png` instead of replacing it. Turn on **Allow multiple sprites** in Character Expressions to use both. |
 
 Sprites go into the folder Character Expressions reads: `characters/<character name>/`, or the character's **Override folder name** when it has one. AutoExpress also keeps a copy in its own `Output/<folder>/`.

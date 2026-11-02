@@ -27,6 +27,10 @@ CHOICE_FIELDS = {"edit_style": ("illustration", "photo")}
 METHODS = ("inpaint", "instruct")
 MAX_TEXT = 10_000
 MAX_LORAS = 20
+# animation field: (type, min, max)
+ANIMATION_NUMBERS = {"frames": (int, 17, 121), "fps": (int, 1, 60), "resolution": (int, 256, 1080), "steps": (int, 1, 60), "cfg": (float, 0.0, 15.0), "seed": (int, -1, 2**63 - 1)}
+ANIMATION_FORMATS = ("webp", "apng", "gif")
+IDLE_SOURCES = ("card", "web", "llm", "none")
 
 
 class ValidationError(ValueError):
@@ -86,7 +90,8 @@ def validate_generate(data, max_pixels: int) -> dict:
         dict: image (base64 str), output_name, loras (list of (name, weight)),
               settings (payload overrides), expressions (list or None), wait (bool),
               method ("inpaint", "instruct" or None for the family's default),
-              remove_background (bool). settings["pose"] is True when sprite poses were asked for.
+              remove_background (bool), animation (dict of animation settings, or None for stills only).
+              settings["pose"] is True when sprite poses were asked for.
     """
     if not isinstance(data, dict):
         raise ValidationError({"body": "Expected a JSON object."})
@@ -177,10 +182,21 @@ def validate_generate(data, max_pixels: int) -> dict:
     elif pose:
         settings["pose"] = True
 
+    animate = data.get("animate", False)
+    animation = None
+    if not isinstance(animate, bool):
+        errors["animate"] = "must be true or false"
+    elif animate:
+        try:
+            animation = validate_animation(data.get("animation"))
+        except ValidationError as e:
+            errors.update(e.errors)
+
     if errors:
         raise ValidationError(errors)
 
     return {
+        "animation": animation,
         "image": image,
         "output_name": safe_dir_name(data.get("output_dir")),
         "loras": loras,
@@ -190,3 +206,57 @@ def validate_generate(data, max_pixels: int) -> dict:
         "method": method,
         "remove_background": remove_background,
     }
+
+
+def validate_animation(data) -> dict:
+    """
+    Check the "animation" object of /generate and /animate: frames, fps, resolution, steps, cfg, seed,
+    formats (webp, apng, gif), idle_motion (text), idle_source (card, web, llm, none), extra (text), loop.
+    """
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise ValidationError({"animation": "must be an object"})
+    errors: dict[str, str] = {}
+    result: dict = {}
+    for key, (cast, low, high) in ANIMATION_NUMBERS.items():
+        value = data.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            number = cast(float(value)) if cast is int else cast(value)
+        except (TypeError, ValueError):
+            errors[f"animation.{key}"] = f"must be a number, got {value!r}"
+            continue
+        if not low <= number <= high:
+            errors[f"animation.{key}"] = f"must be between {low} and {high}"
+            continue
+        result[key] = number
+    formats = data.get("formats")
+    if formats is not None:
+        if isinstance(formats, str):
+            formats = [formats]
+        if not isinstance(formats, list) or not formats or not all(f in ANIMATION_FORMATS for f in formats):
+            errors["animation.formats"] = f"must be a list of {', '.join(ANIMATION_FORMATS)}"
+        else:
+            result["formats"] = list(dict.fromkeys(formats))
+    for key in ("idle_motion", "extra"):
+        value = data.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or len(value) > 2000:
+            errors[f"animation.{key}"] = "must be text of at most 2000 characters"
+        else:
+            result[key] = value.strip()
+    source = data.get("idle_source") or "card"
+    if source not in IDLE_SOURCES:
+        errors["animation.idle_source"] = f"must be one of {', '.join(IDLE_SOURCES)}"
+    result["idle_source"] = source
+    for key in ("loop", "lightning"):
+        if key in data and data[key] is not None and not isinstance(data[key], bool):
+            errors[f"animation.{key}"] = "must be true or false"
+        elif key in data and data[key] is not None:
+            result[key] = data[key]
+    if errors:
+        raise ValidationError(errors)
+    return result
