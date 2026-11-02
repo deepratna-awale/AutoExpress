@@ -64,7 +64,7 @@ def test_idle_motion_follows_the_persona():
     shy = animation.idle_motion("A shy, timid girl who is nervous around people.", "Mira")
     assert shy.startswith("Mira idles in place") and "glances away shyly" in shy and "blinks" in shy
     assert "wink" in animation.idle_motion(FLAT["description"] + " Playful and teasing.", "Hanabi")
-    assert animation.idle_motion("", "") == "The character idles in place: breathes gently, blinks naturally, and the hair and clothes sway slightly."
+    assert animation.idle_motion("", "") == "The character idles in place: breathes gently with the mouth still, blinks naturally, and the hair and clothes sway slightly."
 
 
 def test_resolve_idle_motion_uses_the_llm_and_falls_back(monkeypatch):
@@ -109,6 +109,17 @@ def test_motion_prompts():
     assert "She sways playfully." in prompt and "camera is completely static" in prompt
     assert "realistic video" in animation.build_motion_prompt("joy", style="photo")
     assert len(animation.motions()) == 28
+
+
+def test_motions_are_silent_reactions():
+    # The sprites react to a chat, so the character never talks or mouths words.
+    for name, motion in animation.motions().items():
+        lowered = motion.lower()
+        for word in ("speak", "talk", "say", "laugh", "giggl", "gasp", "sob", "scream", "shout", "trembl"):
+            assert word not in lowered, (name, word)
+    assert "does not speak" in animation.build_motion_prompt("joy")
+    assert "does not speak" in animation.build_motion_prompt("joy", style="photo")
+    assert "talking" in animation.negative_prompt() and "lip sync" in animation.negative_prompt()
 
 
 def test_settings_and_video_size():

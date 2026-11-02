@@ -13,7 +13,7 @@
   "expressions": {
     "admiration": "The character looks on with quiet admiration: eyes slightly widened and shining, eyebrows gently raised, and a soft closed-mouth smile.",
     "amusement": "The character is amused: a playful lopsided smirk, eyes narrowed with mirth and one eyebrow slightly raised.",
-    "anger": "The character is furious: eyebrows drawn sharply down and together, eyes narrowed into a hard glare, and teeth clenched in a snarl.",
+    "anger": "The character is angry: eyebrows drawn down and together, eyes narrowed into a glare, and the lips pressed into a firm frown.",
     "annoyance": "The character is annoyed: a small frown, lips pressed into a flat line and half-lidded eyes glancing to the side.",
     "approval": "The character shows approval: a calm, satisfied closed-mouth smile and relaxed, confident eyes.",
     "caring": "The character looks caring and compassionate: a soft warm smile, gentle eyes and eyebrows tilted up with concern.",
@@ -25,7 +25,7 @@
     "disgust": "The character is disgusted: nose wrinkled, upper lip curled up, eyes squinting in a grimace of revulsion.",
     "embarrassment": "The character is embarrassed: a faint pink blush only on the cheeks, eyes glancing away, an awkward wavering smile and one small sweat drop. The rest of the face keeps its original color.",
     "excitement": "The character is thrilled: eyes wide and sparkling, eyebrows high, and the mouth open in a big eager smile.",
-    "fear": "The character is terrified: eyes wide open with small pupils, eyebrows raised and pulled together, mouth open, and a drop of sweat on the forehead. The skin color does not change.",
+    "fear": "The character is frightened: eyes widened, eyebrows raised and pulled together, lips slightly parted, and a drop of sweat on the forehead. The skin color does not change.",
     "gratitude": "The character is deeply grateful: a soft heartfelt smile, warm relaxed eyes and a faint blush.",
     "grief": "The character is overwhelmed with grief: eyes squeezed shut, tears streaming down the cheeks and the mouth open in a sob.",
     "joy": "The character is overjoyed: laughing with a wide open smile and eyes closed in happy crescents.",
