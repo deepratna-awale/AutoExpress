@@ -244,9 +244,44 @@ _SOLID_RAMP = _alpha_ramp(16, 110)
 _HAIR_RAMP = _alpha_ramp(70, 170)
 
 
-def solidify(image: Image.Image, ramp=_SOLID_RAMP) -> Image.Image:
-    """image with its alpha pushed through ramp: the inside fully opaque, only the outer edge soft."""
+def defringe(image: Image.Image, radius: int = 6) -> Image.Image:
+    """
+    image with its half-transparent edge pixels coloured like the solid pixels next to them.
+
+    The split's edge pixels carry the background they were cut from (a pale halo around dark hair).
+    Their colour is replaced by the solid colour nearby (a normalised blur of the solid pixels).
+    """
+    from PIL import ImageMath
+
     image = image.convert("RGBA")
+    alpha = image.getchannel("A")
+    present = alpha.point(lambda v: 255 if v > 0 else 0)
+    # The outer ring (within a few px of the outside) counts as edge too: once an edge has been made
+    # opaque, or upscaled, its halo is solid and several pixels wide, but still pale next to what's inside.
+    ring = ImageChops.subtract(present, present.filter(ImageFilter.MinFilter(2 * radius + 1)))
+    solid = ImageChops.subtract(alpha.point(lambda v: 255 if v > 230 else 0), ring)
+    if solid.getbbox() is None:
+        return image
+    weight = solid.filter(ImageFilter.BoxBlur(radius))
+    channels = []
+    for channel in image.convert("RGB").split():
+        spread = ImageChops.multiply(channel, solid).filter(ImageFilter.BoxBlur(radius))
+        channels.append(ImageMath.lambda_eval(lambda a: a["convert"](a["min"](a["s"] * 255 / (a["w"] + 0.001), 255), "L"), s=spread, w=weight) if hasattr(ImageMath, "lambda_eval")
+                        else ImageMath.eval("convert(min(s * 255 / (w + 0.001), 255), 'L')", s=spread, w=weight))
+    spread = Image.merge("RGB", channels)
+    soft = alpha.point(lambda v: 255 if 0 < v <= 230 else 0)
+    # On the ring only pixels clearly paler than what's inside are halo; darker ones are the outline.
+    paler = ImageChops.subtract(image.convert("L"), spread.convert("L")).point(lambda v: 255 if v > 40 else 0)
+    edge = ImageChops.multiply(ImageChops.lighter(soft, ImageChops.multiply(ring, paler)), weight.point(lambda v: 255 if v > 8 else 0))
+    rgb = Image.composite(spread, image.convert("RGB"), edge)
+    result = rgb.convert("RGBA")
+    result.putalpha(alpha)
+    return result
+
+
+def solidify(image: Image.Image, ramp=_SOLID_RAMP) -> Image.Image:
+    """image with its alpha pushed through ramp: the inside fully opaque, only the outer edge soft, without a halo."""
+    image = defringe(image.convert("RGBA"))
     image.putalpha(image.getchannel("A").point(ramp))
     return image
 
@@ -273,6 +308,12 @@ def _on_canvas(part: Part, size, channel: str | None = None) -> Image.Image:
     canvas = Image.new("RGBA", size, (0, 0, 0, 0))
     canvas.paste(part.image.convert("RGBA"), (part.left, part.top))
     return canvas.getchannel(channel) if channel else canvas
+
+
+def _difference(layer: Image.Image, picture: Image.Image) -> Image.Image:
+    """The largest channel difference between layer and picture, per pixel (mode L)."""
+    r, g, b = ImageChops.difference(layer.convert("RGB"), picture.convert("RGB")).split()
+    return ImageChops.lighter(ImageChops.lighter(r, g), b)
 
 
 def _mismatch(layer: Image.Image, picture: Image.Image, threshold: int) -> Image.Image:
@@ -305,14 +346,18 @@ def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48) 
             continue
         layer = _on_canvas(part, size)
         solid = layer.getchannel("A").point(lambda v: 255 if v > 200 else 0)
-        wrong = ImageChops.multiply(solid, _mismatch(layer, picture, threshold))
-        if wrong.getbbox() is None:
-            continue
+        # Cut where the neck or face matches the picture clearly better than the clothing does: the
+        # back of a collar is often only a slightly different shade, so this is relative, not a threshold.
+        clothing_off = _difference(layer, picture)
         cut = Image.new("L", size, 0)
         for under in unders:
             other = _on_canvas(under, size)
-            fits = ImageChops.multiply(other.getchannel("A").point(lambda v: 255 if v > 200 else 0), _mismatch(other, picture, threshold // 2).point(lambda v: 255 - v))
-            cut = ImageChops.lighter(cut, ImageChops.multiply(wrong, fits))
+            other_solid = other.getchannel("A").point(lambda v: 255 if v > 200 else 0)
+            under_off = _difference(other, picture)
+            better = ImageChops.subtract(clothing_off, under_off).point(lambda v: 255 if v > 16 else 0)
+            close = under_off.point(lambda v: 255 if v < 24 else 0)
+            cut = ImageChops.lighter(cut, ImageChops.multiply(ImageChops.multiply(solid, other_solid), ImageChops.multiply(better, close)))
+        cut = cut.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
         cut = cut.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
         if cut.getbbox() is None:
             continue
@@ -326,6 +371,7 @@ def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48) 
     by_image = {id(p.image): i for i, p in enumerate(parts)}
     background = picture.getpixel((0, 0))
     subject = ImageChops.difference(picture, Image.new("RGB", size, background)).convert("L").point(lambda v: 255 if v > 20 else 0)
+    outline_clear = subject.filter(ImageFilter.MinFilter(13))
     covered = Image.new("L", size, 0)
     for group in tree:
         for layer in group.children:
@@ -341,8 +387,9 @@ def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48) 
                 continue
             if parse_tag(part.tag)[0] in HAIR_TAGS:
                 canvas = _even_hidden_hair(canvas, solid, visible)
-            # Stay off the layer's own edge, where the split's anti-aliasing never matches exactly.
-            inside = solid.filter(ImageFilter.MinFilter(5))
+            # Stay off the layer's own edge and the character's outline, where the picture's pixels are
+            # mixed with its background (they would paint a pale halo onto the layer).
+            inside = ImageChops.multiply(solid.filter(ImageFilter.MinFilter(5)), outline_clear)
             fix = ImageChops.multiply(ImageChops.multiply(visible, inside), ImageChops.multiply(subject, _mismatch(canvas, picture, threshold)))
             fixed = canvas
             if fix.getbbox() is not None:
