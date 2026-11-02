@@ -64,6 +64,6 @@ No separate anime model is needed. The expressions and poses are edits of your o
 
 In AutoExpress pick ComfyUI (or Auto) and enter `https://<pod id>-8188.proxy.runpod.net`. The setup checklist then shows which features the pod is ready for.
 
-On RTX PRO 6000 a Qwen-Image-Edit expression with a pose takes about 15 seconds and a 3 second Wan 2.2 clip (49 frames, 480p, 4 steps) about 15 seconds, so all 28 animated expressions take around 15 to 30 minutes including background removal.
+On RTX PRO 6000 a Qwen-Image-Edit expression with a pose takes about 15 seconds and a 3 second Wan 2.2 clip (49 frames, 480p) about 90 seconds at the default 20 steps or 15 seconds with Fast (4 steps), so all 28 animated expressions take about an hour, or 15 to 30 minutes with Fast, including background removal.
 
 Stop the pod in the RunPod console when you're done; it bills by the hour while running.

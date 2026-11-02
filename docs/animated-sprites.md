@@ -21,7 +21,9 @@ A ComfyUI backend (local or on a rented GPU) with the Wan 2.2 files:
 python -m autoexpress_core.animation download /path/to/ComfyUI
 ```
 
-That's about 38 GB: the high and low noise image to video models (fp8), the UMT5 text encoder, the Wan VAE and the optional 4-step LoRAs that make a clip take seconds instead of minutes. A GPU with 24 GB of VRAM works; 48 GB or more is comfortable. [docs/runpod.md](runpod.md) has the pod, image and a setup script that installs everything. On an RTX PRO 6000 one clip takes about 15 seconds.
+That's about 38 GB: the high and low noise image to video models (fp8), the UMT5 text encoder, the Wan VAE and the optional 4-step LoRAs. A GPU with 24 GB of VRAM works; 48 GB or more is comfortable. [docs/runpod.md](runpod.md) has the pod, image and a setup script that installs everything.
+
+Clips are sampled in full by default (20 steps): on an RTX PRO 6000 that's about 90 seconds a clip. **Fast** (`"lightning": true`) uses the 4-step LoRAs and takes about 15 seconds, but at their cfg of 1 the negative prompt (talking, lip sync, ...) has no effect, so smiling and upset faces open and close the mouth more, as if talking.
 
 The setup checklist in the app lists the Wan nodes and files with the command to fix what's missing.
 

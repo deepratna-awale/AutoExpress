@@ -23,6 +23,8 @@ export function AnimationSettings() {
     suggestingIdle,
     animationFormats,
     setAnimationFormats,
+    animationFast,
+    setAnimationFast,
     imageDataUrl,
     generating,
   } = useAutoExpress();
@@ -100,6 +102,10 @@ export function AnimationSettings() {
               </label>
             ))}
           </div>
+          <label className="flex items-center gap-1 text-xs" title="Wan 2.2's 4-step LoRAs: about 6x faster, but the mouth may move as if talking.">
+            <input type="checkbox" checked={animationFast} onChange={(e) => setAnimationFast(e.target.checked)} disabled={generating} />
+            Fast (4 steps, lower quality)
+          </label>
           <p className="text-xs text-muted-foreground">{animationInfo.vram_note}</p>
         </div>
       )}
