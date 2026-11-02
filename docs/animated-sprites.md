@@ -7,6 +7,8 @@ AutoExpress can turn every expression into a short looping animation, so a chara
 3. **Neutral becomes the idle animation**: its motion comes from the character, see below.
 4. With **Remove background** on, the still is cut out and animated on a flat key color, and every frame is cut out again. The alpha is smoothed over time so the edges don't flicker, and the key color is taken back out of the edges. The animations stay transparent.
 
+The animations are made for a chatbot's expression display: they show the character reacting to the last chat message, not talking. The character never speaks, mouths words or lip syncs (the mouth keeps the shape it has in the still, and talking is in the negative prompt), and every motion is small, calm and in place so it can loop beside the chat for a long time. Strong emotions are kept restrained: anger is a frown and a small huff, fear a slight flinch and an uneasy glance. The motions are in [`animations.json`](../autoexpress_core/resources/animations.json).
+
 Clips are 49 frames at 16 fps (3 seconds, 48 frames once the repeated loop frame is dropped), 480p on the short side, and are scaled back to the still's size. They're saved next to the PNGs as `<expression>.webp` (animated WebP, transparent, small; shown by SillyTavern and every browser), and optionally `.apng` and `.gif` (GIF only has on/off transparency).
 
 Wan 2.2 and Qwen-Image-Edit are open-weight models that run on your own ComfyUI with no content filter, so adult characters are animated as they are.

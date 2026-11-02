@@ -23,7 +23,7 @@ def test_every_expression_has_an_instruction():
 
 def test_build_instruction_wraps_the_sentence():
     text = instruction_edit.build_instruction("anger", "Keep the glasses on.")
-    assert text.startswith("Change only the facial expression. The character is furious")
+    assert text.startswith("Change only the facial expression. The character is angry")
     assert "Keep the glasses on. Keep the same character" in text
     assert text.endswith("framing and background.")
     with pytest.raises(KeyError):

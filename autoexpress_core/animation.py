@@ -232,11 +232,12 @@ def idle_motion(persona: str = "", name: str = "") -> str:
 
 
 LLM_SYSTEM = (
-    "You write motion prompts for an image-to-video model that animates a character sprite. "
-    "Reply with ONE or two sentences (under 60 words) describing a short, looping idle animation "
-    "that fits the character's personality: small in-place movements such as breathing, blinking, "
-    "a typical gesture or mannerism. The character stays in place, the camera does not move, the "
-    "outfit does not change. No dialogue, no scene changes, no lists."
+    "You write motion prompts for an image-to-video model that animates a chatbot character's sprite. "
+    "The sprite sits beside a chat and shows the character silently listening, so the character never "
+    "speaks, mouths words or moves the lips. Reply with ONE or two sentences (under 60 words) describing "
+    "a short, calm, looping idle animation that fits the character's personality: small in-place movements "
+    "such as breathing, blinking, a typical gesture or mannerism. The character stays in place, the camera "
+    "does not move, the outfit does not change. No dialogue, no scene changes, no lists."
 )
 
 
