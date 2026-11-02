@@ -46,10 +46,10 @@
       "confusion": "The character is confused: one eyebrow raised and the other lowered, eyes uncertain, and the mouth closed in a small puzzled pout.",
       "curiosity": "The character is curious: eyes wide and attentive, eyebrows raised, and the mouth closed in a small interested smile.",
       "disgust": "The character is disgusted: nose wrinkled, eyes squinting and the mouth closed in a tight grimace with no teeth showing.",
-      "excitement": "The character is thrilled: eyes wide and sparkling, eyebrows high, and a big eager closed-mouth smile.",
+      "excitement": "The character is excited: eyes wide and sparkling, eyebrows high, and a big smile with the lips pressed together; not laughing or cheering.",
       "fear": "The character is frightened: eyes widened, eyebrows raised and pulled together, lips pressed together, and a drop of sweat on the forehead. The skin color does not change.",
       "grief": "The character is overwhelmed with grief: eyes squeezed shut, tears streaming down the cheeks and the lips pressed together and trembling.",
-      "joy": "The character is overjoyed: a wide closed-mouth smile and eyes closed in happy crescents.",
+      "joy": "The character is happy: eyes closed in happy crescents and a broad smile with the lips pressed together, like a contented grin; not laughing.",
       "realization": "The character has a sudden realization: eyes snapping wide, eyebrows shooting up and the mouth closed.",
       "surprise": "The character is surprised: eyes wide open, eyebrows raised high and the mouth closed. The skin color does not change."
   },

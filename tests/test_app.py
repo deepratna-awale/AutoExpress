@@ -559,7 +559,7 @@ def test_animated_instruction_edits_keep_the_mouth_closed(client, monkeypatch):
     views.state.connect("fake_anim", None)
     FakeEditWebUI.instructions = []
     assert client.post("/generate", json=body(method="instruct", expressions=["joy"], animate=True)).get_json()["status"] == "success"
-    assert "closed-mouth smile" in FakeEditWebUI.instructions[0][0]
+    assert "lips pressed together" in FakeEditWebUI.instructions[0][0]
     FakeEditWebUI.instructions = []
     assert client.post("/generate", json=body(method="instruct", expressions=["joy"])).get_json()["status"] == "success"
     assert "wide open smile" in FakeEditWebUI.instructions[0][0]
