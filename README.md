@@ -22,6 +22,7 @@ AutoExpress repaints a character's face with 28 different emotions and keeps eve
 - **Prompts tuned per model family.** Separate expression prompts for Danbooru-tag anime models, Pony, Illustrious/NoobAI, SDXL and natural-language models such as Flux. **Auto** picks the family from the checkpoint name.
 - **Expression LoRAs.** It downloads and applies the right expression LoRA for the checkpoint, reusing a Civitai key you already have set up.
 - **Two ways to edit.** Face inpainting uses ADetailer or FaceDetailer. Instruction editing uses Qwen-Image-Edit on ComfyUI, which also works on photos.
+- **Animated sprites.** Every expression can become a looping animation (Wan 2.2 image to video on ComfyUI), transparent if you like, with an idle animation written from the character card.
 - **One intensity slider** sets how far each expression is pushed.
 - **Ready for sprites.** Files are named after their expression, and each run can save a labelled sprite sheet.
 
@@ -101,6 +102,8 @@ The full documentation is in [docs/](docs/README.md):
 - [Prompt styles and expression intensity](docs/prompt-styles.md)
 - [Expression LoRAs and your Civitai key](docs/expression-loras.md)
 - [Instruction edit mode (Qwen-Image-Edit)](docs/comfyui.md#instruction-edit-mode-qwen-image-edit)
+- [Animated sprites and character cards](docs/animated-sprites.md)
+- [Running ComfyUI on RunPod](docs/runpod.md)
 - [Using the results with SillyTavern](docs/sillytavern.md)
 
 ## Roadmap

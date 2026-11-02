@@ -18,6 +18,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.util.retry import Retry
 
+from ..animation import ANIMATE
 from ..instruction_edit import INPAINT, INSTRUCT, METHODS
 from ..payload import SAME_CHECKPOINT, find_nested_key
 from ..log import log
@@ -360,6 +361,8 @@ class RemoteBackend:
     default_url = "http://127.0.0.1:7860"
     # Ways this WebUI can change an expression, see instruction_edit.METHODS.
     edit_methods: tuple[str, ...] = (INPAINT,)
+    # True when the WebUI can turn a still into a looping clip (Wan 2.2 image to video, see animation).
+    can_animate = False
 
     def __init__(self, url: str | None = None, timeout: float | None = None, options: ConnectionOptions | None = None, **option_overrides) -> None:
         self.connection = dataclasses.replace(options) if options else ConnectionOptions()
@@ -550,6 +553,8 @@ class RemoteBackend:
         try:
             if method == INPAINT:
                 self.ensure_ready()
+            elif method == ANIMATE:
+                self.ensure_animate_ready()
             else:
                 self.ensure_edit_ready()
         except BackendError as e:
@@ -569,6 +574,14 @@ class RemoteBackend:
 
     def instruction_edit(self, image: str, instruction: str, settings):
         """Apply one edit instruction to a base64 image. Only backends listing INSTRUCT in edit_methods have it."""
+        raise NotImplementedError
+
+    def ensure_animate_ready(self) -> None:
+        """Like ensure_ready, for animated sprites."""
+        raise BackendNotReady(f"{self.label} can't animate sprites. Use the ComfyUI backend with Wan 2.2 for animated sprites.")
+
+    def animate(self, image: str, prompt: str, negative: str, settings) -> list | None:
+        """Turn a base64 still into a list of frames (a looping clip). Only backends with can_animate have it."""
         raise NotImplementedError
 
     def capabilities(self) -> list[Capability]:

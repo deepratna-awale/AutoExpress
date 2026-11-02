@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { JobNotes } from "@/components/job-notes";
+import { AnimationSettings } from "@/components/animation-settings";
 
 interface DropZoneInputsPanelProps {
   onViewImages: () => void;
@@ -130,6 +131,8 @@ export function DropZoneInputsPanel({ onViewImages }: DropZoneInputsPanelProps) 
           </p>
         </div>
       )}
+
+      <AnimationSettings />
     </div>
   );
 }

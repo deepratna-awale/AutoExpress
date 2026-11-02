@@ -132,6 +132,7 @@ Generation runs as a queued job on one worker thread, so several clicks or clien
 | `GET /expression-loras`, `POST /expression-loras` | Expression LoRA settings and status, including which source the Civitai key came from |
 | `GET /edit-methods` | Expression methods the selected WebUI supports (`inpaint`, and `instruct` on ComfyUI) |
 | `POST /generate` | Settings from the UI. `"method": "instruct"` uses instruction edit instead of face inpainting. Waits for the result unless `"wait": false`, which returns `202 {"job_id"}`. Optional `"expressions": [...]` picks a subset |
+| `GET /animation`, `POST /animate`, `POST /character-card`, `GET`/`POST /llm-settings` | [Animated sprites](animated-sprites.md): whether the WebUI can animate, animating stills already saved, reading a character card and its idle motion, and the LLM that writes idle motions. `POST /generate` takes `"animate": true` and an `"animation"` object |
 | `GET /jobs`, `GET /jobs/<id>` | Status (`queued`, `running`, `completed`, `failed`, `cancelled`), `progress` (`done`, `total`, `fraction`, `current`, and `step` with the sampler's `fraction`, `step`, `steps` and `eta` where the WebUI reports them), `images`, `error`, `notes` (e.g. expression LoRAs to install by hand, with links) |
 | `POST /jobs/<id>/cancel`, `POST /interrupt` | Cancel one job / every queued and running job |
 | `GET /images/<folder>`, `GET /image/<folder>/<file>` | Saved results |

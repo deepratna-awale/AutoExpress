@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     intensity: 0.5,
     removeBackground: false,
     pose: false,
+    animate: false,
     prompt: '',
     onlyMissing: false,
     keepExisting: false,
@@ -189,9 +190,10 @@ function blobToDataUrl(blob) {
  * Put one sprite into the character's folder. Uses the Character Expressions
  * extension's own upload (which also refreshes its sprite list) when it is loaded.
  */
-async function uploadSprite(character, folder, label, spriteName, blob) {
+async function uploadSprite(character, folder, label, spriteName, blob, extension = 'png') {
     const command = ctx().SlashCommandParser?.commands?.['expression-upload'];
-    if (command?.callback) {
+    // The slash command saves every upload as .png, so animated sprites go straight to the upload API to keep .webp.
+    if (command?.callback && extension === 'png') {
         const url = URL.createObjectURL(blob);
         try {
             const name = await command.callback({ name: character.avatar, label, folder, spriteName }, url);
@@ -206,7 +208,7 @@ async function uploadSprite(character, folder, label, spriteName, blob) {
     form.append('name', folder);
     form.append('label', label);
     form.append('spriteName', spriteName);
-    form.append('avatar', new File([blob], `${spriteName}.png`, { type: 'image/png' }));
+    form.append('avatar', new File([blob], `${spriteName}.${extension}`, { type: blob.type || `image/${extension}` }));
     const response = await fetch('/api/sprites/upload', {
         method: 'POST',
         headers: ctx().getRequestHeaders({ omitContentType: true }),
@@ -264,17 +266,19 @@ async function connectWebUI() {
 // Generate dialog -------------------------------------------------------------------
 
 async function loadOptions() {
-    const [families, methods, models, background] = await Promise.all([
+    const [families, methods, models, background, animation] = await Promise.all([
         api('/expression-families').catch(() => null),
         api('/edit-methods').catch(() => null),
         api('/get-models').catch(() => []),
         api('/background-removal').catch(() => null),
+        api('/animation').catch(() => null),
     ]);
     return {
         families: families?.families || [],
         methods: (methods?.methods || []).filter((m) => m.available),
         models: Array.isArray(models) ? models.map((m) => (typeof m === 'string' ? m : m?.title || m?.model_name || m?.name)).filter(Boolean) : [],
         background: background?.available === true,
+        animation: animation?.available === true,
     };
 }
 
@@ -327,6 +331,9 @@ function dialogHtml(options, choices) {
                 </label>
                 <label class="checkbox_label ${instruct ? '' : 'disabled'}" title="${instruct ? 'Also change the pose a little with each expression, keeping the outfit and background.' : 'Needs Qwen-Image-Edit on ComfyUI.'}">
                     <input id="autoexpress_pose" type="checkbox" ${instruct ? '' : 'disabled'}> Change the pose too
+                </label>
+                <label class="checkbox_label ${options.animation ? '' : 'disabled'}" title="${options.animation ? 'Turn every sprite into a short looping animation (animated WebP, Wan 2.2). Neutral becomes the idle animation, made from the character card. Transparent with Remove background on.' : 'Needs Wan 2.2 on a ComfyUI backend.'}">
+                    <input id="autoexpress_animate" type="checkbox" ${options.animation ? '' : 'disabled'}> Animate (idle from the character card)
                 </label>
                 <label class="checkbox_label" title="Upload each new sprite next to the existing one (joy-autoexpress.png) instead of replacing it. Turn on 'Allow multiple sprites' in Character Expressions to use both.">
                     <input id="autoexpress_keep_existing" type="checkbox"> Keep existing sprites (add as alternates)
@@ -412,6 +419,7 @@ async function showDialog() {
     root.find('#autoexpress_prompt').val(s.prompt);
     root.find('#autoexpress_remove_background').prop('checked', options.background && s.removeBackground);
     root.find('#autoexpress_pose').prop('checked', !root.find('#autoexpress_pose').prop('disabled') && s.pose);
+    root.find('#autoexpress_animate').prop('checked', options.animation && s.animate);
     root.find('#autoexpress_keep_existing').prop('checked', s.keepExisting);
     root.find('input[name="autoexpress_expression"]').each((_, el) => { el.checked = s.selected.includes(el.value); });
 
@@ -466,6 +474,7 @@ async function showDialog() {
         prompt: String(root.find('#autoexpress_prompt').val() || '').trim(),
         removeBackground: root.find('#autoexpress_remove_background').prop('checked'),
         pose: root.find('#autoexpress_pose').prop('checked'),
+        animate: root.find('#autoexpress_animate').prop('checked'),
         keepExisting: root.find('#autoexpress_keep_existing').prop('checked'),
         selected: selected(),
     });
@@ -523,6 +532,11 @@ async function generate({ character, file, expressions }) {
         if (s.customIntensity) body.expression_intensity = s.intensity;
         if (s.removeBackground) body.remove_background = true;
         if (s.pose) body.pose = true;
+        // The idle (neutral) animation's motion comes from the card in the avatar PNG.
+        if (s.animate) {
+            body.animate = true;
+            body.animation = { formats: ['webp'], idle_source: 'web' };
+        }
 
         const queued = await api('/generate', { method: 'POST', json: body });
         job.id = queued.job_id;
@@ -552,10 +566,12 @@ async function follow(job, state) {
             if (job.uploaded.has(label)) continue;
             job.uploaded.add(label);
             try {
-                const path = state.output_dir ? `/image/${encodeURIComponent(state.output_dir)}/${encodeURIComponent(label)}.png` : image.url;
+                const file = image.animation ? image.animation.split('/').pop() : `${label}.png`;
+                const path = state.output_dir ? `/image/${encodeURIComponent(state.output_dir)}/${encodeURIComponent(file)}` : (image.animation || image.url);
                 const response = await api(`${path}?t=${Date.now()}`, { raw: true });
                 const blob = await response.blob();
-                await uploadSprite(job.character, job.folder, label, s.keepExisting ? `${label}-autoexpress` : label, blob);
+                const extension = file.includes('.') ? file.split('.').pop() : 'png';
+                await uploadSprite(job.character, job.folder, label, s.keepExisting ? `${label}-autoexpress` : label, blob, extension);
             } catch (error) {
                 showError(error, `AutoExpress: ${label}`);
             }

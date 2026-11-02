@@ -1,0 +1,67 @@
+# Animated sprites
+
+AutoExpress can turn every expression into a short looping animation, so a character card becomes a full set of 28 animated sprites, with an idle animation that fits the character.
+
+1. Each expression's still is made as usual (face inpainting or Qwen-Image-Edit, with [poses](comfyui.md#instruction-edit-mode-qwen-image-edit) if you turn them on).
+2. The still is animated with **Wan 2.2 image to video 14B** on ComfyUI. The still is used as both the first and the last frame, so the clip loops without a jump, and the camera, framing and outfit stay put.
+3. **Neutral becomes the idle animation**: its motion comes from the character, see below.
+4. With **Remove background** on, the still is cut out and animated on a flat key color, and every frame is cut out again. The alpha is smoothed over time so the edges don't flicker, and the key color is taken back out of the edges. The animations stay transparent.
+
+Clips are 49 frames at 16 fps (3 seconds, 48 frames once the repeated loop frame is dropped), 480p on the short side, and are scaled back to the still's size. They're saved next to the PNGs as `<expression>.webp` (animated WebP, transparent, small; shown by SillyTavern and every browser), and optionally `.apng` and `.gif` (GIF only has on/off transparency).
+
+Wan 2.2 and Qwen-Image-Edit are open-weight models that run on your own ComfyUI with no content filter, so adult characters are animated as they are.
+
+## Needs
+
+A ComfyUI backend (local or on a rented GPU) with the Wan 2.2 files:
+
+```bash
+python -m autoexpress_core.animation download /path/to/ComfyUI
+```
+
+That's about 38 GB: the high and low noise image to video models (fp8), the UMT5 text encoder, the Wan VAE and the optional 4-step LoRAs that make a clip take seconds instead of minutes. A GPU with 24 GB of VRAM works; 48 GB or more is comfortable. [docs/runpod.md](runpod.md) has the pod, image and a setup script that installs everything. On an RTX PRO 6000 one clip takes about 15 seconds.
+
+The setup checklist in the app lists the Wan nodes and files with the command to fix what's missing.
+
+## Character cards and the idle animation
+
+Drop a character card (a SillyTavern / Tavern PNG, V1, V2 or V3) as the input image. AutoExpress reads the card from the PNG, fills in the output folder with the character's name and writes the idle motion from the card's description and personality: always breathing, blinking and a little hair and cloth sway, plus a gesture that matches the character's strongest trait (a playful sway and a wink, fidgeting and shy glances, a calm composed stance, a confident chin-up stance, ...).
+
+You can edit the idle motion before generating, or let something else write it:
+
+| Source | What it uses |
+| --- | --- |
+| **From the card** | The card's description, personality, scenario and tags. |
+| **Card + wiki** | The card plus the character's page on the Fandom wiki of the card's tags (e.g. `naruto.fandom.com`), or Wikipedia, for known characters with a thin card. |
+| **Ask the LLM** | Any OpenAI compatible chat endpoint (OpenAI, OpenRouter, a local Ollama or LM Studio) writes the idle from the card and the wiki text, using what it knows about the character. Set `AUTOEXPRESS_LLM_URL` (e.g. `http://127.0.0.1:11434/v1`), `AUTOEXPRESS_LLM_MODEL` and, if needed, `AUTOEXPRESS_LLM_API_KEY`, or `POST /llm-settings`. Falls back to the card when the call fails. |
+
+Any picture works too; without a card, the idle is a calm breathing and blinking loop unless you type one.
+
+## In the apps
+
+- **Standalone app**: turn on **Animate sprites** under the output folder. The gallery shows the animations. See the [HTTP API](standalone.md#http-api) for `"animate": true`.
+- **SillyTavern extension**: tick **Animate** in the Generate dialog. The idle comes from the character's card (the avatar PNG), and each animated WebP goes into Character Expressions.
+
+## HTTP API
+
+`POST /generate` takes `"animate": true` and an optional `"animation"` object:
+
+| Field | Default | |
+| --- | --- | --- |
+| `formats` | `["webp"]` | Any of `webp`, `apng`, `gif` |
+| `idle_motion` | from the card | The neutral clip's motion, in plain words |
+| `idle_source` | `card` | `card`, `web`, `llm` or `none`, when `idle_motion` isn't given |
+| `frames` | 49 | 17 to 121 (Wan rounds to 4n+1) |
+| `fps` | 16 | Playback speed of the saved file |
+| `resolution` | 480 | Short side of the video Wan renders |
+| `steps`, `cfg`, `seed` | 4, 1 with the LoRAs (20, 3.5 without), random | Sampling |
+| `loop` | true | Use the still as the last frame too |
+| `extra` | | Added to every clip's prompt |
+
+Each finished expression in `GET /jobs/<id>` then has `"animation": "/image/<folder>/<expression>.webp"` and `"animations"` per format.
+
+`POST /animate` animates the stills already in an output folder (`{"output_dir": "Hanabi", "expressions": [...], "animation": {...}, "image": <card>}`), so you can redo the animations without making new stills.
+
+`POST /character-card` with `{"image": <data URI>, "idle_source": "card" | "web" | "llm"}` returns the parsed card and the idle motion. `GET /animation` says whether the connected WebUI can animate, with the defaults and each expression's motion.
+
+The expression motions are in [`autoexpress_core/resources/animations.json`](../autoexpress_core/resources/animations.json).

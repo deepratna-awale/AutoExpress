@@ -41,6 +41,12 @@ class JobSpec:
     method: str = "inpaint"
     # rembg model to cut every saved expression out of its background with, or None to keep it.
     background_model: str | None = None
+    # Animated sprites: animation.AnimationSettings fields (frames, fps, formats, idle_motion, ...), or None for stills only.
+    animate: dict | None = None
+    # "illustration" or "photo": the wording of the animation prompts.
+    style: str = "illustration"
+    # Animate the stills already in the output folder instead of generating new ones.
+    animate_existing: bool = False
 
 
 @dataclass
@@ -94,12 +100,32 @@ class Job:
                 "current": self.current,
                 "step": step,
             },
-            "images": [
-                {"expression": name, "url": f"/image/{self.spec.output_name}/{name}.png"} for name in self.completed
-            ],
+            "images": [self._image_entry(name) for name in self.completed],
+            "animate": bool(self.spec.animate),
             "error": self.error,
             "notes": self.notes,
         }
+
+
+    def _image_entry(self, name: str) -> dict:
+        entry = {"expression": name, "url": f"/image/{self.spec.output_name}/{name}.png"}
+        if self.spec.animate:
+            folder = pathlib.Path(self.spec.output_path)
+            for fmt in animation_formats(self.spec.animate):
+                ext = ANIMATION_EXTENSIONS[fmt]
+                if (folder / f"{name}{ext}").exists():
+                    entry.setdefault("animation", f"/image/{self.spec.output_name}/{name}{ext}")
+                    entry.setdefault("animations", {})[fmt] = f"/image/{self.spec.output_name}/{name}{ext}"
+        return entry
+
+
+def animation_formats(settings: dict) -> list[str]:
+    from autoexpress_core.animation import AnimationSettings
+
+    return list(AnimationSettings.from_settings(settings).formats)
+
+
+ANIMATION_EXTENSIONS = {"webp": ".webp", "apng": ".apng", "gif": ".gif"}
 
 
 class JobManager:
@@ -219,13 +245,24 @@ def run_expression_job(job: Job) -> None:
     from autoexpress_core import ExpressionGenerator
 
     spec = job.spec
-    ready, message = spec.backend.check_ready(spec.method)
-    if not ready:
-        raise spec.backend.last_error or BackendNotReady(message)
+    for needed in ([] if spec.animate_existing else [spec.method]) + (["animate"] if spec.animate else []):
+        ready, message = spec.backend.check_ready(needed)
+        if not ready:
+            raise spec.backend.last_error or BackendNotReady(message)
 
     job.generator = ExpressionGenerator(spec.backend)
     if job.cancel_requested.is_set():
         raise GenerationCancelled("Cancelled before start.")
+    if spec.animate is not None:
+        prepare_idle_motion(job)
+
+    if spec.animate_existing:
+        for name in spec.expressions:
+            if job.cancel_requested.is_set():
+                break
+            animate_expression(job, name)
+            job.completed.append(name)
+        return
 
     for name, _ in expression_generator.iter_expressions(
         spec.backend,
@@ -244,6 +281,8 @@ def run_expression_job(job: Job) -> None:
     ):
         if spec.background_model:
             cut_out_background(job, name)
+        if spec.animate and not job.cancel_requested.is_set():
+            animate_expression(job, name)
         job.completed.append(name)
         if job.cancel_requested.is_set():
             break
@@ -275,3 +314,46 @@ def cut_out_background(job: Job, name: str) -> None:
                 "message": f"Could not remove the background ({e}). The rest of the expressions keep theirs.",
             }
         )
+
+
+def prepare_idle_motion(job: Job) -> None:
+    """Fill in the idle motion (the neutral clip's motion) from the character card in the input image, and note it."""
+    from autoexpress_core import animation, character_card
+
+    spec = job.spec
+    settings = dict(spec.animate)
+    source = settings.pop("idle_source", "card")
+    llm = settings.pop("llm", None)
+    if not settings.get("idle_motion") and source != "none" and animation.IDLE in spec.expressions:
+        card = character_card.read_card(spec.image) if spec.image else None
+        motion, origin = animation.resolve_idle_motion(card, source=source, llm=llm)
+        settings["idle_motion"] = motion
+        where = {"llm": "the LLM", "web": "the character card and a wiki lookup", "card": "the character card"}.get(origin, "the default idle")
+        job.notes.append({"kind": "idle_motion", "title": "Idle animation", "message": f"Idle motion from {where}: {motion}"})
+        log.info(f"Idle motion ({origin}): {motion}")
+    spec.animate = settings
+
+
+def animate_expression(job: Job, name: str) -> None:
+    """Turn the saved <name>.png into a looping animation next to it (<name>.webp etc.)."""
+    from autoexpress_core import animation
+    from PIL import Image
+
+    spec = job.spec
+    folder = pathlib.Path(spec.output_path)
+    with Image.open(folder / f"{name}.png") as still:
+        still.load()
+    settings = animation.AnimationSettings.from_settings(spec.animate)
+    log.info(f"Animating {name}.")
+    try:
+        frames = animation.animate_sprite(spec.backend, still, name, settings, spec.style, spec.background_model)
+    except ImportError as e:
+        job.notes.append(
+            {"kind": "animation_background_failed", "title": "Animated background removal", "message": f"rembg is missing ({e}), so {name} was not animated."}
+        )
+        return
+    except RuntimeError as e:
+        if job.cancel_requested.is_set():
+            raise GenerationCancelled("Interrupted.") from e
+        raise spec.backend.last_error or BackendNotReady(str(e)) from e
+    animation.save_animation(frames, folder / name, settings.fps, settings.formats, comment=f"AutoExpress {name}")

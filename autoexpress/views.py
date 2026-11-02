@@ -15,8 +15,8 @@ from autoexpress.config import Settings, configure_logging
 from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, JobManager, JobSpec, run_expression_job
 from autoexpress.modules import expression_sets, image_parser
 from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
-from autoexpress.validation import ValidationError, resolve_inside, validate_generate
-from autoexpress_core import background, get_expressions, instruction_edit, resolve_flavor
+from autoexpress.validation import ValidationError, resolve_inside, safe_dir_name, validate_animation, validate_generate
+from autoexpress_core import animation, background, character_card, get_expressions, instruction_edit, resolve_flavor
 from autoexpress_core.backends.base import (
     BackendAuthError,
     BackendError,
@@ -100,6 +100,14 @@ lora_settings = {
     "enabled": True,
     "lora_dir": os.environ.get("AUTOEXPRESS_LORA_DIR", ""),
     "civitai_api_key": os.environ.get(CIVITAI_KEY_ENV, ""),
+}
+
+
+# An OpenAI compatible chat endpoint that writes the idle motion from the character card (optional).
+llm_settings = {
+    "url": os.environ.get(animation.LLM_URL_ENV, ""),
+    "api_key": os.environ.get(animation.LLM_KEY_ENV, ""),
+    "model": os.environ.get(animation.LLM_MODEL_ENV, ""),
 }
 
 
@@ -316,6 +324,8 @@ def upload_file():
     full_image_data["cleaned_data"] = image_parser.generate_cleaned_parameters(filepath)
     full_image_data["uncleaned_data"] = image_parser.generate_uncleaned_params(filepath)
     full_image_data["width"], full_image_data["height"] = image_parser.get_size_from_image_metadata(filepath)
+    card = character_card.read_card(filepath)
+    full_image_data["character"] = card.to_dict() if card else None
 
     return jsonify(full_image_data), 200
 
@@ -424,12 +434,19 @@ def generate():
     if output_path is None:
         raise ValidationError({"output_dir": "Invalid folder name."})
 
+    animate = request_data["animation"]
+    if animate is not None and not backend.can_animate:
+        raise ValidationError({"animate": f"{backend.label} can't animate sprites. Use the ComfyUI backend with Wan 2.2 for them."})
+    style = instruction_edit.PHOTO if job_settings.get("edit_style", family_defaults["edit_style"]) == "photo" or is_realistic else instruction_edit.ILLUSTRATION
+
     log.info(f"Generation parameters: { {k: v for k, v in job_settings.items()} }")
 
     # A fresh client per job, so switching WebUI or interrupting never touches another job.
     job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
     # Fail fast instead of waiting behind queued jobs to find out the WebUI is down.
-    for needed in dict.fromkeys([method] + ([instruction_edit.INSTRUCT] if job_settings.get("pose") else [])):
+    for needed in dict.fromkeys(
+        [method] + ([instruction_edit.INSTRUCT] if job_settings.get("pose") else []) + ([animation.ANIMATE] if animate is not None else [])
+    ):
         ready, message = job_backend.check_ready(needed)
         if not ready:
             raise job_backend.last_error or BackendNotReady(message)
@@ -454,10 +471,23 @@ def generate():
             civitai_api_key=civitai_api_key,
             method=method,
             background_model=background_model,
+            animate=with_llm(animate),
+            style=style,
         )
     )
+    return job_response(job, request_data["wait"])
 
-    if not request_data["wait"]:
+
+def with_llm(animate: dict | None) -> dict | None:
+    """The animation settings plus the LLM endpoint, when the idle motion is to be written by the LLM."""
+    if animate is None or animate.get("idle_source") != "llm":
+        return animate
+    return {**animate, "llm": {key: value or None for key, value in llm_settings.items()}}
+
+
+def job_response(job, wait: bool):
+    """202 with the job id, or wait for the job and report how it ended."""
+    if not wait:
         return jsonify({"status": "queued", "job_id": job.id, "job": job.to_dict(include_step=False)}), 202
 
     job.done.wait()
@@ -469,6 +499,110 @@ def generate():
     error = job.error or {"code": "backend_error", "message": "Generation failed."}
     status = BackendError.status_for(error.get("code")) if error.get("code") != "internal_error" else 500
     return jsonify({"status": "Failed", "message": error["message"], "error": error, "job": result}), status
+
+
+@autoexpress.route("/animate", methods=["POST"])
+def animate_existing():
+    """
+    Animate the expression stills already in an output folder (from an earlier /generate).
+
+    Body: {"output_dir": folder, "expressions": [names] (optional, default every <name>.png there),
+           "animation": {...} (see /generate), "image": the character card or picture (optional, for the idle motion),
+           "remove_background": bool (cut transparent stills' frames with the photo model instead), "wait": bool}
+    """
+    data = request.get_json(silent=True) or {}
+    backend = current_backend()
+    if not backend.can_animate:
+        raise ValidationError({"animate": f"{backend.label} can't animate sprites. Use the ComfyUI backend with Wan 2.2 for them."})
+    animate = validate_animation(data.get("animation"))
+    output_name = safe_dir_name(data.get("output_dir"))
+    output_path = resolve_inside(settings.output_dir, output_name)
+    if output_path is None or not output_path.is_dir():
+        raise ValidationError({"output_dir": "No such output folder."})
+    names = sorted(path.stem for path in output_path.glob("*.png"))
+    wanted = data.get("expressions")
+    if wanted is not None:
+        if not isinstance(wanted, list) or not all(isinstance(name, str) for name in wanted):
+            raise ValidationError({"expressions": "must be a list of expression names"})
+        names = [name for name in names if name in {w.strip().lower() for w in wanted}]
+    if not names:
+        raise ValidationError({"expressions": "No expression stills to animate in that folder."})
+    image = data.get("image") if isinstance(data.get("image"), str) else ""
+    job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
+    ready, message = job_backend.check_ready(animation.ANIMATE)
+    if not ready:
+        raise job_backend.last_error or BackendNotReady(message)
+    photo = bool(data.get("photo")) or is_realistic
+    job = jobs.submit(
+        JobSpec(
+            backend=job_backend,
+            image=image,
+            settings={},
+            output_name=output_name,
+            output_path=str(output_path),
+            expressions=names,
+            family=model_family,
+            is_realistic=photo,
+            method=instruction_edit.INPAINT,
+            background_model=background.model_for(photo) if background.available() else None,
+            animate=with_llm(animate),
+            style=instruction_edit.PHOTO if photo else instruction_edit.ILLUSTRATION,
+            animate_existing=True,
+        )
+    )
+    return job_response(job, data.get("wait", True) is not False)
+
+
+@autoexpress.route("/character-card", methods=["POST"])
+def read_character_card():
+    """
+    The character card in an image (V1/V2/V3 PNG or card JSON) and the idle motion for its animated sprites.
+
+    Body: {"image": base64 or data URI, "persona": text (optional, instead of a card), "name": text (optional),
+           "idle_source": "card" | "web" | "llm"}
+    """
+    data = request.get_json(silent=True) or {}
+    source = data.get("idle_source") or "card"
+    if source not in ("card", "web", "llm"):
+        raise ValidationError({"idle_source": "must be card, web or llm"})
+    card = character_card.read_card(data["image"]) if isinstance(data.get("image"), str) and data["image"] else None
+    persona = data.get("persona") if isinstance(data.get("persona"), str) else ""
+    if card is None and data.get("name"):
+        card = character_card.CharacterCard(name=str(data["name"])[:200], description=persona[:8000])
+    motion, origin = animation.resolve_idle_motion(card, persona[:8000], source, {key: value or None for key, value in llm_settings.items()})
+    return jsonify({"character": card.to_dict() if card else None, "idle_motion": motion, "idle_source": origin})
+
+
+@autoexpress.route("/animation", methods=["GET"])
+def get_animation_info():
+    """Whether the selected WebUI can animate sprites, the formats, defaults and the per-expression motions."""
+    backend = current_backend()
+    defaults = animation.AnimationSettings()
+    return jsonify(
+        {
+            "available": backend.can_animate,
+            "backend": backend.kind,
+            "formats": list(animation.FORMATS),
+            "defaults": {"frames": defaults.frames, "fps": defaults.fps, "resolution": defaults.resolution, "formats": list(defaults.formats), "loop": True},
+            "motions": animation.motions(),
+            "llm": {"configured": bool(llm_settings["url"]), "model": llm_settings["model"]},
+            "vram_note": animation.VRAM_NOTE,
+        }
+    )
+
+
+@autoexpress.route("/llm-settings", methods=["GET", "POST"])
+def llm_settings_route():
+    """The OpenAI compatible endpoint that writes idle motions (url, model; the API key is write-only)."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        for key in ("url", "model", "api_key"):
+            if key in data:
+                value = (data.get(key) or "").strip()
+                if key == "url" and value and not value.startswith(("http://", "https://")):
+                    raise ValidationError({"url": "must be an http(s) URL"})
+                llm_settings[key] = value
+    return jsonify({"url": llm_settings["url"], "model": llm_settings["model"], "has_api_key": bool(llm_settings["api_key"])})
 
 
 # Jobs -----------------------------------------------------------------------
