@@ -63,6 +63,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const [usePromptData, setUsePromptData] = useState(true);
   const [clothingSlots, setClothingSlots] = useState(true);
   const [expressionArt, setExpressionArt] = useState(true);
+  const [neutralPose, setNeutralPose] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -154,6 +155,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           use_prompt_data: usePromptData,
           clothing_slots: clothingSlots,
           expression_art: expressionArt,
+          neutral_pose: neutralPose,
           ...(chosen !== null ? { base_index: chosen } : {}),
         },
         character_lora: lora ? { entry: lora.entry, installed_name: lora.installed_name } : null,
@@ -349,6 +351,10 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
                 <Label htmlFor="live2d-variants">Draw blink and mouth art</Label>
                 <Switch id="live2d-variants" checked={variants} onCheckedChange={setVariants} />
+              </div>
+              <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
+                <Label htmlFor="live2d-neutral-pose">Neutral pose, full-body skeleton</Label>
+                <Switch id="live2d-neutral-pose" checked={neutralPose} onCheckedChange={setNeutralPose} />
               </div>
               <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
                 <Label htmlFor="live2d-expression-art">Angry brows, grin and tears</Label>

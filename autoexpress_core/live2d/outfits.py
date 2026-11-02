@@ -470,6 +470,24 @@ def _half_part(part, tag: str, size, face, waist, depth: float):
     return _part(tag, canvas, depth)
 
 
+def _hair_in(image: Image.Image, parts: list, size, face) -> Image.Image | None:
+    """Where image shows hair (mode L): the hair's colour, near the hair layers."""
+    hair = layers._alpha_union(parts, size, ("back hair", "front hair"))
+    if hair.getbbox() is None or face is None:
+        return None
+    # The hair that shows (the split paints the back hair in behind the face too).
+    skin = layers._alpha_union(parts, size, ("face", "neck")).point(lambda v: 255 if v > 64 else 0)
+    solid = ImageChops.subtract(hair.point(lambda v: 255 if v > 160 else 0), skin.filter(ImageFilter.MaxFilter(9)))
+    if solid.getbbox() is None:
+        return None
+    median = tuple(int(v) for v in ImageStat.Stat(image.convert("RGB"), solid).median)
+    reach = max(3, int((face[3] - face[1]) * 0.5)) | 1
+    near = solid.filter(ImageFilter.MaxFilter(min(reach, 61)))
+    diff = ImageChops.difference(image.convert("RGB"), Image.new("RGB", size, median)).convert("L")
+    alike = diff.point(lambda v: 255 if v < 34 else 0).filter(ImageFilter.MaxFilter(5))
+    return ImageChops.multiply(alike, near)
+
+
 def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image.Image | None = None, inner: Image.Image | None = None) -> list:
     """
     The split's clothing rearranged into slots, the way Koikatsu dresses a character: the outermost
@@ -506,6 +524,10 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
     if mid is not None:
         coat = ImageChops.multiply(_changed(picture, mid), clothed)
         coat = _drop_small(coat, 0.004)
+        if waist is not None:
+            # A coat covers the shoulders and chest: what the edit changed only further down (a shoe
+            # or a stocking redrawn a little differently) stays with its own garment.
+            coat = layers.keep_touching(coat, (0, 0, size[0], waist))
         if 0.04 < _share(coat, clothed) < 0.85:
             extra.append(_part("outer wear", _layer(picture, coat), top_depth - 0.02))
             # Under the coat: the mid edit's clothes (its skin is the body layer's job when there is one).
@@ -522,9 +544,13 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
                     changed.append(kept)
             result = changed
             has_bottom = any(layers.parse_tag(p.tag)[0] == "bottomwear" for p in result)
+            # Hair the mid edit drew over the shoulders isn't clothing (it showed as curls on the top).
+            hair_like = _hair_in(mid, parts, size, face)
             for tag, piece in (("topwear", below(under, waist, True) if has_bottom else under), ("bottomwear", below(under, waist, False) if has_bottom else None)):
                 if piece is None or piece.getbbox() is None:
                     continue
+                if hair_like is not None:
+                    piece = ImageChops.subtract(piece, hair_like)
                 fill = _layer(mid, piece)
                 current = next((p for p in result if layers.parse_tag(p.tag)[0] == tag), None)
                 if current is None:

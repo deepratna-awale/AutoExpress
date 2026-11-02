@@ -49,7 +49,7 @@ def _kit(args) -> int:
         with Image.open(path) as image:
             image.load()
             images.append(image.copy())
-    settings = {"resolution": args.resolution, "low_vram": args.low_vram, "variants": args.variants, "use_prompt_data": not args.no_prompt_data, "clothing_slots": not args.no_clothing_slots, "expression_art": not args.no_expression_art}
+    settings = {"resolution": args.resolution, "low_vram": args.low_vram, "variants": args.variants, "use_prompt_data": not args.no_prompt_data, "clothing_slots": not args.no_clothing_slots, "expression_art": not args.no_expression_art, "neutral_pose": not args.no_neutral_pose}
     if args.outfit:
         settings["outfit_prompt"] = args.outfit
         settings.setdefault("adult_confirmed", args.adult)
@@ -112,6 +112,7 @@ def main(argv=None) -> int:
     kit.add_argument("--outfit", default="", help="dress the character in this outfit (Qwen-Image-Edit) before the split")
     kit.add_argument("--no-prompt-data", action="store_true", help="don't read the clothing from the picture's prompt metadata")
     kit.add_argument("--no-clothing-slots", action="store_true", help="don't put the coat on its own layer (saves an edit)")
+    kit.add_argument("--no-neutral-pose", action="store_true", help="keep the picture's pose instead of redrawing the character in a neutral A-pose with a full-body skeleton")
     kit.add_argument("--no-expression-art", action="store_true", help="don't draw angry brows, a grin and teary eyes for the strongest emotions (saves three edits)")
     kit.set_defaults(run=_kit)
 

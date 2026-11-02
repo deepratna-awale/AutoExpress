@@ -70,7 +70,7 @@ The layer split sees one picture, so that picture decides most of the result.
 - Waist up or full body, so the body, arms and hair get their own parts. A face crop only gives a head.
 - At least 1280 px on the short side, sharp, no heavy glow or grain.
 - A plain or transparent background, and nothing in front of the character. A busy background is
-  removed first when rembg is installed.
+  removed first when rembg is installed (with BiRefNet, which keeps fine hair; set `AUTOEXPRESS_BACKGROUND_MODEL` to use another rembg model).
 - Arms a little away from the body, hair not covering the eyes, nothing cut off at the top or sides.
 - Even better: the same picture with the eyes closed and the mouth open, drawn by the artist, or a
   turnaround sheet (front, three-quarter, side) to pick the front view from.
@@ -209,6 +209,16 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 | `ParamClothesCoat`, `ParamClothesTop`, `ParamClothesBottom`, `ParamClothesLegs`, `ParamInnerTop`, `ParamInnerBottom` | One clothing slot each: 1 on, 0.5 half off (when the slot has half-off art), 0 off. |
 | `ParamAccessories` | Show or hide the accessories. |
 | `ParamArmLA`, `ParamArmRA` | Turn an arm at its joint (posing): the shoulder, or the wrist when the arm layer is only a hand. |
+| `ParamBone<Name>` | Puppets with a skeleton: rotate one bone (degrees, clockwise) within its joint limits. The bones are `Hips`, `Spine`, `Chest`, `Neck`, `Head` and, per side (`L`/`R`), `UpperArm`, `Forearm`, `Hand`, `Thigh`, `Shin`, `Foot`. |
+
+**Skeleton.** By default the kit first redraws the character standing in a neutral A-pose, full
+body, with Qwen-Image-Edit (`--no-neutral-pose` or the **Neutral pose** switch off keeps the
+picture's pose). The puppet then gets a skeleton like a 3D model, stored under `Rig.Skeleton`
+(`Bones` with `Name`, `Parent`, `Head`, `Tail`, `Radius` and limits). Each layer is cut into a torso
+piece and arm and leg pieces with matching edges (`"Piece"` in the layer entry), arms draw over the
+torso and legs under it, and each vertex follows its two nearest bones. Dragging a hand, forearm,
+foot or shin bends the whole limb towards the cursor (inverse kinematics), so the character can be
+posed freely; the pose is saved in the parameters like any other.
 
 Expression changes glide: every parameter eases towards its new value instead of jumping. Skirts
 and ribbons swing behind the body like hair.

@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 from autoexpress_core.backends.comfyui_api import ComfyUIClient
 from autoexpress_core.images import b64_to_pil, pil_to_b64
-from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, outfits, prompt_data, psd, puppet
+from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, outfits, prompt_data, psd, puppet, skeleton
 
 from test_remote_backends import ComfySession, FakeResponse, comfy_routes
 
@@ -341,6 +341,15 @@ def test_character_lora_search_picks_the_matching_base_model():
 
 
 # Pipeline -----------------------------------------------------------------------
+_REAL_NEUTRAL_POSE = kit.neutral_pose
+
+
+@pytest.fixture(autouse=True)
+def keep_the_pose(monkeypatch):
+    """The fake split wants the square test picture: the pipeline tests skip the A-pose redraw (tested on its own)."""
+    monkeypatch.setattr(kit, "neutral_pose", lambda backend, picture, settings, log: (None, ""))
+
+
 class FakeBackend:
     label = "Fake"
     kind = "fake"
@@ -963,3 +972,134 @@ def test_expression_art_becomes_switchable_layers_and_strong_emotions_use_it():
     assert model_files.expression_parameters("anger")["ParamBrowAngry"] == 1.0
     assert model_files.expression_parameters("joy")["ParamMouthGrin"] == 1.0
     assert model_files.expression_parameters("grief")["ParamTear"] == 1.0
+
+
+def test_neutral_pose_redraws_the_character_full_body_on_a_portrait_canvas():
+    backend = FakeBackend()
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    assert note == "" and posed.size[0] / posed.size[1] == pytest.approx(kit.NEUTRAL_ASPECT, abs=0.01)
+    instruction = backend.calls[-1][1]
+    assert "neutral A-pose" in instruction and "full body" in instruction
+
+    class NoQwen(FakeBackend):
+        edit_methods = ("inpaint",)
+
+    assert _REAL_NEUTRAL_POSE(NoQwen(), character(), {}, lambda _: None)[0] is None
+
+
+def test_skeleton_from_a_pose_proportions_has_limbs_with_mirrored_limits():
+    face = (400, 100, 600, 340)
+    joints = skeleton.from_proportions(face, (150, 300, 850, 2000))
+    sk = skeleton.bones(joints, face)
+    names = [b["Name"] for b in sk["Bones"]]
+    assert names[0] == "Hips" and {"UpperArmL", "ForearmR", "ShinL", "Head"} <= set(names)
+    # Parents come first, so the player can chain the matrices in order.
+    seen = set()
+    for bone in sk["Bones"]:
+        assert bone["Parent"] is None or bone["Parent"] in seen
+        seen.add(bone["Name"])
+    by = {b["Name"]: b for b in sk["Bones"]}
+    assert by["UpperArmL"]["Head"][0] > 500 > by["UpperArmR"]["Head"][0]  # L is on the right of the picture
+    assert (by["UpperArmL"]["Min"], by["UpperArmL"]["Max"]) == (-by["UpperArmR"]["Max"], -by["UpperArmR"]["Min"])
+    # A bust-up picture has no legs.
+    short = skeleton.bones(skeleton.from_proportions(face, (150, 300, 850, 900)), face)
+    assert not any(b["Name"].startswith("Shin") for b in short["Bones"])
+    assert ("ParamBoneHips", -15, 15, 0) in skeleton.parameters(sk)
+
+
+def test_skeleton_from_openpose_keypoints():
+    face = (400, 100, 600, 340)
+    flat = [0.0] * 54
+    points = {0: (500, 250), 1: (500, 400), 2: (380, 450), 3: (340, 650), 4: (320, 850), 5: (620, 450), 6: (660, 650), 7: (680, 850),
+              8: (450, 1000), 9: (440, 1350), 10: (440, 1700), 11: (550, 1000), 12: (560, 1350), 13: (560, 1700)}
+    for index, (x, y) in points.items():
+        flat[index * 3:index * 3 + 3] = [x, y, 0.9]
+    joints = skeleton.from_keypoints([{"pose_keypoints_2d": flat}], face, (1000, 2000))
+    assert joints["wrist_L"] == (680, 850) and joints["hip_R"] == (450, 1000)
+    sk = skeleton.bones(joints, face)
+    assert len(sk["Bones"]) == len(skeleton.BONES)
+
+
+def test_puppet_from_a_neutral_pose_gets_a_skeleton_and_bone_parameters(tmp_path):
+    parts = seethrough_parts(1024)
+    tree, manifest = layers.build_tree(parts)
+    document = puppet.build_puppet(tree, manifest, (1024, 1024), tmp_path / "p", "p", parts, neutral_pose=True)
+    bones = document["Rig"]["Skeleton"]["Bones"]
+    assert bones and "Arms" not in document["Rig"]
+    ids = {p["Id"] for p in document["Parameters"]}
+    assert {b["Param"] for b in bones} <= ids
+
+
+def test_skeleton_fits_the_arms_to_the_hands_and_the_legs_to_the_body():
+    face = (450, 100, 550, 230)
+    size = (1000, 1400)
+    joints = skeleton.from_proportions(face, (300, 100, 700, 1350))
+    # A body standing with the hands well out from the hips and the legs apart.
+    whole = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(whole)
+    draw.rectangle((400, 260, 600, 700), fill=255)  # torso
+    draw.rectangle((330, 270, 380, 690), fill=255)  # right arm, apart from the torso
+    draw.rectangle((620, 270, 670, 690), fill=255)
+    draw.rectangle((420, 700, 480, 1340), fill=255)  # right leg
+    draw.rectangle((520, 700, 580, 1340), fill=255)
+    hands = {}
+    for side, x in (("R", 355), ("L", 645)):
+        hand = Image.new("L", size, 0)
+        ImageDraw.Draw(hand).ellipse((x - 22, 620, x + 22, 700), fill=255)
+        hands[side] = hand
+    fitted, radii = skeleton.fit_to_layers(joints, face, hands, whole)
+    assert abs(fitted["wrist_L"][0] - 645) < 8 and abs(fitted["wrist_R"][0] - 355) < 8
+    assert fitted["hand_L"][1] > fitted["wrist_L"][1] > fitted["elbow_L"][1] > fitted["shoulder_L"][1]
+    assert abs(fitted["knee_L"][0] - 550) < 8 and abs(fitted["ankle_R"][0] - 450) < 8
+    assert radii["UpperArmL"] > 0 and radii["HandR"] > 0
+    sk = skeleton.bones(fitted, face, radii)
+    by = {b["Name"]: b for b in sk["Bones"]}
+    assert by["HandL"]["Radius"] == radii["HandL"]
+    # Below the crotch everything is a leg, by side; above it nothing is.
+    masks = skeleton.limb_masks(sk, size)
+    assert masks["leg_L"].getpixel((560, 1200)) == 255 and masks["leg_R"].getpixel((440, 1200)) == 255
+    assert masks["leg_L"].getpixel((560, 600)) == 0
+
+
+def test_split_limbs_keeps_a_skirt_whole_and_paints_behind_a_hand(tmp_path):
+    size = (400, 600)
+    (tmp_path / "textures").mkdir()
+    skirt = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(skirt).rectangle((140, 300, 260, 420), fill=(150, 30, 40, 255))
+    skirt.save(tmp_path / "textures" / "skirt.png")
+    jacket = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(jacket).rectangle((120, 100, 280, 300), fill=(180, 150, 120, 255))
+    jacket.save(tmp_path / "textures" / "jacket.png")
+    entries = [
+        {"Id": "skirt", "Role": "clothing", "Garment": "bottomwear", "Texture": "textures/skirt.png", "X": 0, "Y": 0, "Width": 400, "Height": 600},
+        {"Id": "jacket", "Role": "clothing", "Garment": "topwear", "Texture": "textures/jacket.png", "X": 0, "Y": 0, "Width": 400, "Height": 600},
+    ]
+    leg_l, leg_r, arm = (Image.new("L", size, 0) for _ in range(3))
+    ImageDraw.Draw(leg_l).rectangle((200, 340, 300, 600), fill=255)
+    ImageDraw.Draw(leg_r).rectangle((100, 340, 199, 600), fill=255)
+    ImageDraw.Draw(arm).rectangle((180, 150, 220, 250), fill=255)  # a hand in front of the jacket
+    result = puppet.split_limbs(tmp_path, entries, {"leg_L": leg_l, "leg_R": leg_r, "arm_L": arm}, {})
+    ids = {e["Id"]: e for e in result}
+    assert set(ids) >= {"skirt", "jacket__torso", "jacket__arm_L"} and ids["skirt"]["Piece"] == "torso"
+    torso = Image.open(tmp_path / "textures" / "jacket__torso.png")
+    entry = ids["jacket__torso"]
+    # The hole the hand leaves is painted in with the jacket's colour.
+    r, g, b, a = torso.getpixel((200 - entry["X"], 200 - entry["Y"]))
+    assert a == 255 and abs(r - 180) < 12 and abs(g - 150) < 12
+
+
+def test_expression_piece_follows_an_edit_drawn_a_few_pixels_off():
+    size = (300, 300)
+    base = Image.new("RGBA", size, (240, 210, 190, 255))
+    ImageDraw.Draw(base).line((120, 150, 180, 150), fill=(120, 60, 60), width=3)
+    edited = Image.new("RGBA", size, (240, 210, 190, 255))
+    ImageDraw.Draw(edited).chord((125, 140, 185, 175), 0, 180, fill=(255, 255, 255), outline=(120, 60, 60))  # 5 px right
+    skin = Image.new("L", size, 255)
+    piece = layers.expression_piece(base, edited, (100, 120, 200, 190), skin, "Mouth", "Mouth grin", "ParamMouthGrin", core=(120, 148, 180, 152))
+    assert piece is not None
+    # Lined up: the grin's centre sits over the old mouth's centre, not 5 px to the right.
+    alpha = piece.image.getchannel("A")
+    box = alpha.getbbox()
+    centre = piece.left + (box[0] + box[2]) / 2
+    assert abs(centre - 150) < 6
+    assert layers.expression_piece(base, base, (100, 120, 200, 190), skin, "Mouth", "Mouth grin", "ParamMouthGrin") is None

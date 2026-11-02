@@ -31,6 +31,7 @@ Only Pillow is needed here; rembg is used when installed.
 
 import dataclasses
 import json
+import os
 import pathlib
 import shutil
 import zipfile
@@ -131,8 +132,13 @@ def prepare_picture(
             from .. import background
 
             if background.available():
-                log("Removing the background.")
-                image = background.remove_background(image, background.ILLUSTRATION_MODEL)
+                model = os.environ.get(background.MODEL_ENV, "").strip() or background.LIVE2D_MODEL
+                log(f"Removing the background ({model}).")
+                try:
+                    image = background.remove_background(image, model)
+                except Exception as error:  # noqa: BLE001 - a model that can't load: the lighter one
+                    log(f"{model} failed ({error}); using {background.ILLUSTRATION_MODEL}.")
+                    image = background.remove_background(image, background.ILLUSTRATION_MODEL)
                 transparent = True
             else:
                 log("The background is busy and rembg isn't installed, so it stays. A plain background splits better.")
@@ -297,6 +303,42 @@ def change_outfit(backend, picture: Image.Image, settings: dict, name: str, log)
     if changed.size != picture.size:
         changed = changed.resize(picture.size, Image.Resampling.LANCZOS)
     return changed, ""
+
+
+NEUTRAL_POSE = (
+    "Redraw this exact character standing in a neutral A-pose, seen straight from the front, full body from the top of the "
+    "head to the feet: standing straight and relaxed, arms straight down and held a little away from the sides with open "
+    "relaxed hands, legs straight and slightly apart, feet flat. Keep the same face, expression, hair, outfit, accessories, "
+    "body proportions, colours, line art and art style. Plain white background, the whole character in frame with a little "
+    "margin, nothing else in the picture."
+)
+# Portrait shape for the A-pose (width / height): room for the arms and the feet.
+NEUTRAL_ASPECT = 0.62
+
+
+def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Image.Image | None, str]:
+    """
+    The character redrawn in the neutral A-pose, full body on white (Qwen-Image-Edit), so every limb
+    is apart from the body and the puppet can be posed from it. The picture is first set on a
+    portrait canvas with room for the whole body. Returns (picture or None, note).
+    """
+    if INSTRUCT not in getattr(backend, "edit_methods", ()):
+        return None, "The neutral pose needs Qwen-Image-Edit on ComfyUI; the puppet keeps the picture's pose."
+    image = picture.convert("RGBA")
+    height = max(image.height, round(image.width / NEUTRAL_ASPECT))
+    width = max(image.width, round(height * NEUTRAL_ASPECT))
+    canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
+    canvas.alpha_composite(image, ((width - image.width) // 2, (height - image.height) // 2))
+    description = settings.get("character_description", "")
+    edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
+    log("Redrawing the character in a neutral A-pose, full body (Qwen-Image-Edit).")
+    posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(NEUTRAL_POSE, description) + outfits._describe(description), edit)
+    if posed is None:
+        return None, f"Couldn't redraw the neutral pose: {getattr(backend, 'last_error', None) or 'the WebUI failed'}. The puppet keeps the picture's pose."
+    posed = posed.convert("RGB")
+    if posed.size != canvas.size:
+        posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
+    return posed, ""
 
 
 SLOT_EDITS = (outfits.MID,)
@@ -483,8 +525,21 @@ def build_kit(
             settings["outfit_from_prompt"] = " ".join(settings["outfit_prompt"].split())[:300]
         if note:
             notes.append(note)
+    posed = False
+    if settings.get("neutral_pose", True) is not False:
+        # Every edit after this one, and the split, see the character in the A-pose.
+        check_cancel()
+        progress("redrawing the neutral pose", 0.04)
+        redrawn, note = neutral_pose(backend, original, settings, log)
+        if redrawn is not None:
+            original = redrawn
+            posed = True
+            redrawn.save(folder / "neutral_pose.png")
+        if note:
+            notes.append(note)
     split = layers.SplitSettings.from_settings(settings)
-    picture = prepare_picture(original, settings.get("remove_background"), log, backend, split.resolution)
+    # The redrawn picture is always cut out: a clean edge around the whole character.
+    picture = prepare_picture(original, True if posed else settings.get("remove_background"), log, backend, split.resolution)
     picture.save(folder / "input.png")
     check_cancel()
 
@@ -613,7 +668,7 @@ def build_kit(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
     )
 
-    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images))
+    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed)
 
     switches = ", ".join(o.name for o in overlays) or "none"
     (folder / "README.txt").write_text(README.format(name=name, switches=switches), encoding="utf-8")
@@ -626,6 +681,7 @@ def build_kit(
             "character_lora": (character_lora or {}).get("entry"),
             "split": dataclasses.asdict(split),
             "outfits": outfit_state,
+            "neutral_pose": posed,
             "clothing": clothing_info,
             "notes": notes,
         }

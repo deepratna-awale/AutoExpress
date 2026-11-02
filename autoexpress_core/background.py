@@ -18,6 +18,9 @@ from PIL import Image
 # and up to 12 GB of RAM per image on a CPU; pick one with MODEL_ENV on a GPU.
 ILLUSTRATION_MODEL = "isnet-anime"
 PHOTO_MODEL = "u2net_human_seg"
+# Live2D kits cut one picture, and every stray pixel of background ends up in a layer, so they use
+# BiRefNet (lite: about a minute on a CPU, 224 MB): cleaner around hair and fingers than isnet-anime.
+LIVE2D_MODEL = "birefnet-general-lite"
 MODEL_ENV = "AUTOEXPRESS_BACKGROUND_MODEL"
 INSTALL_COMMAND = 'pip install "rembg[cpu]"'
 
