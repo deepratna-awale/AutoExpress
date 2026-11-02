@@ -84,6 +84,7 @@ Avoid action poses, strong perspective, crowds and loose sketches.
 | `<name>.psd` | The Cubism PSD: one group per part (Front hair, Headwear, Face, Eye L, Eye R, Mouth, Ears, Body, Back hair ...), every layer an art mesh with its hidden area painted in. **Eye L closed**, **Eye R closed** and **Mouth open** are hidden layers on top of the parts they replace, and so are the drawn pieces for the strongest emotions: **Brow L angry**, **Brow R angry**, **Mouth grin**, **Eye L tears** and **Eye R tears** (three more Qwen-Image-Edit runs; turn off **Angry brows, grin and tears** or pass `--no-expression-art` to skip them). L and R are the character's own left and right, like Live2D's parameters. |
 | `<name>_seethrough.psd` | The same layers, flat and named the way See-through names them (`front hair`, `irides-l` ...). |
 | `layers/` | Every layer as its own PNG at its place on the canvas. |
+| `depth/` | See-through's depth of every layer (darker is nearer, `index.json` maps tags to files). `puppet` rebuilds use it for the turns' parallax. |
 | `preview.png`, `sheet.jpg` | The layers put back together, and every layer on its own. |
 | `runtime/` | `expressions/*.exp3.json` and `motions/*.motion3.json` for the 28 emotions, a looping idle, and `sillytavern_settings.json`. |
 | `puppet/<name>/` | The ready-to-play puppet (also in `<name>_puppet.zip` next to the kit). |
@@ -192,7 +193,7 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 
 | Parameter | What it does on the puppet |
 | --- | --- |
-| `ParamAngleX`, `ParamAngleY`, `ParamAngleZ` | Turn, nod and tilt the head. Layers in front of the face (front hair, nose, eyes) move more than the face and the back hair less, so the head reads as round. |
+| `ParamAngleX`, `ParamAngleY`, `ParamAngleZ` | Turn, nod and tilt the head. With depth (kits from this version on), every point turns by its own depth from See-through: the nose and fringe move further than the cheeks and the back hair goes the other way. Older puppets guess it from the drawing order. |
 | `ParamEyeLOpen`, `ParamEyeROpen` | Close the eyes: the eye layers squash onto the lid line and the **Eye closed** art fades in. It blinks by itself every few seconds. |
 | `ParamEyeLSmile`, `ParamEyeRSmile` | Push the lower lids up. |
 | `ParamEyeBallX`, `ParamEyeBallY` | Move the irises. |
@@ -218,7 +219,8 @@ leg), stored under `Rig.Skeleton` (`Bones` with `Name`, `Parent`, `Head`, `Tail`
 limits), fitted to the drawing: the hands from the split's arm layers, the legs from the body's
 outline. Each layer is cut into a torso piece and arm and leg pieces with matching edges (`"Piece"`
 in the layer entry): whole sleeves go with the arms, a skirt stays whole while the legs move under
-it, and the body behind a hand is painted in. Each vertex follows its nearest bones, and the
+it, the body behind a hand is painted in, a top's sides run on behind the arms, and touching legs
+are split along the line drawn between them. Each vertex follows its nearest bones, and the
 weights blend across the seams: around the shoulder and the hip the body and the limb share the
 same bones, so the cloth there stretches with the arm or leg instead of splitting. Dragging a
 hand or a foot bends the limb towards the cursor (inverse kinematics). The joints keep to small,

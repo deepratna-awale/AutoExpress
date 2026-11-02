@@ -107,13 +107,18 @@ EXPECTED = {
 
 @dataclasses.dataclass
 class Part:
-    """One decomposed layer: tag as See-through names it, RGBA image, position on the canvas, depth (lower is nearer)."""
+    """
+    One decomposed layer: tag as See-through names it, RGBA image, position on the canvas, depth
+    (lower is nearer), and See-through's depth map of the whole layer (mode L, the image's size,
+    darker is nearer, on one scale for all the layers) when it gave one.
+    """
 
     tag: str
     image: Image.Image
     left: int = 0
     top: int = 0
     depth: float = 1.0
+    depth_map: Image.Image | None = None
 
 
 def parse_tag(tag: str) -> tuple[str, str | None]:
@@ -1148,6 +1153,47 @@ def edit_overlays(
             if overlay:
                 overlays.append(overlay)
     return overlays
+
+
+def depth_canvases(parts: list[Part], size: tuple[int, int]) -> dict:
+    """
+    {tag: mode L canvas} of each part's depth map (darker is nearer), filled past the layer's edge
+    with its nearest depth so any point can be looked up, plus "" for the nearest surface of them
+    all (for layers made later from edits). Empty when See-through gave no depth maps.
+    """
+    import numpy as np
+
+    result = {}
+    nearest = np.full((size[1], size[0]), 255.0, np.float32)
+    seen = np.zeros((size[1], size[0]), bool)
+    for part in parts:
+        if part.depth_map is None or part.depth_map.size != part.image.size:
+            continue
+        depth = Image.new("L", size, 255)
+        depth.paste(part.depth_map.convert("L"), (part.left, part.top))
+        alpha = Image.new("L", size, 0)
+        alpha.paste(part.image.getchannel("A"), (part.left, part.top))
+        inside = np.asarray(alpha) > 128
+        if not inside.any():
+            continue
+        values = np.asarray(depth).astype(np.float32)
+        nearest = np.where(inside, np.minimum(nearest, values), nearest)
+        seen |= inside
+        result[part.tag] = _fill_depth(values, inside)
+    if result:
+        result[""] = _fill_depth(nearest, seen)
+    return result
+
+
+def _fill_depth(values, inside) -> Image.Image:
+    """A depth canvas with the points outside the layer set to the depth of the layer nearest them."""
+    import numpy as np
+
+    from . import puppet
+
+    filled = puppet._push_pull(values[..., None].repeat(3, axis=2), inside)[..., 0]
+    out = np.where(inside, values, filled)
+    return Image.fromarray(out.clip(0, 255).astype(np.uint8), "L")
 
 
 def crop_parts(parts: list[Part], box: tuple[int, int, int, int]) -> list[Part]:

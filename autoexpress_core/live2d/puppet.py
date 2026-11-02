@@ -224,7 +224,16 @@ def grid_for(width: int, height: int, step: int = 28, most: int = 40) -> list[in
 
 
 def build_puppet(
-    tree: list, manifest: dict, size: tuple[int, int], folder, name: str, parts: list | None = None, enhance=None, joints: dict | None = None, neutral_pose: bool = False
+    tree: list,
+    manifest: dict,
+    size: tuple[int, int],
+    folder,
+    name: str,
+    parts: list | None = None,
+    enhance=None,
+    joints: dict | None = None,
+    neutral_pose: bool = False,
+    depth_maps: dict | None = None,
 ) -> dict:
     """
     Write a puppet for the kit's layer tree (top to bottom, as build_tree returns it) into folder.
@@ -236,7 +245,9 @@ def build_puppet(
 
     joints (canvas pixels, from a pose detector: see skeleton.from_keypoints) give the puppet a
     full-body skeleton to pose; neutral_pose says the character stands in the neutral A-pose, so
-    without joints the skeleton comes from anime proportions. Returns the puppet document.
+    without joints the skeleton comes from anime proportions. depth_maps ({See-through tag: mode L
+    canvas}, "" for the nearest surface; see layers.depth_canvases) give every mesh point a depth
+    ("Z"), so turning the head or the body shows real parallax. Returns the puppet document.
     """
     folder = pathlib.Path(folder)
     if folder.exists():
@@ -288,6 +299,8 @@ def build_puppet(
                     "Grid": grid_for(image.width, image.height),
                     "Visible": bool(layer.visible),
             }
+            if info.get("tag"):
+                entry["Tag"] = info["tag"]
             base = " ".join(w for w in layer.name.split() if w not in ("L", "R") and not w.isdigit())
             if base.endswith(" half"):
                 base = base[: -len(" half")]
@@ -339,10 +352,13 @@ def build_puppet(
         rig["Skeleton"] = bones
         rig.pop("Arms", None)
         parameters += skeleton.parameters(bones)
-        entries = split_limbs(folder, entries, skeleton.limb_masks(bones, size, arms=arm_alpha), rig, hands=arm_alpha)
+        masks = skeleton.split_legs(skeleton.limb_masks(bones, size, arms=arm_alpha), bones, body_picture(folder, entries, size))
+        entries = split_limbs(folder, entries, masks, rig, hands=arm_alpha)
         for entry in entries:
             if entry["Role"] not in HEAD_ROLES:
                 entry["Grid"] = grid_for(entry["Width"], entry["Height"], step=20, most=64)
+    if depth_maps:
+        rig["Depth"] = add_depth(entries, depth_maps, rig)
     written = model_files.write_model_files(folder)
     outfits = write_outfits(folder, entries)
     written["Expressions"] = written["Expressions"] + outfits
@@ -378,6 +394,85 @@ def build_puppet(
     return document
 
 
+# Layers made from edits after the split, and which of See-through's layers' depth they take.
+DEPTH_FALLBACK = {"nude body": "", "inner wear": "", "inner top": "", "inner bottom": "", "hair underlay": "front hair"}
+
+
+def save_depth(folder, depth_maps: dict) -> None:
+    """Write depth canvases (layers.depth_canvases) as PNGs with an index.json of tag -> file."""
+    folder = pathlib.Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    index = {}
+    for tag, depth in depth_maps.items():
+        file = (_safe(tag) if tag else "nearest") + ".png"
+        depth.save(folder / file)
+        index[tag] = file
+    (folder / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+
+
+def load_depth(folder) -> dict:
+    """What save_depth wrote ({} without it)."""
+    folder = pathlib.Path(folder)
+    try:
+        index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    result = {}
+    for tag, file in index.items():
+        try:
+            with Image.open(folder / file) as depth:
+                result[tag] = depth.convert("L")
+        except OSError:
+            continue
+    return result
+
+
+def add_depth(entries: list[dict], depth_maps: dict, rig: dict) -> dict:
+    """
+    Give every layer's mesh points a depth ("Z": 0 nearest to 255 farthest, row by row over its
+    Grid) from its See-through layer (or the nearest surface), and return the rig's depth: the head's
+    and the body's turning centre and how many canvas pixels one step of depth is.
+    """
+    import numpy as np
+
+    face_box = rig["Head"]["Box"]
+    face_w = face_box[2] - face_box[0]
+    # Smooth: the estimate is noisy along strands and edges, and neighbouring points moving apart
+    # by different amounts tear the mesh.
+    radius = max(2.0, face_w * 0.12)
+    arrays = {tag: np.asarray(depth.filter(ImageFilter.GaussianBlur(radius))) for tag, depth in depth_maps.items()}
+    nearest = arrays.get("")
+    for entry in entries:
+        tag = entry.get("Tag") or ""
+        depth = arrays.get(tag)
+        if depth is None:
+            depth = arrays.get(DEPTH_FALLBACK.get(tag.removesuffix(" half"), ""), nearest)
+        if depth is None:
+            continue
+        cols, rows = entry["Grid"]
+        xs = np.clip(np.round(entry["X"] + np.linspace(0, entry["Width"], cols)).astype(int), 0, depth.shape[1] - 1)
+        ys = np.clip(np.round(entry["Y"] + np.linspace(0, entry["Height"], rows)).astype(int), 0, depth.shape[0] - 1)
+        entry["Z"] = depth[np.ix_(ys, xs)].astype(int).ravel().tolist()
+
+    def median(roles):
+        values = [z for e in entries if e["Role"] in roles and e.get("Z") for z in e["Z"]]
+        return float(np.median(values)) if values else None
+
+    face = median(("face",)) or 0.0
+    back = median(("back_hair",))
+    # From the face to the back of the head is about a face's width.
+    span = max(20.0, (back - face) if back is not None else 60.0)
+    scale = face_w * 1.1 / span
+    body_z = median(("clothing", "nude_body")) or face
+    body_w = rig["Body"]["Box"][2] - rig["Body"]["Box"][0]
+    return {
+        "Head": round(face + span / 2, 1),
+        # The body turns about its middle, a quarter of its width behind its front.
+        "Body": round(body_z + body_w * 0.25 / scale, 1),
+        "Scale": round(scale, 4),
+    }
+
+
 def jaw_line(folder, entries: list[dict], mouth_box) -> list | None:
     """
     [[x, y], ...]: the bottom of the face (the jaw and chin) across and around the mouth, so the
@@ -404,6 +499,23 @@ def jaw_line(folder, entries: list[dict], mouth_box) -> list | None:
         if len(rows):
             points.append([round(x, 1), round(float(rows.max()) + face["Y"], 1)])
     return points or None
+
+
+def body_picture(folder, entries: list[dict], size) -> Image.Image:
+    """The body below the head as the puppet shows it at first (RGBA, canvas size)."""
+    folder = pathlib.Path(folder)
+    picture = Image.new("RGBA", size, (0, 0, 0, 0))
+    for entry in entries:
+        if entry["Role"] in HEAD_ROLES or entry["Role"] in ("back_hair", "front_hair", "cheek", "cheek_hatch", "nude_body", "inner"):
+            continue
+        if entry.get("State") == "half" or not entry.get("Visible", True):
+            continue
+        try:
+            with Image.open(folder / entry["Texture"]) as image:
+                picture.alpha_composite(image.convert("RGBA"), (entry["X"], entry["Y"]))
+        except (OSError, ValueError):
+            continue
+    return picture
 
 
 def limb_alphas(folder, entries: list[dict], size) -> tuple[dict, Image.Image]:
@@ -468,7 +580,7 @@ def _trim_below_bulk(alpha: Image.Image) -> Image.Image:
     return Image.fromarray(a, "L")
 
 
-def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image) -> tuple[Image.Image, Image.Image]:
+def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image, sides: bool = False) -> tuple[Image.Image, Image.Image]:
     """
     The body behind a limb cut out of the torso piece: where the cut leaves a hole inside the torso
     (a hand in front of the skirt, a sleeve over the side of the jacket), the hole is painted in from
@@ -489,6 +601,8 @@ def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image) -> 
         xs = np.nonzero(kept[y])[0]
         if len(xs) > 1:
             hole[y, xs.min():xs.max() + 1] = removed[y, xs.min():xs.max() + 1]
+    if sides:
+        hole |= _hidden_sides(kept, removed)
     if not hole.any():
         return image, torso
     rgb = np.asarray(image.convert("RGB")).astype(np.float32)
@@ -501,6 +615,42 @@ def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image) -> 
     result = Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
     result.putalpha(image.getchannel("A"))
     return result, Image.fromarray((new_alpha * 255).clip(0, 255).astype(np.uint8), "L")
+
+
+def _hidden_sides(kept, removed):
+    """
+    Where the torso's sides run on behind a limb (bool mask): in the rows where a limb covers the
+    torso's edge, the edge is drawn on from the rows above and below where it shows, so lifting
+    the arm shows the side of the body instead of a gap under it.
+    """
+    import numpy as np
+
+    height = kept.shape[0]
+    rows = np.nonzero(kept.any(axis=1))[0]
+    extra = np.zeros_like(kept)
+    if len(rows) < 3:
+        return extra
+    for side in (0, 1):
+        edge = np.full(height, np.nan)
+        hidden = np.zeros(height, bool)
+        for y in rows:
+            xs = np.nonzero(kept[y])[0]
+            x = xs.min() if side == 0 else xs.max()
+            edge[y] = x
+            beyond = x - 1 if side == 0 else x + 1
+            hidden[y] = 0 <= beyond < kept.shape[1] and removed[y, beyond]
+        shown = rows[~hidden[rows]]
+        if len(shown) < 2 or not hidden.any():
+            continue
+        line = np.interp(np.arange(height), shown, edge[shown])
+        for y in rows[hidden[rows]]:
+            if side == 0:
+                start = int(round(min(line[y], edge[y])))
+                extra[y, start : int(edge[y])] = removed[y, start : int(edge[y])]
+            else:
+                end = int(round(max(line[y], edge[y])))
+                extra[y, int(edge[y]) + 1 : end + 1] = removed[y, int(edge[y]) + 1 : end + 1]
+    return extra
 
 
 def _push_pull(rgb, known):
@@ -583,7 +733,7 @@ def _fit_under_skirts(folder: pathlib.Path, entries: list[dict], skirts: dict, g
         image.save(path)
     # Under a hand the skirt was painted in; the body's outline at its side is still the skirt's
     # (a band wider than its own run), the hand further out isn't.
-    covered = Image.fromarray((run * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(4 * band + 1))
+    covered = Image.fromarray((run * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(2 * band + 1))
     return ImageChops.multiply(covered, Image.fromarray((skirt_alpha * 255).astype(np.uint8)))
 
 
@@ -687,7 +837,10 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
             held = piece.point(lambda v: 255 if v > 0 else 0)
             taken = ImageChops.lighter(taken, ImageChops.multiply(region, held))
         torso_alpha = ImageChops.multiply(alpha, ImageChops.invert(taken))
-        behind, torso_alpha = _fill_behind(image, alpha, torso_alpha)
+        # The tops' sides run on behind the arms (the body and what's under stays as drawn: it's
+        # covered, and drawn wider it would show past the clothes).
+        sides = entry.get("Garment") in ("topwear", "outerwear")
+        behind, torso_alpha = _fill_behind(image, alpha, torso_alpha, sides)
         pieces = [("torso", torso_alpha)] + limbs
         path.unlink()
         ids = []
@@ -1126,5 +1279,7 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
         tree.append(Group(group["name"], children))
     groups = [{**group, "layers": [info for info in group["layers"] if any(layer.name == info["name"] for g in tree if g.name == group["name"] for layer in g.children)]} for group in manifest["groups"]]
     output = pathlib.Path(output) if output else kit_folder / "puppet" / name
-    build_puppet(tree, {**manifest, "groups": groups}, size, output, name, neutral_pose=bool(manifest.get("neutral_pose")))
+    build_puppet(
+        tree, {**manifest, "groups": groups}, size, output, name, neutral_pose=bool(manifest.get("neutral_pose")), depth_maps=load_depth(kit_folder / "depth") or None
+    )
     return output

@@ -407,3 +407,75 @@ def limb_masks(skeleton_doc: dict, size, step: int = 8, arms: dict | None = None
         own = alpha.point(lambda v: 255 if v > 128 else 0)
         masks[f"arm_{side}"] = ImageChops.lighter(masks[f"arm_{side}"], own) if f"arm_{side}" in masks else own
     return masks
+
+
+def split_legs(masks: dict, skeleton_doc: dict, picture) -> dict:
+    """
+    masks with the legs below the crotch split along the line the drawing has between them: the
+    gap between the legs, or where they touch, the dark outline. The nearest bone alone puts a
+    strip of one thigh on the other leg wherever the legs touch, and it stays behind when that leg
+    moves. picture is the body as drawn (RGBA, canvas size).
+    """
+    import numpy as np
+    from PIL import Image
+
+    by_name = {b["Name"]: b for b in skeleton_doc.get("Bones", [])}
+    chain = {side: [by_name.get(f"{n}{side}") for n in ("Thigh", "Shin", "Foot")] for side in "LR"}
+    if not all(all(chain[side]) for side in "LR") or "leg_L" not in masks or "leg_R" not in masks:
+        return masks
+    width, height = picture.size
+    rgba = np.asarray(picture.convert("RGBA")).astype(np.float32)
+    alpha = rgba[..., 3] / 255
+    luma = (rgba[..., 0] * 0.3 + rgba[..., 1] * 0.59 + rgba[..., 2] * 0.11) / 255
+    # Cheapest where there's nothing (the gap) or a dark line (the outline where the legs touch).
+    cost = alpha * (0.15 + luma)
+
+    def x_at(bones, y):
+        for bone in bones:
+            (hx, hy), (tx, ty) = bone["Head"], bone["Tail"]
+            if min(hy, ty) <= y <= max(hy, ty) and abs(ty - hy) > 1e-6:
+                return hx + (tx - hx) * (y - hy) / (ty - hy)
+        last = bones[-1]
+        return last["Tail"][0] if y > last["Tail"][1] else bones[0]["Head"][0]
+
+    hip_y = (chain["L"][0]["Head"][1] + chain["R"][0]["Head"][1]) / 2
+    knee_y = (chain["L"][0]["Tail"][1] + chain["R"][0]["Tail"][1]) / 2
+    crotch = int(hip_y + (knee_y - hip_y) * 0.3)
+    bottom = int(min(height - 1, max(b["Tail"][1] for side in "LR" for b in chain[side]) + max(b["Radius"] for b in chain["L"])))
+    if bottom <= crotch + 4:
+        return masks
+    rows = list(range(max(0, crotch), bottom + 1))
+    windows = []
+    for y in rows:
+        left, right = sorted((x_at(chain["R"], y), x_at(chain["L"], y)))
+        middle, reach = (left + right) / 2, max(6.0, (right - left) * 0.45)
+        windows.append((max(0, int(middle - reach)), min(width - 1, int(middle + reach))))
+    # The cheapest line down, moving at most two pixels a row (dynamic programming).
+    inf = 1e9
+    total = np.full((len(rows), width), inf, np.float32)
+    back = np.zeros((len(rows), width), np.int32)
+    lo, hi = windows[0]
+    total[0, lo : hi + 1] = cost[rows[0], lo : hi + 1]
+    for i in range(1, len(rows)):
+        lo, hi = windows[i]
+        previous = total[i - 1]
+        for x in range(lo, hi + 1):
+            a, b = max(0, x - 2), min(width, x + 3)
+            j = int(np.argmin(previous[a:b])) + a
+            total[i, x] = previous[j] + cost[rows[i], x] + 0.02 * abs(j - x)
+            back[i, x] = j
+    x = int(np.argmin(total[-1]))
+    seam = np.zeros(len(rows), np.int32)
+    for i in range(len(rows) - 1, -1, -1):
+        seam[i] = x
+        x = back[i, x]
+    legs = (np.asarray(masks["leg_L"]) > 0) | (np.asarray(masks["leg_R"]) > 0)
+    columns = np.arange(width)[None, :]
+    right_of = np.zeros((height, width), bool)
+    right_of[rows[0] : rows[-1] + 1] = columns >= seam[:, None]
+    below = np.zeros((height, width), bool)
+    below[rows[0] : rows[-1] + 1] = True
+    # Past the bottom of the seam the old split stays.
+    new_l = np.where(below, legs & right_of, np.asarray(masks["leg_L"]) > 0)
+    new_r = np.where(below, legs & ~right_of, np.asarray(masks["leg_R"]) > 0)
+    return {**masks, "leg_L": Image.fromarray((new_l * 255).astype(np.uint8)), "leg_R": Image.fromarray((new_r * 255).astype(np.uint8))}

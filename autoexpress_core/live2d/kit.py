@@ -598,6 +598,8 @@ def build_kit(
         raise backend.last_error or RuntimeError("The layer split failed.")
     parts, canvas_size = result
     check_cancel()
+    # See-through's depth of every layer, hidden parts too: the puppet's turns get real parallax.
+    depth_maps = layers.depth_canvases(parts, canvas_size)
     parts = layers.solidify_parts(parts)
     box = layers.square_placement(picture.size, canvas_size[0])
     base_canvas = to_canvas(picture, box, canvas_size)
@@ -646,6 +648,7 @@ def build_kit(
         if which in variants and not any(wanted in overlay.name for overlay in overlays):
             notes.append(f"The {which.replace('_', ' ')} edit didn't change the {'eyes' if which == EYES_CLOSED else 'mouth'} enough to make a layer from it.")
     parts = layers.crop_parts(parts, box)
+    depth_maps = {tag: depth.crop(box) for tag, depth in depth_maps.items()}
     overlays = [dataclasses.replace(o, left=o.left - box[0], top=o.top - box[1]) for o in overlays]
     size = (box[2] - box[0], box[3] - box[1])
 
@@ -662,6 +665,8 @@ def build_kit(
             canvas.paste(layer.image.convert("RGBA"), (layer.left, layer.top))
             safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in f"{group.name} - {layer.name}")
             canvas.save(folder / "layers" / f"{safe}.png")
+    if depth_maps:
+        puppet.save_depth(folder / "depth", depth_maps)
     composite.save(folder / "preview.png")
     sheet_parts = parts + [layers.Part(o.name, o.image, o.left, o.top) for o in overlays]
     contact_sheet(sheet_parts).save(folder / "sheet.jpg", quality=90)
@@ -672,7 +677,7 @@ def build_kit(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
     )
 
-    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed)
+    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed, depth_maps=depth_maps)
 
     switches = ", ".join(o.name for o in overlays) or "none"
     (folder / "README.txt").write_text(README.format(name=name, switches=switches), encoding="utf-8")
