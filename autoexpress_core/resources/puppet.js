@@ -9,8 +9,10 @@
  *
  * The rig is procedural: each layer has a role (face, iris, eyelash, front hair ...) and the
  * puppet file gives the boxes and pivots to deform it around. Every frame the parameters are
- * worked out (defaults, then motions, expressions, blinking and breathing, cursor, lip sync,
- * values set by hand) and every layer's mesh is bent from them.
+ * worked out (defaults, then motions, expressions and the outfit, eased by a spring so changes
+ * glide, then blinking and breathing, cursor, lip sync, values set by hand) and every layer's
+ * mesh is bent from them: head turn with depth parallax, features, hair and cloth sway, soft
+ * body jiggle (bust and hips) and the pull of the mouse when cloth, hair or a soft part is dragged.
  *
  * Needs window.PIXI (v6). Nothing else.
  */
@@ -21,12 +23,18 @@ const LOG = '[AutoExpress puppet]';
 
 // How far in front of the face each role sits, for the head-turn parallax (face = 0).
 const ROLE_DEPTH = {
-    front_hair: 0.75, headwear: 0.65, nose: 0.6, eyewear: 0.6, brow: 0.45, mouth: 0.45, mouth_open: 0.45,
+    front_hair: 0.75, hair_under: 0.75, headwear: 0.65, nose: 0.6, eyewear: 0.6, brow: 0.45, mouth: 0.45, mouth_open: 0.45,
     eyelash: 0.4, eye_closed: 0.4, eyes: 0.4, iris: 0.35, eye_white: 0.35, cheek: 0.25, face: 0,
     ear: -0.3, back_hair: -0.45,
 };
 const HEAD_ROLES = new Set(Object.keys(ROLE_DEPTH));
 const EYE_ROLES = new Set(['eye_white', 'iris', 'eyelash', 'eyes']);
+// Layers of the body under the head: they jiggle with the soft parts and follow the mouse's pull.
+const SOFT_ROLES = new Set(['body', 'clothing', 'nude_body', 'inner']);
+// The outer clothes, hidden by ParamClothesOuter when there is a body layer under them.
+const OUTER_ROLES = new Set(['clothing', 'arm']);
+// How long parameter changes take to settle (seconds): expressions glide instead of snapping.
+const EASE_TIME = 0.16;
 const CURSOR_DEFAULTS = {
     idParamAngleX: 'ParamAngleX',
     idParamAngleY: 'ParamAngleY',
@@ -227,6 +235,15 @@ function definePuppetClass(PIXI) {
             this._blink = { next: 2 + Math.random() * 3, phase: -1 };
             this._focus = { x: 0, y: 0, tx: 0, ty: 0 };
             this._hair = {};
+            this._soft = {};
+            this._drag = { active: false, sx: 0, sy: 0, tx: 0, ty: 0, x: 0, y: 0, vx: 0, vy: 0, moved: 0, start: 0, soft: null };
+            this._outfit = null; // the outfit expression that stays on while emotions change
+            this._outfitOld = null;
+            this._eased = null;
+            this._easedVelocity = null;
+            // Drag anywhere to pull (the preview page); in SillyTavern only cloth, hair and soft parts,
+            // so dragging elsewhere still moves the model.
+            this.grabAnywhere = false;
             this._autoInteract = false;
             this._onPointerMove = (event) => this._pointerMoved(event);
 
@@ -263,7 +280,13 @@ function definePuppetClass(PIXI) {
             this.interactive = true;
             this.buttonMode = false;
             this.hitArea = new PIXI.Rectangle(0, 0, width, height);
-            this.on('pointertap', (event) => {
+            this._wrapped = new Map();
+            super.on('pointerdown', (event) => this._grabStart(event));
+            super.on('pointermove', (event) => this._grabMove(event));
+            super.on('pointerup', () => this._grabEnd());
+            super.on('pointerupoutside', () => this._grabEnd());
+            super.on('pointertap', (event) => {
+                if (this._drag.moved > 6) return; // that was a drag, not a tap
                 const hits = this.hitTest(event.data.global.x, event.data.global.y);
                 if (hits.length) this.emit('hit', hits);
             });
@@ -328,6 +351,151 @@ function definePuppetClass(PIXI) {
             return this._renderer()?.view || null;
         }
 
+        // Mouse pulls ---------------------------------------------------------------------------
+        // Listeners others add for pointermove (the Live2D extension drags the model with it) are
+        // paused while the puppet's cloth, hair or body is being pulled.
+        on(event, fn, context) {
+            if (event !== 'pointermove' || typeof fn !== 'function') return super.on(event, fn, context);
+            const wrapped = (...args) => {
+                if (!this._drag.active) fn.apply(context ?? this, args);
+            };
+            this._wrapped.set(fn, wrapped);
+            return super.on(event, wrapped, context);
+        }
+
+        off(event, fn, context) {
+            if (event === 'pointermove' && this._wrapped?.has(fn)) {
+                const wrapped = this._wrapped.get(fn);
+                this._wrapped.delete(fn);
+                return super.off(event, wrapped, context);
+            }
+            return super.off(event, fn, context);
+        }
+
+        /** Which soft region ('Bust', 'Hips') a point on the canvas is over, or null. */
+        _softAt(x, y, grow = 1) {
+            const rig = this.doc.Rig;
+            for (const name of ['Bust', 'Hips']) {
+                const region = rig[name];
+                if (!region || !(region.Radius?.[0] > 0)) continue;
+                for (const [cx, cy] of region.Centers) {
+                    const dx = (x - cx) / (region.Radius[0] * grow);
+                    const dy = (y - cy) / (region.Radius[1] * grow);
+                    if (dx * dx + dy * dy <= 1) return name;
+                }
+            }
+            return null;
+        }
+
+        /**
+         * What a point on the canvas would pull: 'hair' (the front hair's ends), 'body' (a soft part,
+         * a skirt or ribbon, or with grabAnywhere the rest of the body), or null.
+         */
+        _grabbable(x, y) {
+            const rig = this.doc.Rig;
+            const inside = (entry, root) => entry && x >= entry.X && x <= entry.X + entry.Width && y >= root && y <= entry.Y + entry.Height;
+            const byId = (id) => this.doc.Layers.find(l => l.Id === id);
+            if (this._softAt(x, y, 1.15)) return 'body';
+            for (const h of rig.Hair || []) {
+                const entry = byId(h.Layer);
+                if (entry?.Role === 'front_hair' && inside(entry, h.Root + h.Length * 0.4) && this._opaqueAt(entry, x, y)) return 'hair';
+            }
+            for (const c of rig.Cloth || []) {
+                const entry = byId(c.Layer);
+                if (inside(entry, c.Root + c.Length * 0.3) && this._outerShown()) return 'body';
+            }
+            if (!this.grabAnywhere) return null;
+            const [, , , headBottom] = rig.Head.Box;
+            return y > headBottom ? 'body' : (this.doc.Layers.some(e => e.Role === 'front_hair' && inside(e, e.Y) && this._opaqueAt(e, x, y)) ? 'hair' : null);
+        }
+
+        /** Whether a layer's picture is solid at a point on the canvas (true when that can't be read). */
+        _opaqueAt(entry, x, y) {
+            const layer = this.layers?.find(l => l.entry === entry);
+            const source = layer?.mesh.texture?.baseTexture?.resource?.source;
+            if (!source || !source.width) return true;
+            if (!layer._pixels) {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = source.width;
+                    canvas.height = source.height;
+                    const g = canvas.getContext('2d');
+                    g.drawImage(source, 0, 0);
+                    layer._pixels = { data: g.getImageData(0, 0, canvas.width, canvas.height).data, width: canvas.width, height: canvas.height };
+                } catch (error) {
+                    return true;
+                }
+            }
+            const px = Math.floor((x - entry.X) / entry.Width * layer._pixels.width);
+            const py = Math.floor((y - entry.Y) / entry.Height * layer._pixels.height);
+            if (px < 0 || py < 0 || px >= layer._pixels.width || py >= layer._pixels.height) return false;
+            return layer._pixels.data[(py * layer._pixels.width + px) * 4 + 3] > 128;
+        }
+
+        _outerShown() {
+            return !this._hasBody || this.core.getParameterValueById('ParamClothesOuter') > 0.5;
+        }
+
+        _grabStart(event) {
+            const point = this.toLocal(event.data.global);
+            const d = this._drag;
+            d.moved = 0;
+            const kind = this._grabbable(point.x, point.y);
+            if (!kind) return;
+            d.kind = kind;
+            d.active = true;
+            d.sx = point.x;
+            d.sy = point.y;
+            d.tx = 0;
+            d.ty = 0;
+            d.start = this._time;
+            d.soft = this._softAt(point.x, point.y, 1.15);
+        }
+
+        _grabMove(event) {
+            const d = this._drag;
+            if (!d.active) return;
+            const point = this.toLocal(event.data.global);
+            const head = this.doc.Rig.Head;
+            const reach = (head.Box[3] - head.Box[1]) * 0.45 * ((this.doc.Rig.Strength || {}).drag ?? 1);
+            let dx = point.x - d.sx;
+            let dy = point.y - d.sy;
+            d.moved = Math.max(d.moved, Math.hypot(dx, dy) * Math.abs(this.scale.x || 1));
+            const length = Math.hypot(dx, dy);
+            // Pulls give way gradually: the further the mouse goes, the less the cloth follows.
+            if (length > 0) {
+                const eased = reach * Math.tanh(length / Math.max(1, reach));
+                dx *= eased / length;
+                dy *= eased / length;
+            }
+            d.tx = dx;
+            d.ty = dy;
+        }
+
+        _grabEnd() {
+            const d = this._drag;
+            if (!d.active) return;
+            d.active = false;
+            d.tx = 0;
+            d.ty = 0;
+            // A quick tap on a soft part pokes it: it bounces.
+            if (d.soft && d.moved <= 6) this.poke(d.sx, d.sy);
+        }
+
+        /** Poke the puppet at a point on the canvas: a soft part there bounces. */
+        poke(x, y, strength = 1) {
+            const name = this._softAt(x, y, 1.3);
+            if (!name) return false;
+            const region = this.doc.Rig[name];
+            region.Centers.forEach((_, index) => {
+                const state = this._soft[`${name}${index}`];
+                if (!state) return;
+                state.vy += region.Radius[1] * 2.2 * strength;
+                state.vx += (x - region.Centers[index][0]) * 1.5 * strength;
+            });
+            return true;
+        }
+
         _renderer() {
             let node = this;
             while (node.parent) node = node.parent;
@@ -352,11 +520,15 @@ function definePuppetClass(PIXI) {
                 const texture = await PIXI.Texture.fromURL(this.base + entry.Texture);
                 this.layers.push(this._makeLayer(entry, texture));
                 if (index === cheekAfter) {
-                    for (const side of Object.keys(rig.Eyes || {})) this.layers.push(this._makeCheek(side));
+                    for (const side of Object.keys(rig.Eyes || {})) {
+                        this.layers.push(this._makeCheek(side, false));
+                        this.layers.push(this._makeCheek(side, true));
+                    }
                 }
                 index += 1;
             }
             for (const layer of this.layers) this.addChild(layer.mesh);
+            this._hasBody = this.layers.some(l => l.role === 'nude_body');
             this._update(0);
         }
 
@@ -391,6 +563,7 @@ function definePuppetClass(PIXI) {
             const mesh = new PIXI.SimpleMesh(texture, Float32Array.from(rest), uvs, indices, PIXI.DRAW_MODES.TRIANGLES);
             mesh.autoUpdate = true;
             const hair = (this.doc.Rig.Hair || []).find(h => h.Layer === entry.Id);
+            const cloth = (this.doc.Rig.Cloth || []).find(c => c.Layer === entry.Id);
             return {
                 entry,
                 role: entry.Role,
@@ -399,31 +572,59 @@ function definePuppetClass(PIXI) {
                 rest,
                 out: mesh.vertices,
                 hair,
+                cloth,
                 dz: ROLE_DEPTH[entry.Role] ?? 0,
                 head: HEAD_ROLES.has(entry.Role) || entry.Role === 'neck',
             };
         }
 
-        _makeCheek(side) {
+        /**
+         * A blush for one cheek: a soft pink multiplied over the skin (so it takes the skin's tone),
+         * or, with hatch, the anime blush strokes drawn over it when the blush is strong.
+         */
+        _makeCheek(side, hatch) {
             const eye = this.doc.Rig.Eyes[side];
             const [l, t, r, b] = eye.Box;
-            const w = (r - l) * 1.15;
-            const h = (b - t) * 0.55;
+            const w = (r - l) * 1.25;
+            const h = (b - t) * 0.6;
             const canvas = document.createElement('canvas');
-            canvas.width = 128;
-            canvas.height = 64;
+            canvas.width = 256;
+            canvas.height = 128;
             const g = canvas.getContext('2d');
-            const gradient = g.createRadialGradient(64, 32, 2, 64, 32, 62);
-            gradient.addColorStop(0, 'rgba(255,110,130,0.85)');
-            gradient.addColorStop(1, 'rgba(255,110,130,0)');
-            g.setTransform(1, 0, 0, 0.5, 0, 16);
-            g.fillStyle = gradient;
-            g.fillRect(0, 0, 128, 128);
+            if (!hatch) {
+                const gradient = g.createRadialGradient(128, 64, 4, 128, 64, 124);
+                gradient.addColorStop(0, 'rgba(255,128,140,1)');
+                gradient.addColorStop(0.55, 'rgba(255,150,160,0.75)');
+                gradient.addColorStop(1, 'rgba(255,170,180,0)');
+                g.setTransform(1, 0, 0, 0.5, 0, 32);
+                g.fillStyle = gradient;
+                g.fillRect(0, 0, 256, 256);
+            } else {
+                // Short parallel strokes leaning outwards, thick in the middle, fading at the ends.
+                const lean = (side === 'R') === (this.doc.Rig.Head.Center[0] > (l + r) / 2) ? 1 : -1;
+                g.lineCap = 'round';
+                for (let i = 0; i < 4; i++) {
+                    const x = 70 + i * 36;
+                    const grad = g.createLinearGradient(x, 30, x + 18 * lean, 98);
+                    grad.addColorStop(0, 'rgba(225,70,95,0)');
+                    grad.addColorStop(0.5, 'rgba(225,70,95,0.9)');
+                    grad.addColorStop(1, 'rgba(225,70,95,0)');
+                    g.strokeStyle = grad;
+                    g.lineWidth = 7;
+                    g.beginPath();
+                    g.moveTo(x - 9 * lean, 34);
+                    g.lineTo(x + 9 * lean, 94);
+                    g.stroke();
+                }
+            }
             const entry = {
-                Id: `cheek_${side}`, Role: 'cheek', Side: side,
-                X: (l + r) / 2 - w / 2, Y: b + (b - t) * 0.15, Width: w, Height: h, Grid: [2, 2],
+                Id: `cheek_${side}${hatch ? '_hatch' : ''}`, Role: hatch ? 'cheek_hatch' : 'cheek', Side: side,
+                X: (l + r) / 2 - w / 2, Y: b + (b - t) * 0.05, Width: w, Height: h, Grid: [2, 2],
             };
             const layer = this._makeLayer(entry, PIXI.Texture.from(canvas));
+            layer.dz = ROLE_DEPTH.cheek;
+            layer.head = true;
+            if (!hatch && PIXI.BLEND_MODES?.MULTIPLY !== undefined) layer.mesh.blendMode = PIXI.BLEND_MODES.MULTIPLY;
             layer.mesh.alpha = 0;
             return layer;
         }
@@ -447,6 +648,12 @@ function definePuppetClass(PIXI) {
             if (!expression) {
                 expression = new Expression(await this._loadJson(item.File));
                 this._expressionCache.set(item.File, expression);
+            }
+            if (String(item.Name).startsWith('outfit_')) {
+                // Outfits stay on while the emotions change.
+                this._outfitOld = this._outfit;
+                this._outfit = { expression, start: this._time, name: item.Name };
+                return true;
             }
             for (const active of this._expressions) if (active.fadeOutStart === undefined) active.fadeOutStart = this._time;
             this._expressions.push({ expression, start: this._time, name: item.Name });
@@ -542,6 +749,43 @@ function definePuppetClass(PIXI) {
                 }
             }
 
+            // The outfit, over everything (Overwrite), cross-fading from the one before.
+            const applyOutfit = (active, weight) => {
+                for (const p of active.expression.parameters) {
+                    const i = core.getParameterIndex(p.id);
+                    if (i >= 0) values[i] = lerp(values[i], p.value, weight);
+                }
+            };
+            if (this._outfit) {
+                const e = this._outfit.expression;
+                const weight = smoothstep(0, 1, e.fadeIn > 0 ? clamp((now - this._outfit.start) / e.fadeIn, 0, 1) : 1);
+                if (this._outfitOld && weight < 1) applyOutfit(this._outfitOld, 1);
+                else this._outfitOld = null;
+                applyOutfit(this._outfit, weight);
+            }
+
+            // Ease every value towards where the motions and expressions put it (a critically damped
+            // spring), so expression changes glide and overlapping fades never jump.
+            if (!this._eased || this._eased.length !== values.length || dt <= 0) {
+                this._eased = Float32Array.from(values);
+                this._easedVelocity = new Float32Array(values.length);
+            } else {
+                const omega = 2 / EASE_TIME;
+                const f = 1 + 2 * dt * omega;
+                const oo = omega * omega;
+                const hoo = dt * oo;
+                const hhoo = dt * hoo;
+                const inv = 1 / (f + hhoo);
+                const x = this._eased, v = this._easedVelocity;
+                for (let i = 0; i < values.length; i++) {
+                    const target = values[i];
+                    const nx = (f * x[i] + dt * v[i] + hhoo * target) * inv;
+                    v[i] = (v[i] + hoo * (target - x[i])) * inv;
+                    x[i] = nx;
+                    values[i] = nx;
+                }
+            }
+
             // Blinking and breathing.
             const blink = this._autoBlink(dt);
             for (const id of ['ParamEyeLOpen', 'ParamEyeROpen']) {
@@ -600,10 +844,10 @@ function definePuppetClass(PIXI) {
             return open;
         }
 
-        _hairSwing(key, target, dt) {
+        _hairSwing(key, target, dt, spring) {
             const physics = this.doc.Rig.Physics || {};
-            const k = physics.stiffness ?? 18;
-            const d = physics.damping ?? 5.5;
+            const k = spring?.stiffness ?? physics.stiffness ?? 18;
+            const d = spring?.damping ?? physics.damping ?? 5.5;
             const state = this._hair[key] || (this._hair[key] = { x: target, v: 0 });
             const steps = Math.max(1, Math.ceil(dt / 0.008));
             const h = dt / steps;
@@ -613,6 +857,37 @@ function definePuppetClass(PIXI) {
                 state.x += state.v * h;
             }
             return state.x;
+        }
+
+        /** A 2D spring that follows (ax, ay) with a lag: returns the lag (how far the soft part trails). */
+        _softSpring(key, ax, ay, dt, k, d) {
+            const state = this._soft[key] || (this._soft[key] = { x: ax, y: ay, vx: 0, vy: 0 });
+            const steps = Math.max(1, Math.ceil(dt / 0.006));
+            const h = dt / steps;
+            for (let s = 0; s < steps; s++) {
+                state.vx += (k * (ax - state.x) - d * state.vx) * h;
+                state.vy += (k * (ay - state.y) - d * state.vy) * h;
+                state.x += state.vx * h;
+                state.y += state.vy * h;
+            }
+            return [state.x - ax, state.y - ay];
+        }
+
+        /** The mouse's pull: follows the pointer while dragging, springs back (and wobbles) after. */
+        _dragStep(dt) {
+            const d = this._drag;
+            const spring = (this.doc.Rig.Physics || {}).drag || {};
+            const k = d.active ? 260 : (spring.stiffness ?? 110);
+            const c = d.active ? 32 : (spring.damping ?? 5);
+            const steps = Math.max(1, Math.ceil(dt / 0.006));
+            const h = dt / steps;
+            for (let s = 0; s < steps; s++) {
+                d.vx += (k * (d.tx - d.x) - c * d.vx) * h;
+                d.vy += (k * (d.ty - d.y) - c * d.vy) * h;
+                d.x += d.vx * h;
+                d.y += d.vy * h;
+            }
+            return Math.abs(d.x) + Math.abs(d.y) + Math.abs(d.vx) + Math.abs(d.vy) > 0.05;
         }
 
         _deform(dt) {
@@ -653,6 +928,58 @@ function definePuppetClass(PIXI) {
             const mouthForm = P('ParamMouthForm');
             const hasMouthOpen = this.layers.some(l => l.role === 'mouth_open');
             const closedSides = new Set(this.layers.filter(l => l.role === 'eye_closed').map(l => l.side || 'LR'));
+            const outer = this._hasBody ? P('ParamClothesOuter') : 1;
+            const inner = P('ParamClothesInner');
+
+            // Where the body moves a point to (lean, turn, breathing, tilt): used for the vertices and
+            // to drive the soft parts, which trail behind that movement.
+            const bodyMove = (rx, ry, x, y) => {
+                const up = clamp((bpy - ry) / bodyH, 0, 1);
+                x += bx * 0.025 * bodyH * up;
+                y += by * 0.012 * bodyH * up;
+                y -= breath * (S.breath ?? 0.012) * bodyH * clamp((bpy - ry) / Math.max(1, bpy - chest), 0, 1);
+                if (bodyTilt) {
+                    const dx = x - bpx, dy = y - bpy;
+                    x = bpx + dx * cosB - dy * sinB;
+                    y = bpy + dx * sinB + dy * cosB;
+                }
+                return [x, y];
+            };
+
+            // Soft body: each bust and hip centre trails the body's movement on a bouncy spring.
+            const softPhysics = (rig.Physics || {}).soft || {};
+            const softRegions = [];
+            for (const name of ['Bust', 'Hips']) {
+                const region = rig[name];
+                const gain = name === 'Bust' ? (S.bust ?? 1) : (S.hips ?? 1);
+                if (!region || !(region.Radius?.[0] > 0) || gain <= 0) continue;
+                const [rx, ry] = region.Radius;
+                const param = name === 'Bust' ? ['ParamBustX', 'ParamBustY'] : ['ParamHipX', 'ParamHipY'];
+                region.Centers.forEach(([cx0, cy0], index) => {
+                    const [ax, ay] = bodyMove(cx0, cy0, cx0, cy0);
+                    // Breathing lifts the bust a touch more, so it never sits perfectly still.
+                    const lift = name === 'Bust' ? -breath * ry * 0.04 : 0;
+                    const k = (softPhysics.stiffness ?? 75) * (name === 'Hips' ? 0.7 : 1) * (index ? 1.06 : 1);
+                    const c = (softPhysics.damping ?? 3) * (name === 'Hips' ? 1.2 : 1);
+                    let [ox, oy] = this._softSpring(`${name}${index}`, ax, ay + lift, dt, k, c);
+                    ox = clamp(ox * 3 * gain, -rx * 0.3, rx * 0.3) + P(param[0]) * rx * 0.18;
+                    oy = clamp(oy * 3 * gain, -ry * 0.3, ry * 0.3) - P(param[1]) * ry * 0.18;
+                    softRegions.push({ cx: cx0, cy: cy0, rx, ry, ox, oy });
+                });
+            }
+
+            // Cloth: skirt hems and ribbons swing behind the body like hair, a little heavier.
+            const bodyW = Math.max(1, body.Box[2] - body.Box[0]);
+            const clothSwing = (rig.Cloth || []).length
+                ? this._hairSwing('cloth', -bx * 0.9 - P('ParamBodyAngleZ') / 10 * 0.7 + 0.08 * Math.sin(this._time * 0.9), dt, (rig.Physics || {}).cloth)
+                : 0;
+            const clothReach = (S.cloth ?? 0.05) * bodyW;
+
+            // The mouse's pull, strongest where the drag started.
+            const dragging = this._dragStep(dt);
+            const drag = this._drag;
+            const sigma = faceH * (drag.soft ? 0.4 : 0.32);
+            const twoSigma2 = 2 * sigma * sigma;
 
             for (const layer of this.layers) {
                 const { role, side, rest, out } = layer;
@@ -669,7 +996,10 @@ function definePuppetClass(PIXI) {
                 else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.12, 0.45, eyeOpen) : 1;
                 else if (role === 'mouth') alpha = hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1;
                 else if (role === 'mouth_open') alpha = smoothstep(0.15, 0.55, mouthOpen);
-                else if (role === 'cheek') alpha = clamp(P('ParamCheek'), 0, 1) * 0.55;
+                else if (role === 'cheek') alpha = clamp(P('ParamCheek'), 0, 1) * 0.85;
+                else if (role === 'cheek_hatch') alpha = smoothstep(0.35, 0.85, P('ParamCheek')) * 0.8;
+                else if (OUTER_ROLES.has(role)) alpha = clamp(outer, 0, 1);
+                else if (role === 'inner') alpha = clamp(inner, 0, 1);
                 layer.mesh.alpha = alpha;
                 layer.mesh.visible = alpha > 0.003;
                 if (!layer.mesh.visible) continue;
@@ -710,10 +1040,40 @@ function definePuppetClass(PIXI) {
                         y -= mouthForm * (S.mouth_form ?? 0.35) * mw * 0.3 * (n * n - 0.35);
                     }
 
-                    // Hair sway --------------------------------------------------------
+                    // Hair and cloth sway ----------------------------------------------
+                    let sway = 1;
                     if (layer.hair) {
                         const t = clamp((rest[k + 1] - layer.hair.Root) / layer.hair.Length, 0, 1);
                         x += hairSwing[role] * hairReach * t * t;
+                        sway = t;
+                    }
+                    if (layer.cloth) {
+                        const t = clamp((rest[k + 1] - layer.cloth.Root) / layer.cloth.Length, 0, 1);
+                        x += clothSwing * clothReach * t * t;
+                    }
+
+                    // Soft body jiggle ------------------------------------------------------
+                    const soft = SOFT_ROLES.has(role);
+                    if (soft) {
+                        for (const region of softRegions) {
+                            const dx = (rest[k] - region.cx) / region.rx;
+                            const dy = (rest[k + 1] - region.cy) / region.ry;
+                            const d2 = dx * dx + dy * dy;
+                            if (d2 >= 1) continue;
+                            const w = (1 - d2) * (1 - d2);
+                            x += region.ox * w;
+                            // Bouncing up stretches it a little, landing squashes it.
+                            y += region.oy * w + (rest[k + 1] - region.cy) * (region.oy / region.ry) * 0.25 * w;
+                        }
+                    }
+
+                    // The mouse's pull ---------------------------------------------------------
+                    if (dragging && (drag.kind === 'hair' ? layer.hair && role === 'front_hair' : soft || role === 'neck' || role === 'arm')) {
+                        const ddx = rest[k] - drag.sx;
+                        const ddy = rest[k + 1] - drag.sy;
+                        const w = Math.exp(-(ddx * ddx + ddy * ddy) / twoSigma2) * (layer.hair ? sway : 1);
+                        x += drag.x * w;
+                        y += drag.y * w;
                     }
 
                     // Head turn, nod and tilt -------------------------------------------
@@ -735,15 +1095,7 @@ function definePuppetClass(PIXI) {
                     }
 
                     // Body: lean, turn and breathing ------------------------------------
-                    const up = clamp((bpy - rest[k + 1]) / bodyH, 0, 1);
-                    x += bx * 0.025 * bodyH * up;
-                    y += by * 0.012 * bodyH * up;
-                    y -= breath * (S.breath ?? 0.012) * bodyH * clamp((bpy - rest[k + 1]) / Math.max(1, bpy - chest), 0, 1);
-                    if (bodyTilt) {
-                        const dx = x - bpx, dy = y - bpy;
-                        x = bpx + dx * cosB - dy * sinB;
-                        y = bpy + dx * sinB + dy * cosB;
-                    }
+                    [x, y] = bodyMove(rest[k], rest[k + 1], x, y);
                     out[k] = x;
                     out[k + 1] = y;
                 }

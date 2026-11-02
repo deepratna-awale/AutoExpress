@@ -49,6 +49,11 @@ _PARTS = {
     "objects": ("Objects", "Objects", 0),
     "eyes": ("Face", "Eyes", 2),
     "mouth": ("Mouth", "Mouth", 1),
+    # Made here, not by See-through: the hair colour painted under the bangs, and the swappable
+    # clothing layers (outfits.py) under See-through's clothes.
+    "hair underlay": ("Front hair", "Hair underlay", 5),
+    "inner wear": ("Body", "Inner wear", 15),
+    "nude body": ("Body", "Body", 20),
 }
 
 # Per-side parts: tag -> (group template, layer template, order). {s} is L or R.
@@ -220,6 +225,218 @@ def build_tree(parts: list[Part], overlays: list[Overlay] | None = None) -> tupl
         manifest.setdefault("switches", []).append({"layer": overlay.name, "group": overlay.group, "parameter": overlay.parameter})
     manifest["missing"] = [{"part": part, "message": message} for part, message in EXPECTED.items() if part not in grouped]
     return tree, manifest
+
+
+# Cleaning up the split -------------------------------------------------------------------
+# See-through leaves soft, half-transparent alpha inside skin and clothing (a see-through neck
+# with the collar showing behind it) and a faint veil around the front hair. Artists draw body
+# parts fully opaque with only an anti-aliased edge, so the alpha is pushed to that.
+SOLID_TAGS = ("face", "neck", "topwear", "bottomwear", "legwear", "footwear", "handwear", "neckwear", "ears", "headwear", "nude body", "inner wear")
+HAIR_TAGS = ("front hair", "back hair", "hair")
+
+
+def _alpha_ramp(low: int, high: int):
+    span = max(1, high - low)
+    return [0 if v <= low else 255 if v >= high else round((v - low) * 255 / span) for v in range(256)]
+
+
+_SOLID_RAMP = _alpha_ramp(16, 110)
+_HAIR_RAMP = _alpha_ramp(70, 170)
+
+
+def solidify(image: Image.Image, ramp=_SOLID_RAMP) -> Image.Image:
+    """image with its alpha pushed through ramp: the inside fully opaque, only the outer edge soft."""
+    image = image.convert("RGBA")
+    image.putalpha(image.getchannel("A").point(ramp))
+    return image
+
+
+def solidify_parts(parts: list[Part]) -> list[Part]:
+    """Skin, clothing and hair made opaque (see SOLID_TAGS); eyes, mouth and lines keep their alpha."""
+    result = []
+    for part in parts:
+        base = parse_tag(part.tag)[0]
+        if base in SOLID_TAGS:
+            part = dataclasses.replace(part, image=solidify(part.image))
+        elif base in HAIR_TAGS:
+            part = dataclasses.replace(part, image=solidify(part.image, _HAIR_RAMP))
+        result.append(part)
+    return result
+
+
+CLOTHING_TAGS = ("topwear", "bottomwear", "legwear", "footwear", "handwear", "neckwear", "headwear")
+_UNDER_TAGS = ("neck", "face")
+_SWITCH_TAGS = ("hair underlay", "nude body", "inner wear")
+
+
+def _on_canvas(part: Part, size, channel: str | None = None) -> Image.Image:
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    canvas.paste(part.image.convert("RGBA"), (part.left, part.top))
+    return canvas.getchannel(channel) if channel else canvas
+
+
+def _mismatch(layer: Image.Image, picture: Image.Image, threshold: int) -> Image.Image:
+    """Where layer's colour differs from picture's by more than threshold (mode L, 0/255), specks dropped."""
+    diff = ImageChops.difference(layer.convert("RGB"), picture.convert("RGB"))
+    r, g, b = diff.split()
+    worst = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    mask = worst.point(lambda v: 255 if v > threshold else 0)
+    return mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+
+
+def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48) -> list[Part]:
+    """
+    Make the layers agree with the picture they were split from (picture: RGB on the split's canvas).
+
+    1. Clothing drawn over the neck or face where the picture shows the neck or face (the back of a
+       collar, which See-through often leaves in the top layer, looking like the collar seen through
+       a see-through neck) is cut out of the clothing.
+    2. Wherever a layer is the one on top and its colour is far from the picture's (grey patches in
+       the back hair, smudges in the inpainting), it takes the picture's colour, so the puppet at
+       rest looks like the picture.
+    """
+    size = picture.size
+    picture = picture.convert("RGB")
+    parts = list(parts)
+    # 1. Clothing over the neck and face.
+    unders = [p for p in parts if parse_tag(p.tag)[0] in _UNDER_TAGS]
+    for index, part in enumerate(parts):
+        if parse_tag(part.tag)[0] not in CLOTHING_TAGS or not unders:
+            continue
+        layer = _on_canvas(part, size)
+        solid = layer.getchannel("A").point(lambda v: 255 if v > 200 else 0)
+        wrong = ImageChops.multiply(solid, _mismatch(layer, picture, threshold))
+        if wrong.getbbox() is None:
+            continue
+        cut = Image.new("L", size, 0)
+        for under in unders:
+            other = _on_canvas(under, size)
+            fits = ImageChops.multiply(other.getchannel("A").point(lambda v: 255 if v > 200 else 0), _mismatch(other, picture, threshold // 2).point(lambda v: 255 - v))
+            cut = ImageChops.lighter(cut, ImageChops.multiply(wrong, fits))
+        cut = cut.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+        if cut.getbbox() is None:
+            continue
+        alpha = ImageChops.subtract(layer.getchannel("A"), cut.filter(ImageFilter.GaussianBlur(1)))
+        layer.putalpha(alpha)
+        box = alpha.getbbox()
+        if box:
+            parts[index] = dataclasses.replace(part, image=layer.crop(box), left=box[0], top=box[1])
+    # 2. Visible colour from the picture (the character only: not the picture's background).
+    tree, _ = build_tree(parts)
+    by_image = {id(p.image): i for i, p in enumerate(parts)}
+    background = picture.getpixel((0, 0))
+    subject = ImageChops.difference(picture, Image.new("RGB", size, background)).convert("L").point(lambda v: 255 if v > 20 else 0)
+    covered = Image.new("L", size, 0)
+    for group in tree:
+        for layer in group.children:
+            index = by_image.get(id(layer.image))
+            if index is None or not layer.visible:
+                continue
+            part = parts[index]
+            canvas = _on_canvas(part, size)
+            solid = canvas.getchannel("A").point(lambda v: 255 if v > 230 else 0)
+            visible = ImageChops.subtract(solid, covered)
+            covered = ImageChops.lighter(covered, solid)
+            if parse_tag(part.tag)[0] in _SWITCH_TAGS:
+                continue
+            if parse_tag(part.tag)[0] in HAIR_TAGS:
+                canvas = _even_hidden_hair(canvas, solid, visible)
+            # Stay off the layer's own edge, where the split's anti-aliasing never matches exactly.
+            inside = solid.filter(ImageFilter.MinFilter(5))
+            fix = ImageChops.multiply(ImageChops.multiply(visible, inside), ImageChops.multiply(subject, _mismatch(canvas, picture, threshold)))
+            fixed = canvas
+            if fix.getbbox() is not None:
+                fixed = Image.composite(Image.merge("RGBA", (*picture.split(), canvas.getchannel("A"))), canvas, fix.filter(ImageFilter.GaussianBlur(1.5)))
+            parts[index] = dataclasses.replace(part, image=fixed.crop((part.left, part.top, part.left + part.image.width, part.top + part.image.height)))
+    return parts
+
+
+def _even_hidden_hair(canvas: Image.Image, solid: Image.Image, visible: Image.Image) -> Image.Image:
+    """
+    Hair the picture hides (behind the face and clothes) that the split painted in pale grey gets the
+    hair's own colour, so it doesn't flash grey when the front moves aside.
+    """
+    seen = ImageChops.multiply(visible, solid)
+    if ImageStat.Stat(seen).sum[0] < 255 * 200:
+        seen = solid
+    rgb = canvas.convert("RGB")
+    grey = rgb.convert("L")
+    level = ImageStat.Stat(grey, seen).median[0]
+    colour = _median_colour(rgb, seen)
+    hidden = ImageChops.subtract(solid, visible.filter(ImageFilter.MaxFilter(5)))
+    pale = ImageChops.multiply(hidden, grey.point(lambda v: 255 if v > level + 45 else 0))
+    pale = pale.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.GaussianBlur(2))
+    if pale.getbbox() is None:
+        return canvas
+    flat = Image.new("RGBA", canvas.size, colour + (255,))
+    flat.putalpha(canvas.getchannel("A"))
+    return Image.composite(flat, canvas, pale)
+
+
+def _median_colour(image: Image.Image, mask: Image.Image) -> tuple[int, int, int]:
+    stat = ImageStat.Stat(image.convert("RGB"), mask)
+    return tuple(int(v) for v in stat.median) if stat.count[0] else (60, 50, 50)
+
+
+def hair_underlay(parts: list[Part], size) -> Part | None:
+    """
+    The hair colour painted under the bangs, from the hairline down to the brows (a Part, or None).
+
+    The front hair sways, and without this the forehead skin (or nothing) shows where a strand
+    was. Artists paint that area in a darker hair colour; this takes the front hair's own shape
+    above the brows, filled with its darker tones, so a swaying strand uncovers hair. It stays
+    with the head and doesn't sway. Below the brows nothing is added: strands moving over the
+    eyes should show the eyes.
+    """
+    hair = _alpha_union(parts, size, ("front hair",))
+    box = hair.getbbox()
+    if box is None:
+        return None
+    face = _alpha_union(parts, size, ("face",)).getbbox()
+    brows = _alpha_union(parts, size, ("eyebrow", "brow")).getbbox()
+    eyes = _alpha_union(parts, size, ("eyewhite", "irides", "eyelash", "eye", "eyes")).getbbox()
+    if brows:
+        limit = brows[1] + (brows[3] - brows[1]) * 0.5
+    elif eyes:
+        limit = eyes[1] - (eyes[3] - eyes[1]) * 0.4
+    elif face:
+        limit = face[1] + (face[3] - face[1]) * 0.35
+    else:
+        return None
+    fade = max(4, (face[3] - face[1]) * 0.06 if face else 12)
+    solid = hair.point(lambda v: 255 if v > 128 else 0)
+    # A little wider than the hair so its anti-aliased edge never shows skin either.
+    grow = max(3, (box[2] - box[0]) // 150) * 2 + 1
+    shape = solid.filter(ImageFilter.MaxFilter(grow))
+    # Only over the head: not the strands hanging down past the face.
+    if face:
+        reach = (face[2] - face[0]) * 0.12
+        region = Image.new("L", size, 0)
+        ImageDraw.Draw(region).rectangle((face[0] - reach, 0, face[2] + reach, size[1]), fill=255)
+        shape = ImageChops.multiply(shape, region)
+    gradient = Image.new("L", (1, size[1]), 0)
+    gradient.putdata([255 if y < limit - fade else 0 if y > limit else round(255 * (limit - y) / fade) for y in range(size[1])])
+    shape = ImageChops.multiply(shape, gradient.resize(size))
+    if shape.getbbox() is None:
+        return None
+    # The darker half of the hair's colours: the shade under the bangs.
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    for part in parts:
+        if parse_tag(part.tag)[0] == "front hair":
+            canvas.alpha_composite(part.image.convert("RGBA"), (part.left, part.top))
+    rgb = canvas.convert("RGB")
+    grey = rgb.convert("L")
+    median = _median_colour(rgb, solid)
+    dark_mask = ImageChops.multiply(solid, grey.point(lambda v, m=sum(median) / 3: 255 if v <= m else 0))
+    colour = _median_colour(rgb, dark_mask if dark_mask.getbbox() else solid)
+    colour = tuple(round(c * 0.85) for c in colour)
+    # Blur the hair itself under it so it keeps a little of the strands' shading.
+    art = Image.new("RGBA", size, colour + (0,))
+    texture = Image.blend(Image.new("RGB", size, colour), rgb.filter(ImageFilter.GaussianBlur(6)), 0.35)
+    art.paste(texture, (0, 0))
+    art.putalpha(shape)
+    crop = shape.getbbox()
+    return Part("hair underlay", art.crop(crop), crop[0], crop[1], depth=min((p.depth for p in parts if parse_tag(p.tag)[0] == "front hair"), default=0.0) + 0.0005)
 
 
 # Extra art from edited copies ----------------------------------------------------------
@@ -478,15 +695,16 @@ def crop_parts(parts: list[Part], box: tuple[int, int, int, int]) -> list[Part]:
 # Layer split settings --------------------------------------------------------------
 SEETHROUGH_REPO = "https://github.com/jtydhr88/ComfyUI-See-through"
 VRAM_NOTE = (
-    "See-through needs about 12-16 GB of VRAM at 1280 px (8 GB with the 4-bit models). "
+    "See-through needs about 12-16 GB of VRAM at 1280 px and 20-24 GB at 2048 px (8 GB at 1280 px with the 4-bit models). "
     "A rented GPU (RunPod etc.) works the same as a local one; its models (about 10 GB) download on first use."
 )
 
 
 @dataclasses.dataclass(frozen=True)
 class SplitSettings:
-    # The square size See-through works at (the picture is padded to a square). 1024-2048.
-    resolution: int = 1280
+    # The square size See-through works at (the picture is padded to a square). 768-2048. The
+    # layers become the puppet's textures, so the default is the highest.
+    resolution: int = 2048
     steps: int = 30
     seed: int = 42
     # 4-bit models for 8-12 GB GPUs (needs bitsandbytes on the ComfyUI side).

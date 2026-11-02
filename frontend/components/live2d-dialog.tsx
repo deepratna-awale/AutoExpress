@@ -52,9 +52,13 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const [name, setName] = useState("");
   const [loras, setLoras] = useState<CharacterLoraResult[] | null>(null);
   const [lora, setLora] = useState<CharacterLoraResult | null>(null);
-  const [resolution, setResolution] = useState(1280);
+  const [resolution, setResolution] = useState(2048);
   const [lowVram, setLowVram] = useState(false);
   const [variants, setVariants] = useState(true);
+  const [outfitLayers, setOutfitLayers] = useState(false);
+  const [adultConfirmed, setAdultConfirmed] = useState(false);
+  const [description, setDescription] = useState("");
+  const [innerWear, setInnerWear] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -138,6 +142,10 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           resolution,
           low_vram: lowVram,
           variants: variants ? "auto" : "none",
+          outfit_layers: outfitLayers,
+          adult_confirmed: outfitLayers && adultConfirmed,
+          ...(outfitLayers && description.trim() ? { character_description: description.trim() } : {}),
+          ...(outfitLayers && innerWear.trim() ? { inner_wear: innerWear.trim() } : {}),
           ...(chosen !== null ? { base_index: chosen } : {}),
         },
         character_lora: lora ? { entry: lora.entry, installed_name: lora.installed_name } : null,
@@ -340,10 +348,55 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               </div>
             </section>
 
+            {/* Swappable clothing */}
+            <section className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <Label htmlFor="live2d-outfits">Swappable clothing</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Body, inner wear and outer clothes as separate layers the puppet can switch. Drawn adult characters only, never photos.
+                  </p>
+                </div>
+                <Switch id="live2d-outfits" checked={outfitLayers} onCheckedChange={setOutfitLayers} />
+              </div>
+              {outfitLayers && (
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={adultConfirmed}
+                      onChange={(e) => setAdultConfirmed(e.target.checked)}
+                    />
+                    <span>This character is an adult (18 or older) and the picture is a drawing, not a photo of a real person.</span>
+                  </label>
+                  <Label htmlFor="live2d-description">Character description (optional)</Label>
+                  <textarea
+                    id="live2d-description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={2}
+                    maxLength={2000}
+                    placeholder="Build, skin, anything the body layer should match"
+                    className="w-full rounded-md border bg-background px-2 py-1 text-sm"
+                  />
+                  <Label htmlFor="live2d-inner">Inner wear (optional)</Label>
+                  <input
+                    id="live2d-inner"
+                    value={innerWear}
+                    onChange={(e) => setInnerWear(e.target.value)}
+                    maxLength={200}
+                    placeholder="a simple matching set"
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  />
+                </div>
+              )}
+            </section>
+
             {error && <p className="text-sm text-red-600">{error}</p>}
 
             <div className="flex items-center gap-3">
-              <Button onClick={build} disabled={!pictures.length || !!busy || !!running || (info !== null && !info.ready)}>
+              <Button onClick={build} disabled={!pictures.length || !!busy || !!running || (info !== null && !info.ready) || (outfitLayers && !adultConfirmed)}>
                 {busy || running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Build the kit
               </Button>

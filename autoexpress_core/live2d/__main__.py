@@ -5,7 +5,7 @@ Live2D model kits from the command line.
         Check pictures for a Live2D model and print the advice.
     python -m autoexpress_core.live2d kit --url http://127.0.0.1:8188 --name hinata picture.png [more.png ...]
         Build a model kit with a ComfyUI that has the See-through nodes (and Qwen-Image-Edit for the
-        eyes-closed / mouth-open art).
+        eyes-closed / mouth-open art). --outfits --adult adds swappable clothing (drawn adult characters only).
     python -m autoexpress_core.live2d attach path/to/exported_model_folder
         Add the 28 emotions' expressions and motions to a rigged model (a folder with a .model3.json)
         and write sillytavern_settings.json for the SillyTavern Live2D extension.
@@ -50,6 +50,13 @@ def _kit(args) -> int:
             image.load()
             images.append(image.copy())
     settings = {"resolution": args.resolution, "low_vram": args.low_vram, "variants": args.variants}
+    if args.outfits:
+        settings.update(
+            outfit_layers=True,
+            adult_confirmed=args.adult,
+            character_description=args.description or "",
+            inner_wear=args.inner_wear or "",
+        )
     result = build_kit(backend, images, args.output, args.name, settings, log=print)
     print(json.dumps({"zip": str(result.zip_path), "missing": result.manifest["missing"], "notes": result.manifest["notes"]}, indent=2))
     return 0
@@ -92,9 +99,13 @@ def main(argv=None) -> int:
     kit.add_argument("--url", default="http://127.0.0.1:8188", help="ComfyUI's address")
     kit.add_argument("--name", default="character")
     kit.add_argument("--output", default="Output")
-    kit.add_argument("--resolution", type=int, default=1280)
+    kit.add_argument("--resolution", type=int, default=2048)
     kit.add_argument("--low-vram", action="store_true", help="4-bit See-through models for 8-12 GB GPUs")
     kit.add_argument("--variants", default="auto", choices=["auto", "instruct", "inpaint", "none"], help="how to draw the eyes-closed and mouth-open art")
+    kit.add_argument("--outfits", action="store_true", help="swappable clothing: body, inner wear and outer clothes as separate layers (drawn adult characters only)")
+    kit.add_argument("--adult", action="store_true", help="confirm the character is an adult (needed with --outfits)")
+    kit.add_argument("--description", default="", help="the character's description, for the body and inner wear edits")
+    kit.add_argument("--inner-wear", default="", help="what the inner wear looks like (default: a simple matching set)")
     kit.set_defaults(run=_kit)
 
     attach = commands.add_parser("attach", help="add the 28 emotions to a rigged model folder")

@@ -68,6 +68,9 @@ SEETHROUGH_NODES = (
     "SeeThrough_SavePSD",
 )
 SEETHROUGH_INFO_LOG = "seethrough_psd_info.log"
+# The depth pass only orders the layers, and above about 1280 px its kernels fail on some GPUs
+# (CUDA "invalid configuration argument" at 2048 on an RTX PRO 6000).
+DEPTH_MAX = 1280
 
 IMPACT_PACK = "https://github.com/ltdrdata/ComfyUI-Impact-Pack"
 IMPACT_SUBPACK = "https://github.com/ltdrdata/ComfyUI-Impact-Subpack"
@@ -627,7 +630,7 @@ class ComfyUIClient(RemoteBackend):
             },
             "depth": {
                 "class_type": "SeeThrough_GenerateDepth",
-                "inputs": {"layers": ["layers", 0], "depth_model": ["depth_model", 0], "seed": settings.seed, "resolution_depth": -1},
+                "inputs": {"layers": ["layers", 0], "depth_model": ["depth_model", 0], "seed": settings.seed, "resolution_depth": min(settings.resolution, DEPTH_MAX)},
             },
             "post": {"class_type": "SeeThrough_PostProcess", "inputs": {"layers_depth": ["depth", 0], "tblr_split": True, "use_lama": True}},
             "save": {"class_type": "SeeThrough_SavePSD", "inputs": {"parts": ["post", 0], "filename_prefix": prefix}},
@@ -652,6 +655,44 @@ class ComfyUIClient(RemoteBackend):
         response = self._request("GET", "/view", params={"filename": filename, "subfolder": subfolder, "type": "output"}, timeout=120)
         self._check(response, f"download of {filename}")
         return response.content
+
+    # Upscale models for drawn art, best first (the setup script downloads the first).
+    UPSCALE_MODELS = ("4x-AnimeSharp", "RealESRGAN_x4plus_anime_6B", "4x_foolhardy_Remacri", "RealESRGAN_x4plus", "4x-UltraSharp")
+
+    def upscale_model(self) -> str | None:
+        """The upscale model to use, or None when ComfyUI has none."""
+        try:
+            choices = self.options("UpscaleModelLoader", "model_name")
+        except BackendError:
+            return None
+        for wanted in self.UPSCALE_MODELS:
+            match = next((c for c in choices if wanted.lower() in c.lower()), None)
+            if match:
+                return match
+        return choices[0] if choices else None
+
+    def upscale(self, image: str) -> Image.Image | None:
+        """A base64 picture upscaled with ComfyUI's upscale model (usually 4x), or None without one or on failure."""
+        model = self.upscale_model()
+        if model is None:
+            return None
+        self._interrupted.clear()
+        self.last_error = None
+        try:
+            workflow = {
+                "image": {"class_type": "LoadImage", "inputs": {"image": self.upload_image(image)}},
+                "model": {"class_type": "UpscaleModelLoader", "inputs": {"model_name": model}},
+                "upscale": {"class_type": "ImageUpscaleWithModel", "inputs": {"upscale_model": ["model", 0], "image": ["image", 0]}},
+                "output": {"class_type": "PreviewImage", "inputs": {"images": ["upscale", 0]}},
+            }
+            self._prompt_id = self.queue_prompt(workflow)
+            return self.fetch_image(self.wait_for(self._prompt_id)).convert("RGB")
+        except BackendError as e:
+            return self._fail(e, "upscale")
+        except (KeyError, ValueError, TypeError, OSError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "upscale")
+        finally:
+            self._prompt_id = None
 
     def decompose_layers(self, image: str, settings: "live2d_layers.SplitSettings") -> tuple[list, tuple[int, int]] | None:
         """

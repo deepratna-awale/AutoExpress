@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 from autoexpress_core.backends.comfyui_api import ComfyUIClient
 from autoexpress_core.images import b64_to_pil, pil_to_b64
-from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, psd, puppet
+from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, outfits, psd, puppet
 
 from test_remote_backends import ComfySession, FakeResponse, comfy_routes
 
@@ -24,11 +24,16 @@ def blob(size, box, color, shape="ellipse"):
     return image
 
 
-def character(size=(400, 400), eyes_closed=False, mouth_open=False) -> Image.Image:
-    """A simple drawn character on white: back hair, face, eyes, mouth, front hair, body."""
-    image = Image.new("RGB", size, (255, 255, 255))
+def character(size=(400, 400), eyes_closed=False, mouth_open=False, outfit="clothed") -> Image.Image:
+    """A simple drawn character on white: back hair, face, eyes, mouth, front hair, body (clothed, inner or nude)."""
+    image = Image.new("RGB", (400, 400), (255, 255, 255))
     draw = ImageDraw.Draw(image)
-    draw.rectangle((140, 260, 260, 399), fill=(60, 90, 160))  # body
+    if outfit == "clothed":
+        draw.rectangle((140, 260, 260, 399), fill=(60, 90, 160))  # body
+    else:
+        draw.rectangle((150, 260, 250, 399), fill=(245, 215, 195))  # the body under the clothes
+        if outfit == "inner":
+            draw.rectangle((150, 300, 250, 330), fill=(20, 20, 20))
     draw.ellipse((110, 60, 290, 280), fill=(70, 40, 30))  # back hair
     draw.ellipse((135, 90, 265, 250), fill=(250, 220, 200))  # face
     for x in (165, 215):
@@ -42,7 +47,7 @@ def character(size=(400, 400), eyes_closed=False, mouth_open=False) -> Image.Ima
     else:
         draw.line((190, 212, 210, 212), fill=(150, 60, 60), width=2)
     draw.rectangle((130, 70, 270, 110), fill=(80, 50, 35))  # fringe
-    return image
+    return image.resize(size) if size != (400, 400) else image
 
 
 def seethrough_parts(canvas=400):
@@ -365,7 +370,8 @@ class FakeBackend:
     def decompose_layers(self, image, settings):
         self.calls.append(("split", settings))
         picture = b64_to_pil(image)
-        assert picture.size == (400, 400) and settings.resolution == 1024
+        # Small pictures are upscaled to the split's resolution first.
+        assert picture.size == (1024, 1024) and settings.resolution == 1024
         # See-through works on a square canvas at its resolution; the picture is already square here.
         scale = settings.resolution / 400
         parts = []
@@ -537,7 +543,7 @@ def test_comfyui_splits_layers_with_see_through():
     assert workflow["layerdiff"]["inputs"]["model"] == "layerdifforg/seethroughv0.0.2_layerdiff3d"
     assert workflow["depth_model"]["inputs"]["model"] == "seethroughv0.0.1_marigold"  # the local copy
     assert "group_offload" not in workflow["depth_model"]["inputs"]  # this version doesn't take it
-    assert workflow["layers"]["inputs"]["seed"] == 7 and workflow["layers"]["inputs"]["resolution"] == 1280
+    assert workflow["layers"]["inputs"]["seed"] == 7 and workflow["layers"]["inputs"]["resolution"] == 2048
     assert workflow["post"]["inputs"]["new_required"] == 5  # filled from object_info
     assert workflow["save"]["inputs"]["filename_prefix"].startswith("autoexpress_live2d_")
 
@@ -581,3 +587,161 @@ def test_other_backends_cant_split_layers():
     assert not backend.can_decompose
     ok, message = backend.check_ready(DECOMPOSE)
     assert not ok and "See-through" in message
+
+
+# Cleaning the split, outfits, soft body ------------------------------------------------------
+def test_solidify_makes_skin_opaque_but_keeps_the_edge():
+    image = Image.new("RGBA", (10, 1), (200, 150, 140, 0))
+    for x, alpha in enumerate((0, 10, 40, 80, 120, 150, 200, 255, 255, 255)):
+        image.putpixel((x, 0), (200, 150, 140, alpha))
+    alphas = [image.getpixel((x, 0))[3] for x in range(10)]
+    solid = [layers.solidify(image).getpixel((x, 0))[3] for x in range(10)]
+    assert solid[0] == 0 and solid[1] == 0  # outside stays outside
+    assert 0 < solid[2] < 255 and solid[2] > alphas[2]  # the anti-aliased edge stays soft
+    assert all(v == 255 for v in solid[4:])  # a half-transparent neck becomes solid
+    parts = layers.solidify_parts([layers.Part("neck", image), layers.Part("irides-l", image)])
+    assert parts[0].image.getpixel((5, 0))[3] == 255 and parts[1].image.getpixel((5, 0))[3] == 150
+
+
+def test_hair_underlay_paints_hair_colour_under_the_bangs_above_the_brows():
+    size = (400, 400)
+    parts = seethrough_parts() + [layers.Part("eyebrow-l", blob(size, (215, 130, 237, 136), (60, 30, 20, 255), "rectangle"), 0, 0, 0.44)]
+    underlay = layers.hair_underlay(parts, size)
+    assert underlay is not None and underlay.tag == "hair underlay"
+    assert underlay.top >= 60 and underlay.top + underlay.image.height <= 136  # not below the brows
+    r, g, b, a = underlay.image.getpixel((underlay.image.width // 2, 10))
+    assert a == 255 and abs(r - 80 * 0.85) < 25 and b < 60  # the darker hair colour
+    tree, _ = layers.build_tree(parts + [underlay])
+    front = next(group for group in tree if group.name == "Front hair")
+    assert [layer.name for layer in front.children] == ["Front hair", "Hair underlay"]  # under the bangs, over the face
+    assert puppet.role_of("Front hair", "Hair underlay") == ("hair_under", None)
+
+
+def test_match_picture_cuts_collars_over_the_neck_and_fixes_grey_hair():
+    size = (200, 200)
+    picture = Image.new("RGB", size, (255, 255, 255))
+    draw = ImageDraw.Draw(picture)
+    draw.rectangle((80, 40, 120, 120), fill=(240, 200, 180))  # neck
+    draw.rectangle((40, 120, 160, 199), fill=(60, 90, 160))  # shirt
+    draw.rectangle((10, 20, 30, 199), fill=(70, 40, 30))  # hair at the side
+    neck = layers.Part("neck", blob(size, (80, 40, 120, 130), (240, 200, 180, 255), "rectangle"), 0, 0, 0.5)
+    # The split's shirt also has the back of the collar over the neck.
+    shirt_image = blob(size, (40, 120, 160, 199), (60, 90, 160, 255), "rectangle")
+    ImageDraw.Draw(shirt_image).rectangle((80, 80, 120, 120), fill=(50, 70, 120, 255))
+    shirt = layers.Part("topwear", shirt_image, 0, 0, 0.4)
+    hair = layers.Part("back hair", blob(size, (10, 20, 30, 199), (180, 180, 180, 255), "rectangle"), 0, 0, 0.9)
+    fixed = {p.tag: p for p in layers.match_picture([neck, shirt, hair], picture)}
+    top = fixed["topwear"]
+    assert top.image.getpixel((100 - top.left, 100 - top.top))[3] == 0  # collar gone from over the neck
+    assert top.image.getpixel((100 - top.left, 160 - top.top))[3] == 255  # the shirt itself stays
+    r, g, b, _ = fixed["back hair"].image.getpixel((20 - fixed["back hair"].left, 100 - fixed["back hair"].top))
+    assert (r, g, b) == (70, 40, 30)  # visible grey hair takes the picture's colour
+
+
+def test_outfit_layers_need_an_adult_drawn_character():
+    drawn = character()
+    on = {"outfit_layers": True, "adult_confirmed": True}
+    assert outfits.check(on, drawn, "mira") == (True, "")
+    assert not outfits.check({"outfit_layers": True}, drawn)[0]  # no adult confirmation
+    assert not outfits.check({}, drawn)[0]
+    assert not outfits.check({**on, "is_realistic": True}, drawn)[0]
+    noisy = Image.effect_noise((400, 400), 60).convert("RGB")  # grain everywhere, like a photo
+    allowed, reason = outfits.check(on, noisy)
+    assert not allowed and "photo" in reason
+    for text in ("a shy schoolgirl", "she is 15 years old", "loli", "aged 12", "a teen idol"):
+        assert not outfits.check({**on, "character_description": text}, drawn)[0], text
+    for text in ("a 19 year old person", "nineteen, tall", "18 years old", "an adult sorceress, 25", "Sonia, a swordswoman"):
+        assert outfits.blocked_terms(text) == [], text
+
+
+def test_outfit_parts_cut_the_body_and_inner_wear():
+    size = (400, 400)
+    parts = seethrough_parts()
+    nude = character(outfit="nude").convert("RGBA")
+    inner = character(outfit="inner").convert("RGBA")
+    extra = outfits.outfit_parts(parts, size, nude, inner)
+    assert [p.tag for p in extra] == ["nude body", "inner wear"]
+    body, wear = extra
+    assert body.top >= 230  # below the chin: no copy of the face
+    assert body.image.getpixel((200 - body.left, 350 - body.top))[:3] == (245, 215, 195)
+    assert wear.top >= 295 and wear.top + wear.image.height <= 340  # just the inner wear
+    tree, _ = layers.build_tree(parts + extra)
+    names = [layer.name for layer in next(g for g in tree if g.name == "Body").children]
+    assert names[-2:] == ["Inner wear", "Body"]  # under the clothes: body at the bottom
+
+
+class OutfitBackend(FakeBackend):
+    def instruction_edit(self, image, instruction, settings):
+        if "Remove all of the clothing" in instruction or "Dress " in instruction:
+            self.calls.append(("edit", instruction))
+            return character(b64_to_pil(image).size, outfit="nude" if "Remove" in instruction else "inner")
+        return super().instruction_edit(image, instruction, settings)
+
+
+def test_build_kit_with_swappable_clothing(tmp_path):
+    backend = OutfitBackend()
+    settings = {"resolution": 1024, "outfit_layers": True, "adult_confirmed": True, "character_description": "an adult knight", "inner_wear": "black lace"}
+    result = kit.build_kit(backend, [character()], tmp_path, "mira", settings, log=lambda _: None)
+    edits = [call[1] for call in backend.calls if call[0] == "edit"]
+    assert any("Remove all of the clothing" in e and "an adult knight" in e for e in edits)
+    assert any(e.startswith("Dress her in black lace") for e in edits)
+    assert result.manifest["outfits"]["made"] == ["nude body", "inner wear"]
+    folder = result.folder / "puppet" / "mira"
+    document = puppet.load(folder / "mira.puppet.model.json")
+    roles = [e["Role"] for e in document["Layers"]]
+    assert roles.index("nude_body") < roles.index("inner") < roles.index("clothing")
+    assert document["Outfits"] == ["outfit_full", "outfit_inner", "outfit_nude"]
+    nude = json.loads((folder / "expressions" / "outfit_nude.exp3.json").read_text())
+    assert {p["Id"]: p["Value"] for p in nude["Parameters"]} == {"ParamClothesOuter": 0, "ParamClothesInner": 0}
+    assert "hair_under" in roles
+
+
+def test_build_kit_refuses_clothing_layers_without_confirmation(tmp_path):
+    backend = OutfitBackend()
+    result = kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024, "outfit_layers": True}, log=lambda _: None)
+    assert not any("Remove all" in call[1] for call in backend.calls if call[0] == "edit")
+    assert "confirm" in result.manifest["outfits"]["refused"]
+    document = puppet.load(result.folder / "puppet" / "mira" / "mira.puppet.model.json")
+    assert document["Outfits"] == [] and "nude_body" not in {e["Role"] for e in document["Layers"]}
+
+
+def test_puppet_rig_has_soft_body_and_cloth_for_a_full_body():
+    size = (400, 1000)
+    parts = [
+        layers.Part("face", blob(size, (160, 40, 240, 140), (250, 220, 200, 255)), 0, 0, 0.5),
+        layers.Part("neck", blob(size, (185, 130, 215, 175), (250, 220, 200, 255), "rectangle"), 0, 0, 0.55),
+        layers.Part("topwear", blob(size, (120, 170, 280, 480), (60, 90, 160, 255), "rectangle"), 0, 0, 0.6),
+        layers.Part("bottomwear", blob(size, (110, 470, 290, 700), (160, 40, 60, 255), "rectangle"), 0, 0, 0.6),
+        layers.Part("legwear", blob(size, (140, 690, 260, 990), (30, 30, 30, 255), "rectangle"), 0, 0, 0.6),
+    ]
+    tree, manifest = layers.build_tree(parts)
+    entries = [{"Id": l.name, "Role": puppet.role_of(g.name, l.name)[0], "Side": None, "X": l.left, "Y": l.top, "Width": l.image.width,
+                "Height": l.image.height, "Depth": 0.5, **({"Garment": l.name.lower()} if puppet.role_of(g.name, l.name)[0] == "clothing" else {})}
+               for g in tree for l in g.children]
+    for entry in entries:
+        box = entry and layers.part_box(next(p for p in parts if layers.classify(p.tag)[1] == entry["Id"]))
+        entry.update(X=box[0], Y=box[1], Width=box[2] - box[0], Height=box[3] - box[1])
+    rig = puppet.build_rig(entries, size)
+    bust, hips = rig["Bust"], rig["Hips"]
+    assert len(bust["Centers"]) == 2 and 140 < bust["Centers"][0][1] < hips["Centers"][0][1] < 990
+    assert [c["Layer"] for c in rig["Cloth"]] == ["Bottomwear"]
+    assert {"soft", "cloth", "drag"} <= set(rig["Physics"])
+    ids = {p[0] for p in puppet.PARAMETERS}
+    assert {"ParamBustX", "ParamBustY", "ParamHipY", "ParamClothesOuter", "ParamClothesInner"} <= ids
+
+
+def test_small_pictures_are_upscaled_with_the_backends_model():
+    class Upscaler:
+        def __init__(self):
+            self.asked = 0
+
+        def upscale(self, image):
+            self.asked += 1
+            source = b64_to_pil(image)
+            return source.resize((source.width * 4, source.height * 4))
+
+    backend = Upscaler()
+    picture = kit.prepare_picture(character((300, 200)), backend=backend, min_side=1024)
+    assert backend.asked == 1 and picture.size == (1024, 683)
+    assert kit.prepare_picture(character((300, 200)), min_side=1024).size == (1024, 683)  # Lanczos without a model
+    assert kit.prepare_picture(character((300, 200))).size == (300, 200)
