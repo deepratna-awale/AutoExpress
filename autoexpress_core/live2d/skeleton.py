@@ -383,6 +383,11 @@ def limb_masks(skeleton_doc: dict, size, step: int = 8, arms: dict | None = None
             return found
         if y < crotch:
             return "torso" if found.startswith("leg") else found
+        # Below it, the leg whose bones are nearer: where the legs touch, the line between them
+        # isn't the body's middle.
+        near = {side: min(_segment_distance(x, y, by_name[n]["Head"], by_name[n]["Tail"]) for n in (f"Thigh{side}", f"Shin{side}", f"Foot{side}") if n in by_name) for side in "LR"}
+        if near["L"] != near["R"]:
+            return "leg_L" if near["L"] < near["R"] else "leg_R"
         return "leg_L" if x >= mid else "leg_R"
 
     labels = [label(c * step, r * step) for r in range(rows) for c in range(cols)]

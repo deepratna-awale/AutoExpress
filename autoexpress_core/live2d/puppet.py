@@ -339,7 +339,7 @@ def build_puppet(
         rig["Skeleton"] = bones
         rig.pop("Arms", None)
         parameters += skeleton.parameters(bones)
-        entries = split_limbs(folder, entries, skeleton.limb_masks(bones, size, arms=arm_alpha), rig)
+        entries = split_limbs(folder, entries, skeleton.limb_masks(bones, size, arms=arm_alpha), rig, hands=arm_alpha)
         for entry in entries:
             if entry["Role"] not in HEAD_ROLES:
                 entry["Grid"] = grid_for(entry["Width"], entry["Height"], step=20, most=64)
@@ -526,7 +526,68 @@ def _push_pull(rgb, known):
     return colour
 
 
-def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: int = 3) -> list[dict]:
+def _fit_under_skirts(folder: pathlib.Path, entries: list[dict], skirts: dict, grown: dict) -> Image.Image | None:
+    """
+    The body, inner wear and legwear under a skirt are cut to the skirt's outline over its rows: the
+    edits draw the hips a little wider than the skirt, which showed as slivers at its sides (and
+    swung out when a leg moved). Off, the skirt then shows hips of its own width. Returns where
+    the skirts cover (mode L, canvas size; None without a skirt) bar what hangs over their sides: no
+    arm piece takes what's under a skirt there, or it would be drawn over the skirt.
+    """
+    import numpy as np
+
+    skirt_entries = [e for e in entries if e.get("Garment") == "bottomwear" and e.get("State") != "half" and skirts.get(e.get("Switch") or e["Id"])]
+    if not skirt_entries:
+        return None
+    size = next(iter(grown.values())).size
+    keep = np.ones((size[1], size[0]), bool)
+    band = max(8, size[0] // 80)
+    # What hangs over the skirt's sides goes with the arms.
+    arms = np.zeros((size[1], size[0]), bool)
+    for group, mask in grown.items():
+        if group.startswith("arm"):
+            arms |= np.asarray(mask) > 0
+    run = np.zeros((size[1], size[0]), bool)
+    skirt_alpha = np.zeros((size[1], size[0]), bool)
+    for entry in skirt_entries:
+        layer = Image.open(folder / entry["Texture"]).getchannel("A")
+        canvas = Image.new("L", size, 0)
+        canvas.paste(layer, (entry["X"], entry["Y"]))
+        skirt_alpha |= np.asarray(canvas) > 128
+        alpha = (np.asarray(canvas) > 128) & ~arms
+        counts = alpha.sum(axis=1)
+        rows = np.nonzero(counts >= 0.4 * max(1, counts.max()))[0]
+        if len(rows) < 4:
+            continue
+        middle = int(np.average(np.arange(size[0]), weights=alpha[rows].sum(axis=0) + 1e-6))
+        for y in range(rows[0], rows[-1] + 1):
+            row = alpha[y]
+            if not row[middle]:
+                continue
+            # The skirt's own run through the middle (the layer can hold bits under the hands).
+            gaps = np.nonzero(~row)[0]
+            left = gaps[gaps < middle].max() + 1 if (gaps < middle).any() else 0
+            right = gaps[gaps > middle].min() - 1 if (gaps > middle).any() else size[0] - 1
+            # A band beside it: a hand hanging further out stays.
+            keep[y, max(0, left - band) : max(0, left - 1)] = False
+            keep[y, right + 2 : right + band] = False
+            run[y, left : right + 1] = True
+    for entry in entries:
+        if not (entry["Role"] in ("nude_body", "inner") or entry.get("Garment") == "legwear"):
+            continue
+        path = folder / entry["Texture"]
+        image = Image.open(path).convert("RGBA")
+        box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
+        region = Image.fromarray((keep * 255).astype(np.uint8)).crop(box)
+        image.putalpha(ImageChops.multiply(image.getchannel("A"), region))
+        image.save(path)
+    # Under a hand the skirt was painted in; the body's outline at its side is still the skirt's
+    # (a band wider than its own run), the hand further out isn't.
+    covered = Image.fromarray((run * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(4 * band + 1))
+    return ImageChops.multiply(covered, Image.fromarray((skirt_alpha * 255).astype(np.uint8)))
+
+
+def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: int = 3, hands: dict | None = None) -> list[dict]:
     """
     Cut every body layer (body, clothes, arms) into a piece per limb it covers (masks from
     skeleton.limb_masks) plus the torso piece, each its own texture with "Piece" set to its group,
@@ -547,6 +608,7 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
             image = Image.open(folder / entry["Texture"]).convert("RGBA")
             box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
             skirts[entry.get("Switch") or entry["Id"]] = _skirt(image.getchannel("A"), box, masks)
+    under_skirt = _fit_under_skirts(folder, entries, skirts, grown)
     for entry in entries:
         if entry["Role"] in HEAD_ROLES:
             result.append(entry)
@@ -577,6 +639,10 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
             # which would stay on when the legwear comes off.
             for group in [g for g in cores if g.startswith("leg")]:
                 alpha = ImageChops.multiply(alpha, ImageChops.invert(cores[group].crop(box)))
+            # Nor is it on the hands: what the edit left around them is the hand redrawn, which
+            # would stay on the hips when the arm moves.
+            for hand in (hands or {}).values():
+                alpha = ImageChops.multiply(alpha, ImageChops.invert(hand.filter(ImageFilter.MaxFilter(31)).crop(box)))
             image.putalpha(alpha)
             image.save(path)
         skirt = False
@@ -597,6 +663,14 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
                 # stays; only what isn't the garment's colour (a cuff the split put in the layer)
                 # goes with the arm.
                 piece = ImageChops.multiply(piece, _unlike(image, alpha))
+                hand = (hands or {}).get(group.split("_")[1])
+                if hand is not None:
+                    # The garment's own dark outline stays too, unless it's on the hand.
+                    light = image.convert("L").point(lambda v: 255 if v > 80 else 0)
+                    piece = ImageChops.multiply(piece, ImageChops.lighter(light, hand.filter(ImageFilter.MaxFilter(9)).crop(box)))
+            elif group.startswith("arm") and under_skirt is not None and (entry["Role"] in ("nude_body", "inner") or entry.get("Garment") == "legwear"):
+                # The body under a skirt isn't the arm's: drawn with the arm it would cover the skirt.
+                piece = ImageChops.multiply(piece, ImageChops.invert(under_skirt.crop(box)))
             if ImageStat.Stat(piece).sum[0] > 0.01 * total:
                 limbs.append((group, piece))
         if not limbs:
@@ -605,8 +679,13 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
             result.append({**entry, "Piece": "torso"})
             continue
         taken = Image.new("L", image.size, 0)
-        for group, _ in limbs:
-            taken = ImageChops.lighter(taken, cores[group].crop(box))
+        for group, piece in limbs:
+            # The legs take all of their side below the crotch, the strip between them too: a
+            # sliver of torso left there would stay behind when a leg moves. A limb takes only
+            # what its piece holds (on a skirt, just the bit on the hand).
+            region = (grown if group.startswith("leg") else cores)[group].crop(box)
+            held = piece.point(lambda v: 255 if v > 0 else 0)
+            taken = ImageChops.lighter(taken, ImageChops.multiply(region, held))
         torso_alpha = ImageChops.multiply(alpha, ImageChops.invert(taken))
         behind, torso_alpha = _fill_behind(image, alpha, torso_alpha)
         pieces = [("torso", torso_alpha)] + limbs
