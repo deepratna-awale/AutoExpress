@@ -101,12 +101,32 @@ See-through's clothes. The puppet stacks body, inner wear and outer clothes, eac
 `outfit_nude`. An outfit stays on while the emotions change. **Character description** helps the
 body match the character (build, skin).
 
+Each piece can also come off on its own (half off). The inner wear is split at the bare midriff
+into **Inner top** and **Inner bottom** layers (a one-piece stays whole), and the outer clothes
+follow See-through's top, bottom and legwear layers. Their switches are `ParamClothesTop`,
+`ParamClothesBottom`, `ParamClothesLegs`, `ParamInnerTop` and `ParamInnerBottom`, and the puppet
+gets the outfits its layers allow: `outfit_top_off`, `outfit_bottom_off`, `outfit_topless`,
+`outfit_inner_top_off` and `outfit_inner_bottom_off`.
+
+Accessories (headwear, eyewear, earrings, neckwear, held objects) are layers of their own, switched
+by `ParamAccessories` with the `accessories_off` and `accessories_on` expressions, which also stay on
+while the emotions change.
+
+**Outfit** dresses the character in what you type (Qwen-Image-Edit) before the split, so every
+layer has the new clothes. With **Read the clothing from the picture's prompt data** on, the
+prompt saved in the picture (A1111, Forge, SD.Next, ComfyUI, InvokeAI or NovelAI metadata) fills
+in the inner wear when you leave it empty, and tells the edits what the outfit is. An outfit that
+asks for underwear or nudity needs the same checks as the body layer.
+
 These layers show nudity, so they are only made for **drawn adult characters**:
 
 - you tick that the character is an adult and the picture is a drawing,
 - the picture has to look drawn (a photo of a real person is refused),
-- a name or description that reads as a child (school ages, "loli", "15 years old" and similar)
-  turns them off.
+- a name, description, outfit or the picture's prompt that reads as a child (school ages, "loli",
+  "15 years old" and similar) turns them off.
+
+`safe_mode: false` in the settings skips only the drawing check, for drawings it wrongly reads as
+photos. The adult confirmation and the child check always run.
 
 When they aren't made, the kit says why and the clothes stay one layer.
 
@@ -143,8 +163,10 @@ message is shown, following the cursor, scale and position, and its `/live2d...`
 
 ### Trying it in a browser
 
-The puppet folder has `preview.html`, which plays the puppet with a menu of its expressions and
-motions. Browsers don't let a page opened from disk load its files, so serve the folder:
+The puppet folder has `play.html`: double-click it to play the puppet with a menu of its
+expressions, motions, outfits and blush (everything is packed into the page, so it opens straight
+from the disk). `preview.html` is the same page loading the files next to it; browsers don't let a
+page opened from disk load files, so serve the folder for that one:
 
 ```bash
 cd puppet/<name>
@@ -191,7 +213,8 @@ The puppet is plain JSON and PNGs, so it can be edited by hand or played by othe
 | `textures/` | Each layer, cropped to what it shows. |
 | `expressions/`, `motions/` | Cubism `exp3.json` and `motion3.json` files, the same ones a Cubism model gets. |
 | `sillytavern_settings.json` | The Live2D extension's settings for the puppet. |
-| `preview.html`, `puppet.js` | The browser player. |
+| `play.html` | The browser player with the puppet packed in (opens from the disk). |
+| `preview.html`, `puppet.js` | The browser player, loading the files next to it (needs a web server). |
 
 `Rig.Strength` sets how far things move: turn the head more with a bigger `turn`, sway the hair more
 with a bigger `hair`. Reload the puppet after editing.

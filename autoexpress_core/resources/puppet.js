@@ -206,13 +206,26 @@ class Expression {
 // The model ---------------------------------------------------------------------------------
 let PuppetClass = null;
 
+/**
+ * A file of a puppet packed into the page (play.html sets window.AUTOEXPRESS_PUPPET_FILES: path ->
+ * parsed JSON, or a data: URL for a texture), so it plays when opened straight from the disk,
+ * where browsers block fetch().
+ */
+function bundled(path) {
+    const files = typeof window !== 'undefined' && window.AUTOEXPRESS_PUPPET_FILES;
+    return files && Object.prototype.hasOwnProperty.call(files, path) ? files[path] : null;
+}
+
 function definePuppetClass(PIXI) {
     class Puppet extends PIXI.Container {
         static async from(source) {
             const url = new URL(source, document.baseURI).href;
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`${LOG} can't load ${source}: ${response.status}`);
-            const document_ = await response.json();
+            let document_ = bundled(source);
+            if (!document_) {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`${LOG} can't load ${source}: ${response.status}`);
+                document_ = await response.json();
+            }
             if (document_.Type !== FORMAT) throw new Error(`${LOG} ${source} is not an ${FORMAT}`);
             const puppet = new Puppet(document_, url);
             await puppet._loadTextures();
@@ -520,7 +533,7 @@ function definePuppetClass(PIXI) {
             const cheekAfter = this.doc.Layers.findIndex(l => l.Role === 'face');
             let index = 0;
             for (const entry of this.doc.Layers) {
-                const texture = await PIXI.Texture.fromURL(this.base + entry.Texture);
+                const texture = await PIXI.Texture.fromURL(bundled(entry.Texture) || this.base + entry.Texture);
                 this.layers.push(this._makeLayer(entry, texture));
                 if (index === cheekAfter) {
                     for (const side of Object.keys(rig.Eyes || {})) {
@@ -658,6 +671,8 @@ function definePuppetClass(PIXI) {
         }
 
         async _loadJson(relative) {
+            const inline = bundled(relative);
+            if (inline) return inline;
             const response = await fetch(this.base + relative);
             if (!response.ok) throw new Error(`${LOG} can't load ${relative}`);
             return response.json();

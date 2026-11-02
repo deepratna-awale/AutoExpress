@@ -24,6 +24,7 @@ blinking, eye movement, brows, mouth shapes, breathing and hair sway). Anyone ca
 puppet's numbers by hand, and other players can read it.
 """
 
+import base64
 import json
 import pathlib
 import shutil
@@ -474,6 +475,7 @@ PREVIEW = """<!doctype html>
            padding: 10px 12px; border-radius: 10px; backdrop-filter: blur(6px); width: min(260px, calc(100% - 48px)); }}
   select, button {{ width: 100%; margin: 4px 0; font: inherit; }}
   label {{ display: block; margin-top: 6px; }}
+  [hidden] {{ display: none !important; }}
 </style>
 </head>
 <body>
@@ -488,6 +490,12 @@ PREVIEW = """<!doctype html>
   <label><input type="checkbox" id="follow" checked> Follow the cursor</label>
   <p style="margin:8px 0 0;opacity:.75">Drag the hair, clothes or body to pull them; click to poke.</p>
 </div>
+<p id="file-note" hidden style="position:fixed;bottom:12px;left:12px;right:12px;margin:0">
+  Browsers don't load the puppet's files from a page opened from the disk. Open <b>play.html</b> instead
+  (everything is packed in), or serve this folder: <code>python3 -m http.server</code> and open
+  <code>http://localhost:8000/preview.html</code>.
+</p>
+<script>addEventListener("DOMContentLoaded", () => {{ if (location.protocol === "file:" && !window.AUTOEXPRESS_PUPPET_FILES) document.getElementById("file-note").hidden = false; }});</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.2/browser/pixi.min.js"></script>
 <script type="module">
 import {{ PuppetModel }} from "./puppet.js";
@@ -531,11 +539,34 @@ window.puppet = model;
 
 
 def write_preview(folder, name: str) -> None:
-    """A page that plays the puppet in a browser (open it through a web server: browsers block file:// fetches)."""
+    """
+    Pages that play the puppet in a browser: preview.html (served by a web server, loads the files
+    next to it) and play.html (everything packed in, so it opens straight from the disk).
+    """
     folder = pathlib.Path(folder)
     if PLAYER.exists():
         shutil.copyfile(PLAYER, folder / "puppet.js")
-    (folder / "preview.html").write_text(PREVIEW.format(name=name, suffix=SUFFIX), encoding="utf-8")
+    page = PREVIEW.format(name=name, suffix=SUFFIX)
+    (folder / "preview.html").write_text(page, encoding="utf-8")
+    if PLAYER.exists():
+        (folder / "play.html").write_text(_packed_page(folder, page), encoding="utf-8")
+
+
+def _packed_page(folder: pathlib.Path, page: str) -> str:
+    """page with the player and every puppet file inlined (textures as data: URLs)."""
+    files: dict = {}
+    for path in sorted(folder.rglob("*")):
+        if not path.is_file() or path.name in ("preview.html", "play.html", "puppet.js"):
+            continue
+        relative = path.relative_to(folder).as_posix()
+        if path.suffix == ".png":
+            files[relative] = "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+        elif path.suffix == ".json":
+            files[relative] = json.loads(path.read_text(encoding="utf-8"))
+    data = json.dumps(files, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    player = PLAYER.read_text(encoding="utf-8").replace("</script", "<\\/script")
+    page = page.replace('import { PuppetModel } from "./puppet.js";', player)
+    return page.replace('<script type="module">', f"<script>window.AUTOEXPRESS_PUPPET_FILES = {data};</script>\n<script type=\"module\">", 1)
 
 
 def is_puppet(path) -> bool:

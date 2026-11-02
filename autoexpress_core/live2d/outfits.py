@@ -356,7 +356,9 @@ def split_inner(wear: Image.Image, parts: list, size) -> list[tuple[str, Image.I
     if high <= low:
         return [("inner wear", wear)]
     gap = min(range(low, high), key=lambda y: (widths[y], abs(y + box[1] - waist)))
-    if widths[gap] > 2:  # some of the wear crosses every row there: one piece
+    # A one-piece crosses every row there; specks the edits left (they never match pixel for
+    # pixel) can cross the gap of a two-piece, so the gap only has to be much narrower than the wear.
+    if widths[gap] > max(2, 0.2 * max(widths)):
         return [("inner wear", wear)]
     waist = box[1] + gap
     pieces = []
