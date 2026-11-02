@@ -1170,3 +1170,43 @@ def test_the_player_turns_by_depth_when_the_puppet_has_it():
     # Near points move further than far ones; without depth the drawing order's guess stays.
     assert "depthRig.Head - layer.z[k >> 1]" in source and "depthRig.Body - layer.z[k >> 1]" in source
     assert "1 + parallax * layer.dz" in source
+
+
+def test_touching_legs_split_along_the_line_between_them():
+    size = (200, 400)
+    picture = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(picture)
+    # Two legs touching, the line between them a little right of the middle, as drawn.
+    draw.rectangle((60, 100, 109, 380), fill=(120, 90, 80, 255))
+    draw.rectangle((111, 100, 150, 380), fill=(120, 90, 80, 255))
+    draw.line((110, 100, 110, 380), fill=(20, 10, 10, 255), width=1)
+    bones = {"Bones": [
+        {"Name": "Hips", "Head": [100, 90], "Tail": [100, 60], "Radius": 30},
+        {"Name": "ThighL", "Head": [125, 100], "Tail": [128, 230], "Radius": 22},
+        {"Name": "ShinL", "Head": [128, 230], "Tail": [130, 360], "Radius": 18},
+        {"Name": "FootL", "Head": [130, 360], "Tail": [132, 385], "Radius": 12},
+        {"Name": "ThighR", "Head": [80, 100], "Tail": [82, 230], "Radius": 22},
+        {"Name": "ShinR", "Head": [82, 230], "Tail": [84, 360], "Radius": 18},
+        {"Name": "FootR", "Head": [84, 360], "Tail": [86, 385], "Radius": 12},
+    ]}
+    half = Image.new("L", size, 0)
+    ImageDraw.Draw(half).rectangle((105, 130, 199, 399), fill=255)  # the old split, at the middle
+    other = Image.new("L", size, 0)
+    ImageDraw.Draw(other).rectangle((0, 130, 104, 399), fill=255)
+    masks = skeleton.split_legs({"leg_L": half, "leg_R": other}, bones, picture)
+    # Below the crotch the right leg's drawing is all on the right leg's side of the seam.
+    assert masks["leg_R"].getpixel((108, 250)) == 255 and masks["leg_L"].getpixel((108, 250)) == 0
+    assert masks["leg_L"].getpixel((115, 250)) == 255
+
+
+def test_a_tops_sides_are_drawn_on_behind_the_arm(tmp_path):
+    import numpy as np
+
+    kept = np.zeros((100, 100), bool)
+    kept[10:90, 30:70] = True
+    removed = np.zeros_like(kept)
+    # The arm covers the left side of rows 40-60 (the edge there is cut back to 45).
+    kept[40:60, 30:45] = False
+    removed[40:60, 20:45] = True
+    extra = puppet._hidden_sides(kept, removed)
+    assert extra[50, 30:45].all() and not extra[50, 20:29].any()

@@ -352,7 +352,8 @@ def build_puppet(
         rig["Skeleton"] = bones
         rig.pop("Arms", None)
         parameters += skeleton.parameters(bones)
-        entries = split_limbs(folder, entries, skeleton.limb_masks(bones, size, arms=arm_alpha), rig, hands=arm_alpha)
+        masks = skeleton.split_legs(skeleton.limb_masks(bones, size, arms=arm_alpha), bones, body_picture(folder, entries, size))
+        entries = split_limbs(folder, entries, masks, rig, hands=arm_alpha)
         for entry in entries:
             if entry["Role"] not in HEAD_ROLES:
                 entry["Grid"] = grid_for(entry["Width"], entry["Height"], step=20, most=64)
@@ -500,6 +501,23 @@ def jaw_line(folder, entries: list[dict], mouth_box) -> list | None:
     return points or None
 
 
+def body_picture(folder, entries: list[dict], size) -> Image.Image:
+    """The body below the head as the puppet shows it at first (RGBA, canvas size)."""
+    folder = pathlib.Path(folder)
+    picture = Image.new("RGBA", size, (0, 0, 0, 0))
+    for entry in entries:
+        if entry["Role"] in HEAD_ROLES or entry["Role"] in ("back_hair", "front_hair", "cheek", "cheek_hatch", "nude_body", "inner"):
+            continue
+        if entry.get("State") == "half" or not entry.get("Visible", True):
+            continue
+        try:
+            with Image.open(folder / entry["Texture"]) as image:
+                picture.alpha_composite(image.convert("RGBA"), (entry["X"], entry["Y"]))
+        except (OSError, ValueError):
+            continue
+    return picture
+
+
 def limb_alphas(folder, entries: list[dict], size) -> tuple[dict, Image.Image]:
     """Each arm layer's alpha ({"L"/"R": mode L, canvas size}) and the alpha of the whole body below the head."""
     folder = pathlib.Path(folder)
@@ -562,7 +580,7 @@ def _trim_below_bulk(alpha: Image.Image) -> Image.Image:
     return Image.fromarray(a, "L")
 
 
-def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image) -> tuple[Image.Image, Image.Image]:
+def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image, sides: bool = False) -> tuple[Image.Image, Image.Image]:
     """
     The body behind a limb cut out of the torso piece: where the cut leaves a hole inside the torso
     (a hand in front of the skirt, a sleeve over the side of the jacket), the hole is painted in from
@@ -583,6 +601,8 @@ def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image) -> 
         xs = np.nonzero(kept[y])[0]
         if len(xs) > 1:
             hole[y, xs.min():xs.max() + 1] = removed[y, xs.min():xs.max() + 1]
+    if sides:
+        hole |= _hidden_sides(kept, removed)
     if not hole.any():
         return image, torso
     rgb = np.asarray(image.convert("RGB")).astype(np.float32)
@@ -595,6 +615,42 @@ def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image) -> 
     result = Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
     result.putalpha(image.getchannel("A"))
     return result, Image.fromarray((new_alpha * 255).clip(0, 255).astype(np.uint8), "L")
+
+
+def _hidden_sides(kept, removed):
+    """
+    Where the torso's sides run on behind a limb (bool mask): in the rows where a limb covers the
+    torso's edge, the edge is drawn on from the rows above and below where it shows, so lifting
+    the arm shows the side of the body instead of a gap under it.
+    """
+    import numpy as np
+
+    height = kept.shape[0]
+    rows = np.nonzero(kept.any(axis=1))[0]
+    extra = np.zeros_like(kept)
+    if len(rows) < 3:
+        return extra
+    for side in (0, 1):
+        edge = np.full(height, np.nan)
+        hidden = np.zeros(height, bool)
+        for y in rows:
+            xs = np.nonzero(kept[y])[0]
+            x = xs.min() if side == 0 else xs.max()
+            edge[y] = x
+            beyond = x - 1 if side == 0 else x + 1
+            hidden[y] = 0 <= beyond < kept.shape[1] and removed[y, beyond]
+        shown = rows[~hidden[rows]]
+        if len(shown) < 2 or not hidden.any():
+            continue
+        line = np.interp(np.arange(height), shown, edge[shown])
+        for y in rows[hidden[rows]]:
+            if side == 0:
+                start = int(round(min(line[y], edge[y])))
+                extra[y, start : int(edge[y])] = removed[y, start : int(edge[y])]
+            else:
+                end = int(round(max(line[y], edge[y])))
+                extra[y, int(edge[y]) + 1 : end + 1] = removed[y, int(edge[y]) + 1 : end + 1]
+    return extra
 
 
 def _push_pull(rgb, known):
@@ -677,7 +733,7 @@ def _fit_under_skirts(folder: pathlib.Path, entries: list[dict], skirts: dict, g
         image.save(path)
     # Under a hand the skirt was painted in; the body's outline at its side is still the skirt's
     # (a band wider than its own run), the hand further out isn't.
-    covered = Image.fromarray((run * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(4 * band + 1))
+    covered = Image.fromarray((run * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(2 * band + 1))
     return ImageChops.multiply(covered, Image.fromarray((skirt_alpha * 255).astype(np.uint8)))
 
 
@@ -781,7 +837,10 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
             held = piece.point(lambda v: 255 if v > 0 else 0)
             taken = ImageChops.lighter(taken, ImageChops.multiply(region, held))
         torso_alpha = ImageChops.multiply(alpha, ImageChops.invert(taken))
-        behind, torso_alpha = _fill_behind(image, alpha, torso_alpha)
+        # The tops' sides run on behind the arms (the body and what's under stays as drawn: it's
+        # covered, and drawn wider it would show past the clothes).
+        sides = entry.get("Garment") in ("topwear", "outerwear")
+        behind, torso_alpha = _fill_behind(image, alpha, torso_alpha, sides)
         pieces = [("torso", torso_alpha)] + limbs
         path.unlink()
         ids = []

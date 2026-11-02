@@ -219,7 +219,8 @@ leg), stored under `Rig.Skeleton` (`Bones` with `Name`, `Parent`, `Head`, `Tail`
 limits), fitted to the drawing: the hands from the split's arm layers, the legs from the body's
 outline. Each layer is cut into a torso piece and arm and leg pieces with matching edges (`"Piece"`
 in the layer entry): whole sleeves go with the arms, a skirt stays whole while the legs move under
-it, and the body behind a hand is painted in. Each vertex follows its nearest bones, and the
+it, the body behind a hand is painted in, a top's sides run on behind the arms, and touching legs
+are split along the line drawn between them. Each vertex follows its nearest bones, and the
 weights blend across the seams: around the shoulder and the hip the body and the limb share the
 same bones, so the cloth there stretches with the arm or leg instead of splitting. Dragging a
 hand or a foot bends the limb towards the cursor (inverse kinematics). The joints keep to small,
