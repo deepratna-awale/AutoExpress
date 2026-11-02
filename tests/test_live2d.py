@@ -1007,6 +1007,9 @@ def test_skeleton_from_a_pose_proportions_has_limbs_with_mirrored_limits():
     short = skeleton.bones(skeleton.from_proportions(face, (150, 300, 850, 900)), face)
     assert not any(b["Name"].startswith("Shin") for b in short["Bones"])
     assert ("ParamBoneHips", -8, 8, 0) in skeleton.parameters(sk)
+    # Limbs and the spine also swing a little towards the viewer (the knee only bends back).
+    assert ("ParamBoneUpperArmLSwing", -15, 25, 0) in skeleton.parameters(sk)
+    assert ("ParamBoneShinRSwing", -25, 0, 0) in skeleton.parameters(sk)
 
 
 def test_skeleton_from_openpose_keypoints():
@@ -1156,7 +1159,10 @@ def test_depth_maps_give_every_mesh_point_a_depth(tmp_path):
         {"Role": "inner", "Tag": "inner wear", "X": 60, "Y": 150, "Width": 50, "Height": 50, "Grid": [2, 2]},
     ]
     rig = {"Head": {"Box": [70, 40, 130, 120]}, "Body": {"Box": [40, 120, 160, 300]}}
+    rig["Skeleton"] = {"Bones": [{"Name": "Chest", "Head": [100, 160], "Tail": [100, 130], "Radius": 30}]}
     depth = puppet.add_depth(entries, loaded, rig)
+    # The joint sits inside the body, behind the surface drawn over it.
+    assert rig["Skeleton"]["Bones"][0]["HeadZ"] < (depth["Body"] - 60) * depth["Scale"]
     assert [len(e["Z"]) for e in entries] == [12, 16, 4]
     assert max(entries[0]["Z"]) < min(entries[1]["Z"])  # the face is in front of the back hair
     # The head turns about a point between the face and the back of the head.

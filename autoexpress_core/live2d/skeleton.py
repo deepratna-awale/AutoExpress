@@ -48,6 +48,29 @@ BONES = (
     ("FootR", "ShinR", "ankle_R", "foot_R", "leg_R", (-10, 10), 0.24),
 )
 
+# How far a bone swings towards the viewer (positive) or away, in degrees: the depth the puppet
+# has gives every point of the drawing a place in 3D, so a limb can come a little forward (a hand
+# lifting towards the viewer, a knee bending) while the view stays the picture's. Kept small for
+# the same reason as the turns: a limb seen end-on isn't drawn, and squashing the side view
+# doesn't make one. The knee only bends back.
+SWING = {
+    "Spine": (-5, 8),
+    "Chest": (-5, 6),
+    "UpperArmL": (-15, 25),
+    "ForearmL": (0, 30),
+    "HandL": (-20, 20),
+    "UpperArmR": (-15, 25),
+    "ForearmR": (0, 30),
+    "HandR": (-20, 20),
+    "ThighL": (-10, 20),
+    "ShinL": (-25, 0),
+    "FootL": (-15, 15),
+    "ThighR": (-10, 20),
+    "ShinR": (-25, 0),
+    "FootR": (-15, 15),
+}
+
+
 def _mid(a, b, t=0.5):
     return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
 
@@ -308,6 +331,8 @@ def bones(joints: dict, face, radii: dict | None = None) -> dict | None:
                 "Max": high,
             }
         )
+        if name in SWING:
+            result[-1].update({"SwingParam": f"ParamBone{name}Swing", "SwingMin": SWING[name][0], "SwingMax": SWING[name][1]})
         names.add(name)
     if "Hips" not in names or "Chest" not in names:
         return None
@@ -316,7 +341,8 @@ def bones(joints: dict, face, radii: dict | None = None) -> dict | None:
 
 def parameters(skeleton: dict | None) -> list[tuple[str, float, float, float]]:
     """The puppet parameters for a skeleton's bones: (id, min, max, default)."""
-    return [(b["Param"], b["Min"], b["Max"], 0) for b in (skeleton or {}).get("Bones", [])]
+    bones = (skeleton or {}).get("Bones", [])
+    return [(b["Param"], b["Min"], b["Max"], 0) for b in bones] + [(b["SwingParam"], b["SwingMin"], b["SwingMax"], 0) for b in bones if b.get("SwingParam")]
 
 
 def _segment_distance(x, y, a, b) -> float:

@@ -465,10 +465,18 @@ def add_depth(entries: list[dict], depth_maps: dict, rig: dict) -> dict:
     scale = face_w * 1.1 / span
     body_z = median(("clothing", "nude_body")) or face
     body_w = rig["Body"]["Box"][2] - rig["Body"]["Box"][0]
+    body_centre = body_z + body_w * 0.25 / scale
+    if nearest is not None:
+        # Each joint sits inside the body, half its thickness behind the surface drawn over it
+        # (canvas pixels in front of the body's centre: negative is behind).
+        for bone in rig.get("Skeleton", {}).get("Bones", []):
+            x, y = (int(min(max(v, 0), limit - 1)) for v, limit in zip(bone["Head"], (nearest.shape[1], nearest.shape[0])))
+            surface = float(nearest[y, x])
+            bone["HeadZ"] = round((body_centre - surface) * scale - bone["Radius"] * 0.5, 1)
     return {
         "Head": round(face + span / 2, 1),
         # The body turns about its middle, a quarter of its width behind its front.
-        "Body": round(body_z + body_w * 0.25 / scale, 1),
+        "Body": round(body_centre, 1),
         "Scale": round(scale, 4),
     }
 

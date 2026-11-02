@@ -794,6 +794,39 @@ function definePuppetClass(PIXI) {
             }
         }
 
+        /**
+         * An arm swung back goes behind the body, a leg swung forward in front of it; back at rest,
+         * the usual order. (The meshes' order is the drawing order.)
+         */
+        _sortBySwing(P) {
+            const behind = (group) => {
+                const root = this._boneByName.get(group.startsWith('arm') ? `UpperArm${group.slice(-1)}` : `Thigh${group.slice(-1)}`);
+                const swing = root && root.SwingParam ? P(root.SwingParam) : 0;
+                return group.startsWith('arm') ? swing < -8 : swing <= 30;
+            };
+            const key = ['arm_L', 'arm_R', 'leg_L', 'leg_R'].map(behind).join();
+            if (key === this._swungOrder) return;
+            this._swungOrder = key;
+            const order = this._drawOrder();
+            const rank = (m) => {
+                const g = m.puppetGroup;
+                if (!g) return null;
+                if (g === 'torso') return 1;
+                return behind(g) ? 0 : 2;
+            };
+            const first = order.findIndex(m => m.puppetGroup);
+            if (first < 0) return;
+            const rest = order.slice(first);
+            const skinned = rest.filter(m => m.puppetGroup).sort((a, b) => rank(a) - rank(b));
+            const sorted = [...order.slice(0, first), ...skinned, ...rest.filter(m => !m.puppetGroup)];
+            sorted.forEach((mesh, index) => this.setChildIndex(mesh, index));
+        }
+
+        _restoreOrder() {
+            this._swungOrder = null;
+            this._drawOrder().forEach((mesh, index) => this.setChildIndex(mesh, index));
+        }
+
         /** The meshes in drawing order: with a skeleton, the legs under the body and the arms over it. */
         _drawOrder() {
             const all = [];
@@ -833,6 +866,51 @@ function definePuppetClass(PIXI) {
                     M[o + 3] = pb * lc + pd * ld;
                     M[o + 4] = pa * le + pc * lf + pe;
                     M[o + 5] = pb * le + pd * lf + pf;
+                }
+            }
+            return M;
+        }
+
+        /**
+         * Every bone's 3D matrix (3x4, row by row) for its turn in the picture's plane (roll, degrees)
+         * and its swing towards the viewer (swing, degrees). Points are (x, y, f): f is how far in
+         * front of the body's centre a point is, in canvas pixels.
+         */
+        _poseBones3(roll, swing) {
+            const M = this._boneM3 || (this._boneM3 = new Float32Array(this._bones.length * 12));
+            for (const b of this._bones) {
+                const t = roll(b) * Math.PI / 180, w = swing(b) * Math.PI / 180;
+                const ct = Math.cos(t), st = Math.sin(t);
+                // The swing turns about the axis across the bone in the picture's plane, tip forward.
+                const dx = b.Tail[0] - b.Head[0], dy = b.Tail[1] - b.Head[1];
+                const len = Math.hypot(dx, dy) || 1;
+                const ax = dy / len, ay = -dx / len;
+                const cw = Math.cos(w), sw = Math.sin(w), k = 1 - cw;
+                const S = [cw + k * ax * ax, k * ax * ay, sw * ay, k * ax * ay, cw + k * ay * ay, -sw * ax, -sw * ay, sw * ax, cw];
+                // L = Rz(roll) * S about the joint.
+                const R = [
+                    ct * S[0] - st * S[3], ct * S[1] - st * S[4], ct * S[2] - st * S[5],
+                    st * S[0] + ct * S[3], st * S[1] + ct * S[4], st * S[2] + ct * S[5],
+                    S[6], S[7], S[8],
+                ];
+                const [hx, hy] = b.Head;
+                const hz = b.HeadZ || 0;
+                const tx = hx - (R[0] * hx + R[1] * hy + R[2] * hz);
+                const ty = hy - (R[3] * hx + R[4] * hy + R[5] * hz);
+                const tz = hz - (R[6] * hx + R[7] * hy + R[8] * hz);
+                const L = [R[0], R[1], R[2], tx, R[3], R[4], R[5], ty, R[6], R[7], R[8], tz];
+                const o = b.index * 12;
+                if (b.parentIndex < 0) {
+                    M.set(L, o);
+                } else {
+                    const p = b.parentIndex * 12;
+                    for (let r = 0; r < 3; r++) {
+                        for (let c = 0; c < 4; c++) {
+                            let v = M[p + r * 4] * L[c] + M[p + r * 4 + 1] * L[4 + c] + M[p + r * 4 + 2] * L[8 + c];
+                            if (c === 3) v += M[p + r * 4 + 3];
+                            M[o + r * 4 + c] = v;
+                        }
+                    }
                 }
             }
             return M;
@@ -1289,7 +1367,14 @@ function definePuppetClass(PIXI) {
             const tears = smoothstep(0.05, 0.6, P('ParamTear'));
             const outer = this._hasBody ? P('ParamClothesOuter') : 1;
             const inner = P('ParamClothesInner');
-            const boneM = this._bones && this._bones.some(b => P(b.param)) ? this._poseBones(b => P(b.param)) : null;
+            const swung = this._bones && this._bones.some(b => b.SwingParam && P(b.SwingParam));
+            const boneM = !swung && this._bones && this._bones.some(b => P(b.param)) ? this._poseBones(b => P(b.param)) : null;
+            // Swung towards or away from the viewer: the bones move in 3D, each point at its depth.
+            const boneM3 = swung ? this._poseBones3(b => P(b.param), b => (b.SwingParam ? P(b.SwingParam) : 0)) : null;
+            const headF = this._boneByName?.get('Head')?.HeadZ || 0;
+            const depthAt = (layer, v) => (depthRig && layer.z ? (depthRig.Body - layer.z[v]) * depthRig.Scale : 0);
+            if (swung) this._sortBySwing(P);
+            else if (this._swungOrder) this._restoreOrder();
 
             // Where the body moves a point to (lean, turn, breathing, tilt): used for the vertices and
             // to drive the soft parts, which trail behind that movement.
@@ -1517,7 +1602,30 @@ function definePuppetClass(PIXI) {
                     }
 
                     // Skeleton: the bones' pose, blended between the two nearest bones --------
-                    if (boneM) {
+                    if (boneM3) {
+                        // The head moves as one: its far side (the top and back of the head) isn't
+                        // drawn, so tipping it by its own depth would lift the back hair over it.
+                        const f = layer.skinHead >= 0 && layer.skinHead !== undefined ? headF : depthAt(layer, k >> 1);
+                        const at = (o) => [
+                            boneM3[o] * x + boneM3[o + 1] * y + boneM3[o + 2] * f + boneM3[o + 3],
+                            boneM3[o + 4] * x + boneM3[o + 5] * y + boneM3[o + 6] * f + boneM3[o + 7],
+                        ];
+                        if (layer.skin) {
+                            const v = k >> 1;
+                            const w = layer.skin.w0[v];
+                            const [x0, y0] = at(layer.skin.i0[v] * 12);
+                            if (w < 0.999) {
+                                const [x1, y1] = at(layer.skin.i1[v] * 12);
+                                x = x0 * w + x1 * (1 - w);
+                                y = y0 * w + y1 * (1 - w);
+                            } else {
+                                x = x0;
+                                y = y0;
+                            }
+                        } else if (layer.skinHead >= 0 && layer.skinHead !== undefined) {
+                            [x, y] = at(layer.skinHead * 12);
+                        }
+                    } else if (boneM) {
                         if (layer.skin) {
                             const v = k >> 1;
                             const o0 = layer.skin.i0[v] * 6, o1 = layer.skin.i1[v] * 6, w = layer.skin.w0[v];
