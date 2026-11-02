@@ -84,7 +84,9 @@ def drawing_score(image: Image.Image) -> float:
     return round(calm, 3) if lines >= 0.012 else round(min(calm, 0.45) * 0.5, 3)
 
 
-def check(settings: dict, picture: Image.Image, name: str = "") -> tuple[bool, str]:
+def check(safe_mode: bool = False, settings: dict, picture: Image.Image, name: str = "") -> tuple[bool, str]:
+    if not safe_mode:
+        return True, "Safe Mode is Off."
     """(allowed, why not) for the body and inner wear layers. See the module docstring."""
     if not settings.get("outfit_layers"):
         return False, "Swappable clothing is off."
