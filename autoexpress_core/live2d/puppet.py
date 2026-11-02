@@ -64,23 +64,49 @@ PARAMETERS = [
     ("ParamHairFront", -1, 1, 0),
     ("ParamHairSide", -1, 1, 0),
     ("ParamHairBack", -1, 1, 0),
+    # Soft body physics (Live2D's standard bust ids; the hips have no standard id).
+    ("ParamBustX", -1, 1, 0),
+    ("ParamBustY", -1, 1, 0),
+    ("ParamHipX", -1, 1, 0),
+    ("ParamHipY", -1, 1, 0),
+    # Outfit switches: 1 shows the layer. Only puppets with a body layer have something under the clothes.
+    ("ParamClothesOuter", 0, 1, 1),
+    ("ParamClothesInner", 0, 1, 1),
 ]
+OUTFITS = {
+    # name -> (ParamClothesOuter, ParamClothesInner)
+    "outfit_full": (1, 1),
+    "outfit_inner": (0, 1),
+    "outfit_nude": (0, 0),
+}
 
 # How far things move at the ends of each parameter, as fractions of the face (head) or canvas.
 STRENGTH = {
     "turn": 0.10,  # head turn: shift of the face centre at AngleX = 30, in face widths
     "nod": 0.07,  # head nod: shift at AngleY = 30, in face heights
     "tilt": 0.35,  # degrees of head roll per degree of AngleZ
-    "parallax": 0.9,  # how much more the nearest layers move than the face (and the back hair less)
+    "parallax": 0.75,  # how much more the nearest layers move than the face (and the back hair less)
     "body": 0.35,  # degrees of body lean per degree of BodyAngleX
     "breath": 0.012,  # chest rise at Breath = 1, in body heights
     "eyeball": 0.14,  # iris travel at EyeBall = 1, in eye widths
     "brow": 0.35,  # brow travel at BrowY = 1, in eye heights
     "mouth_form": 0.35,  # mouth corner travel at MouthForm = 1, in mouth widths
     "hair": 0.06,  # hair tip sway at full swing, in face widths
+    "bust": 1.0,  # soft body jiggle (bust): 0 turns it off, 2 doubles it
+    "hips": 1.0,  # soft body jiggle (hips and thighs)
+    "cloth": 0.05,  # skirt hem and ribbon sway at full swing, in body widths
+    "drag": 1.0,  # how far dragging with the mouse pulls cloth, hair and soft parts
 }
 
-PHYSICS = {"stiffness": 18.0, "damping": 5.5, "gravity": 0.0}
+# Springs: hair, soft body (quick, bouncy, settles slowly) and cloth (slower, heavier).
+PHYSICS = {
+    "stiffness": 18.0,
+    "damping": 5.5,
+    "gravity": 0.0,
+    "soft": {"stiffness": 75.0, "damping": 3.0},
+    "cloth": {"stiffness": 12.0, "damping": 3.2},
+    "drag": {"stiffness": 110.0, "damping": 5.0},
+}
 
 # Group / layer name -> role in the rig.
 _ROLES = {
@@ -95,8 +121,13 @@ _ROLES = {
 }
 _FACE_ROLES = {"Eyebrow": "brow", "Eyebrows": "brow", "Nose": "nose", "Face": "face", "Eyewear": "eyewear", "Eyes": "eyes"}
 _EYE_ROLES = {"Eyelash": "eyelash", "Iris": "iris", "Eye white": "eye_white", "Eye": "eye_white"}
-_BODY_ROLES = {"Neck": "neck", "Arm": "arm", "Arms": "arm"}
-HEAD_ROLES = ("face", "brow", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "mouth", "mouth_open", "ear", "front_hair", "headwear", "back_hair")
+_BODY_ROLES = {
+    "Neck": "neck", "Arm": "arm", "Arms": "arm", "Body": "nude_body", "Inner wear": "inner",
+    "Topwear": "clothing", "Bottomwear": "clothing", "Legwear": "clothing", "Footwear": "clothing", "Neckwear": "clothing",
+}
+HEAD_ROLES = ("face", "brow", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "mouth", "mouth_open", "ear", "front_hair", "hair_under", "headwear", "back_hair")
+# The outer clothes: hidden by ParamClothesOuter when the puppet has a body layer under them.
+OUTER_ROLES = ("clothing", "arm")
 
 
 def role_of(group: str, layer_name: str) -> tuple[str, str | None]:
@@ -109,6 +140,8 @@ def role_of(group: str, layer_name: str) -> tuple[str, str | None]:
         return "eye_closed", (group.split()[-1] if group.startswith("Eye ") else None)
     if layer_name == "Mouth open":
         return "mouth_open", None
+    if layer_name == "Hair underlay":
+        return "hair_under", None
     if group.startswith("Eye "):
         base = " ".join(w for w in words if w not in ("L", "R"))
         return _EYE_ROLES.get(base, "eye_white"), group.split()[-1]
@@ -130,8 +163,8 @@ def _union(boxes):
 
 
 def grid_for(width: int, height: int, step: int = 28) -> list[int]:
-    """Mesh columns and rows for a layer: about one vertex every step pixels, 2 to 24 per side."""
-    return [max(2, min(24, round(width / step) + 1)), max(2, min(24, round(height / step) + 1))]
+    """Mesh columns and rows for a layer: about one vertex every step pixels, 2 to 40 per side."""
+    return [max(2, min(40, round(width / step) + 1)), max(2, min(40, round(height / step) + 1))]
 
 
 def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name: str, parts: list | None = None) -> dict:
@@ -173,8 +206,7 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
             depth = depths.get(info.get("tag") or "", None)
             if depth is None:
                 depth = 1.0 - order / max(1, total - 1)
-            entries.append(
-                {
+            entry = {
                     "Id": file_id,
                     "Name": layer.name,
                     "Part": group.name,
@@ -188,12 +220,16 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
                     "Depth": round(float(depth), 4),
                     "Grid": grid_for(image.width, image.height),
                     "Visible": bool(layer.visible),
-                }
-            )
+            }
+            if role == "clothing":
+                entry["Garment"] = layer.name.split()[0].lower()
+            entries.append(entry)
             order += 1
 
     rig = build_rig(entries, size)
     written = model_files.write_model_files(folder)
+    outfits = write_outfits(folder, entries)
+    written["Expressions"] = written["Expressions"] + outfits
     (folder / model_files.SETTINGS_FILE).write_text(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"]), parameters={p[0] for p in PARAMETERS}), indent=2) + "\n",
         encoding="utf-8",
@@ -207,6 +243,7 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
         "Layers": entries,
         "Rig": rig,
         "HitAreas": hit_areas(rig, size),
+        "Outfits": [item["Name"] for item in outfits],
         "FileReferences": {"Expressions": written["Expressions"], "Motions": written["Motions"]},
         "Groups": [
             {"Target": "Parameter", "Name": "EyeBlink", "Ids": ["ParamEyeLOpen", "ParamEyeROpen"]},
@@ -216,6 +253,35 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
     (folder / f"{name}{SUFFIX}").write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     write_preview(folder, name)
     return document
+
+
+def write_outfits(folder, entries: list[dict]) -> list[dict]:
+    """
+    Outfit expressions (outfit_full, outfit_inner, outfit_nude) for a puppet with a body layer under
+    its clothes, as expression list entries. The player keeps an outfit on while the emotions change.
+    """
+    roles = {e["Role"] for e in entries}
+    if "nude_body" not in roles:
+        return []
+    folder = pathlib.Path(folder)
+    (folder / model_files.EXPRESSIONS_DIR).mkdir(exist_ok=True)
+    result = []
+    for name, (outer, inner) in OUTFITS.items():
+        if name == "outfit_inner" and "inner" not in roles:
+            continue
+        relative = f"{model_files.EXPRESSIONS_DIR}/{name}.exp3.json"
+        data = {
+            "Type": "Live2D Expression",
+            "FadeInTime": 0.6,
+            "FadeOutTime": 0.6,
+            "Parameters": [
+                {"Id": "ParamClothesOuter", "Value": outer, "Blend": "Overwrite"},
+                {"Id": "ParamClothesInner", "Value": inner, "Blend": "Overwrite"},
+            ],
+        }
+        (folder / relative).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        result.append({"Name": name, "File": relative})
+    return result
 
 
 def _box(entry) -> tuple[int, int, int, int]:
@@ -244,7 +310,7 @@ def build_rig(entries: list[dict], size: tuple[int, int]) -> dict:
         "Radius": round(max(face_w, face_h) / 2, 1),
         "Depth": _depth(entries, "face"),
     }
-    body_box = _union(boxes("body", "arm", "neck"))
+    body_box = _union(boxes("body", "arm", "neck", "clothing", "nude_body", "inner"))
     if body_box is None:
         body_box = (face[0], face[3], face[2], height)
     body = {
@@ -279,15 +345,62 @@ def build_rig(entries: list[dict], size: tuple[int, int]) -> dict:
             box = _box(entry)
             root = max(box[1], face[1] - face_h * 0.1) if entry["Role"] == "front_hair" else max(box[1], face[1])
             hair.append({"Layer": entry["Id"], "Root": round(root, 1), "Length": round(max(1, box[3] - root), 1)})
-    return {
+    rig = {
         "Head": head,
         "Body": body,
         "Eyes": eyes,
         "Mouth": mouth,
         "Hair": hair,
         "Strength": dict(STRENGTH),
-        "Physics": dict(PHYSICS),
+        "Physics": json.loads(json.dumps(PHYSICS)),
     }
+    rig.update(soft_body(entries, face, body_box))
+    rig["Cloth"] = cloth(entries, body_box)
+    return rig
+
+
+def soft_body(entries: list[dict], face, body_box) -> dict:
+    """
+    Where the bust and hips are (centre and radii, canvas pixels), from the head size and anime
+    proportions: the bust about one head below the chin, the hips about three. A region the body
+    doesn't reach (a bust-up picture has no hips) is left out. Edit the numbers in the puppet file
+    to fit a character better; a Radius of 0 turns a region off.
+    """
+    face_h = face[3] - face[1]
+    neck = _union([_box(e) for e in entries if e["Role"] == "neck"])
+    cx = (neck[0] + neck[2]) / 2 if neck else (face[0] + face[2]) / 2
+    chin = face[3]
+    soft = {}
+    bust_y = chin + face_h * 1.15
+    if body_box[3] > bust_y + face_h * 0.3 and body_box[1] < bust_y:
+        offset = face_h * 0.4
+        soft["Bust"] = {
+            "Centers": [[round(cx + offset, 1), round(bust_y, 1)], [round(cx - offset, 1), round(bust_y, 1)]],
+            "Radius": [round(face_h * 0.42, 1), round(face_h * 0.36, 1)],
+        }
+    hip_y = chin + face_h * 3.1
+    if body_box[3] > hip_y + face_h * 0.3:
+        soft["Hips"] = {
+            "Centers": [[round(cx + face_h * 0.5, 1), round(hip_y, 1)], [round(cx - face_h * 0.5, 1), round(hip_y, 1)]],
+            "Radius": [round(face_h * 0.6, 1), round(face_h * 0.55, 1)],
+        }
+    return soft
+
+
+def cloth(entries: list[dict], body_box) -> list[dict]:
+    """The garments that sway on their own: skirts and dresses from the waist down, ribbons and ties from their top."""
+    result = []
+    for entry in entries:
+        garment = entry.get("Garment")
+        box = _box(entry)
+        if garment == "bottomwear":
+            root = box[1] + (box[3] - box[1]) * 0.25
+        elif garment == "neckwear":
+            root = box[1] + (box[3] - box[1]) * 0.15
+        else:
+            continue
+        result.append({"Layer": entry["Id"], "Root": round(root, 1), "Length": round(max(1, box[3] - root), 1)})
+    return result
 
 
 def _depth(entries, role):
@@ -327,7 +440,10 @@ PREVIEW = """<!doctype html>
   <strong>{name}</strong>
   <label>Expression <select id="expression"></select></label>
   <label>Motion <select id="motion"></select></label>
+  <label id="outfit-row" hidden>Outfit <select id="outfit"></select></label>
+  <label>Blush <input type="range" id="blush" min="0" max="1" step="0.05" value="0"></label>
   <label><input type="checkbox" id="follow" checked> Follow the cursor</label>
+  <p style="margin:8px 0 0;opacity:.75">Drag the hair, clothes or body to pull them; click to poke.</p>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.2/browser/pixi.min.js"></script>
 <script type="module">
@@ -346,9 +462,17 @@ function fit() {{
 fit();
 addEventListener("resize", fit);
 model.autoInteract = true;
+model.grabAnywhere = true;
 document.getElementById("follow").onchange = (e) => (model.autoInteract = e.target.checked);
 const expressions = document.getElementById("expression");
-for (const item of model.internalModel.settings.expressions) expressions.append(new Option(item.Name, item.Name));
+const outfits = document.getElementById("outfit");
+for (const item of model.internalModel.settings.expressions) {{
+  if (item.Name.startsWith("outfit_")) outfits.append(new Option(item.Name.slice(7), item.Name));
+  else expressions.append(new Option(item.Name, item.Name));
+}}
+if (outfits.options.length) document.getElementById("outfit-row").hidden = false;
+outfits.onchange = () => model.expression(outfits.value);
+document.getElementById("blush").oninput = (e) => model.internalModel.coreModel.setParameterValueById("ParamCheek", Number(e.target.value));
 expressions.onchange = () => model.expression(expressions.value);
 const motions = document.getElementById("motion");
 for (const [group, list] of Object.entries(model.internalModel.settings.motions))

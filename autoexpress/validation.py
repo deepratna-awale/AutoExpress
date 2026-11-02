@@ -314,6 +314,17 @@ def validate_live2d(data, max_pixels: int) -> dict:
         errors["variants"] = f"must be one of {', '.join(LIVE2D_VARIANTS)}"
     settings["variants"] = variants
     settings["low_vram"] = bool(raw.get("low_vram", False))
+    # Swappable clothing (autoexpress_core.live2d.outfits): only with an explicit adult confirmation.
+    settings["outfit_layers"] = raw.get("outfit_layers") is True
+    settings["adult_confirmed"] = raw.get("adult_confirmed") is True
+    for key in ("character_description", "inner_wear"):
+        value = raw.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or len(value) > 2000:
+            errors[key] = "must be text of at most 2000 characters"
+        else:
+            settings[key] = value
     if raw.get("remove_background") is not None:
         settings["remove_background"] = bool(raw["remove_background"])
     for key, (cast, low, high) in NUMERIC_FIELDS.items():

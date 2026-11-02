@@ -9,7 +9,11 @@ See-through nodes):
 3. Make the art a rig needs and the picture doesn't show: the eyes closed and the mouth open.
    With a character LoRA installed on the WebUI, face inpainting with the LoRA keeps the
    character on model; otherwise Qwen-Image-Edit does it (ComfyUI), else plain face inpainting.
-4. Split the character into up to 23 layers with hidden areas painted in (See-through).
+   With swappable clothing on (adult, drawn characters only, see outfits.py), also the body
+   under the clothes and the body in inner wear.
+4. Split the character into up to 23 layers with hidden areas painted in (See-through), at up to
+   2048 px (small pictures are upscaled first), then make skin, clothes and hair opaque and paint
+   the hair colour under the bangs.
 5. Write the kit:
      <name>.psd                 Cubism-ready: one group per part, L/R named, blink and mouth art hidden
      <name>_seethrough.psd      the same layers flat, named the way See-through names them, for
@@ -37,7 +41,7 @@ from PIL import Image, ImageDraw
 from .. import instruction_edit
 from ..images import pil_to_b64
 from ..payload import build_expression_payload
-from . import DECOMPOSE, guidance, layers, model_files, psd, puppet
+from . import DECOMPOSE, guidance, layers, model_files, outfits, psd, puppet
 
 MAX_SIDE = 2048
 EYES_CLOSED = "eyes_closed"
@@ -68,14 +72,41 @@ class KitCancelled(Exception):
     pass
 
 
-def prepare_picture(image: Image.Image, remove_background: bool | None = None, log: Callable[[str], None] = lambda _: None) -> Image.Image:
+def prepare_picture(
+    image: Image.Image,
+    remove_background: bool | None = None,
+    log: Callable[[str], None] = lambda _: None,
+    backend=None,
+    min_side: int = 0,
+) -> Image.Image:
     """
     The picture as See-through and the edits should see it: at most MAX_SIDE px, the character on white.
 
-    remove_background None removes it only when it's busy (and rembg is installed).
+    remove_background None removes it only when it's busy (and rembg is installed). A picture whose
+    long side is under min_side is upscaled to it first, with the backend's upscale model when it
+    has one (backend.upscale), else with Lanczos, so the layers come out at the split's resolution.
     """
     image = image.copy()
     image.load()
+    if min_side and max(image.size) < min_side:
+        target = min(MAX_SIDE, min_side)
+        upscaled = None
+        upscale = getattr(backend, "upscale", None) if backend is not None else None
+        if upscale:
+            log(f"Upscaling the picture from {max(image.size)} px to {target} px with an upscale model.")
+            upscaled = upscale(pil_to_b64(image.convert("RGB")))
+        scale = target / max(image.size)
+        size = (round(image.width * scale), round(image.height * scale))
+        if upscaled is None:
+            log(f"Upscaling the picture from {max(image.size)} px to {target} px.")
+            upscaled = image.resize(size, Image.Resampling.LANCZOS)
+        elif upscaled.size != size:
+            upscaled = upscaled.resize(size, Image.Resampling.LANCZOS)
+        if image.mode == "RGBA" and upscaled.mode != "RGBA":
+            alpha = image.getchannel("A").resize(size, Image.Resampling.LANCZOS)
+            upscaled = upscaled.convert("RGBA")
+            upscaled.putalpha(alpha)
+        image = upscaled
     if max(image.size) > MAX_SIDE:
         scale = MAX_SIDE / max(image.size)
         image = image.resize((round(image.width * scale), round(image.height * scale)), Image.Resampling.LANCZOS)
@@ -125,6 +156,38 @@ def make_variant(backend, picture: Image.Image, which: str, method: str, setting
     if result is None:
         return None
     return result.convert("RGB").resize(picture.size, Image.Resampling.LANCZOS) if result.size != picture.size else result.convert("RGB")
+
+
+def make_outfit_edits(backend, picture: Image.Image, settings: dict, log, check_cancel, progress) -> tuple[dict, list[str]]:
+    """The nude and inner wear edits of picture ({outfits.NUDE: ..., outfits.INNER: ...}, as many as worked) and notes."""
+    notes: list[str] = []
+    edits: dict[str, Image.Image] = {}
+    if INSTRUCT not in getattr(backend, "edit_methods", ()):
+        notes.append("Swappable clothing needs Qwen-Image-Edit on ComfyUI; the clothes stay one layer.")
+        return edits, notes
+    description = settings.get("character_description", "")
+    edit = instruction_edit.EditSettings.from_settings(settings)
+    edit = dataclasses.replace(edit, keep_size=True, photo=False, intensity=1.0)
+    check_cancel()
+    progress("drawing the body layer", 0.3)
+    log("Drawing the body under the clothes (Qwen-Image-Edit).")
+    nude = backend.instruction_edit(pil_to_b64(picture), outfits.adapt(outfits.nude_instruction(description), description), edit)
+    if nude is None:
+        notes.append(f"Couldn't draw the body layer: {getattr(backend, 'last_error', None) or 'the WebUI failed'}. The clothes stay one layer.")
+        return edits, notes
+    nude = nude.convert("RGB").resize(picture.size, Image.Resampling.LANCZOS) if nude.size != picture.size else nude.convert("RGB")
+    edits[outfits.NUDE] = nude
+    check_cancel()
+    progress("drawing the inner wear", 0.35)
+    log("Drawing the inner wear (Qwen-Image-Edit).")
+    inner = backend.instruction_edit(
+        pil_to_b64(nude), outfits.adapt(outfits.inner_instruction(settings.get("inner_wear", ""), description), description), edit
+    )
+    if inner is None:
+        notes.append(f"Couldn't draw the inner wear: {getattr(backend, 'last_error', None) or 'the WebUI failed'}. The puppet has the body and the outer clothes only.")
+    else:
+        edits[outfits.INNER] = inner.convert("RGB").resize(picture.size, Image.Resampling.LANCZOS) if inner.size != picture.size else inner.convert("RGB")
+    return edits, notes
 
 
 def to_canvas(picture: Image.Image, box: tuple[int, int, int, int], size: tuple[int, int]) -> Image.Image:
@@ -230,7 +293,8 @@ def build_kit(
 
     settings: base_index (which picture, default the best), remove_background (None = only busy ones),
       variants ("auto", "inpaint", "instruct" or "none"), split settings (resolution, steps, seed,
-      low_vram), and the usual face inpainting / instruction edit settings (ad_*, edit_*).
+      low_vram), the usual face inpainting / instruction edit settings (ad_*, edit_*), and for
+      swappable clothing outfit_layers, adult_confirmed, character_description, inner_wear (outfits.py).
     character_lora: {"entry": LoRA entry, "installed_name": name on the WebUI} from character_lora, or None.
     """
     settings = dict(settings or {})
@@ -260,7 +324,8 @@ def build_kit(
     log(f"Using picture {base_index + 1} of {len(images)} (score {report['score']}).")
 
     # 2. Prepare it.
-    picture = prepare_picture(images[base_index], settings.get("remove_background"), log)
+    split = layers.SplitSettings.from_settings(settings)
+    picture = prepare_picture(images[base_index], settings.get("remove_background"), log, backend, split.resolution)
     picture.save(folder / "input.png")
     check_cancel()
 
@@ -292,27 +357,53 @@ def build_kit(
     else:
         notes.append("No eyes-closed or mouth-open art was made (turned off, or the WebUI can't edit pictures).")
 
+    # Swappable clothing: the body under the clothes and in inner wear.
+    outfit_edits: dict[str, Image.Image] = {}
+    outfit_state = {"requested": bool(settings.get("outfit_layers")), "made": []}
+    if settings.get("outfit_layers"):
+        allowed, reason = outfits.check(settings, picture, name)
+        if allowed:
+            outfit_edits, outfit_notes = make_outfit_edits(backend, picture, settings, log, check_cancel, progress)
+            notes.extend(outfit_notes)
+        else:
+            notes.append(reason)
+            outfit_state["refused"] = reason
+        for which, image in outfit_edits.items():
+            image.save(folder / f"{which}.png")
+
     # 4. Split.
     check_cancel()
     progress("splitting layers", 0.4)
-    split = layers.SplitSettings.from_settings(settings)
     log(f"Splitting the character into layers with See-through at {split.resolution} px. This takes a few minutes.")
     result = backend.decompose_layers(pil_to_b64(picture), split)
     if result is None:
         raise backend.last_error or RuntimeError("The layer split failed.")
     parts, canvas_size = result
     check_cancel()
+    parts = layers.solidify_parts(parts)
+    box = layers.square_placement(picture.size, canvas_size[0])
+    base_canvas = to_canvas(picture, box, canvas_size)
+    parts = layers.match_picture(parts, Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas).convert("RGB"))
+    underlay = layers.hair_underlay(parts, canvas_size)
 
     # 5. Extra art, crop to the picture, write.
     progress("writing the kit", 0.9)
-    box = layers.square_placement(picture.size, canvas_size[0])
-    base_canvas = to_canvas(picture, box, canvas_size)
     overlays = layers.edit_overlays(
         parts,
         base_canvas,
         to_canvas(variants[EYES_CLOSED], box, canvas_size) if EYES_CLOSED in variants else None,
         to_canvas(variants[MOUTH_OPEN], box, canvas_size) if MOUTH_OPEN in variants else None,
     )
+    extra = outfits.outfit_parts(
+        parts,
+        canvas_size,
+        to_canvas(outfit_edits[outfits.NUDE], box, canvas_size) if outfits.NUDE in outfit_edits else None,
+        to_canvas(outfit_edits[outfits.INNER], box, canvas_size) if outfits.INNER in outfit_edits else None,
+    )
+    outfit_state["made"] = [part.tag for part in extra]
+    if outfit_edits and not extra:
+        notes.append("The body edit couldn't be cut out to a layer; the clothes stay one layer.")
+    parts = parts + extra + ([underlay] if underlay else [])
     for which, wanted in ((EYES_CLOSED, "closed"), (MOUTH_OPEN, "Mouth open")):
         if which in variants and not any(wanted in overlay.name for overlay in overlays):
             notes.append(f"The {which.replace('_', ' ')} edit didn't change the {'eyes' if which == EYES_CLOSED else 'mouth'} enough to make a layer from it.")
@@ -355,6 +446,7 @@ def build_kit(
             "variants": {"method": method, "made": sorted(variants)},
             "character_lora": (character_lora or {}).get("entry"),
             "split": dataclasses.asdict(split),
+            "outfits": outfit_state,
             "notes": notes,
         }
     )

@@ -320,6 +320,10 @@ export interface Live2DRequest {
     base_index?: number;
     variants?: "auto" | "instruct" | "inpaint" | "none";
     remove_background?: boolean;
+    outfit_layers?: boolean;
+    adult_confirmed?: boolean;
+    character_description?: string;
+    inner_wear?: string;
   };
   character_lora?: { entry: CharacterLoraEntry; installed_name: string | null } | null;
 }

@@ -25,7 +25,8 @@ turns, physics you tune, any parameter you like).
   [See-through](https://github.com/shitagaki-lab/see-through) (SIGGRAPH 2026), a model trained on
   real Live2D models that splits one anime picture into up to 23 layers and paints in what each
   layer hides. Its models (about 10 GB) download from Hugging Face the first time it runs. It needs
-  12 to 16 GB of VRAM at 1280 px, or 8 GB with **Low VRAM** (4-bit models, needs `bitsandbytes`).
+  12 to 16 GB of VRAM at 1280 px and 20 to 24 GB at 2048 px (the default, since the layers become
+  the puppet's textures), or 8 GB at 1280 px with **Low VRAM** (4-bit models, needs `bitsandbytes`).
 
   ```bash
   cd ComfyUI/custom_nodes
@@ -36,7 +37,10 @@ turns, physics you tune, any parameter you like).
 
   `scripts/runpod/setup_comfyui.sh` installs it for you.
 - Optional: **Qwen-Image-Edit** on the same ComfyUI (see [ComfyUI](comfyui.md)) for the
-  eyes-closed and mouth-open art, or a face inpainting checkpoint.
+  eyes-closed and mouth-open art (or a face inpainting checkpoint), and for swappable clothing.
+- Optional: an **upscale model** in ComfyUI's `models/upscale_models` (the RunPod script downloads
+  `RealESRGAN_x4plus_anime_6B`). Pictures smaller than the layer resolution are upscaled with it
+  before the split; without one they're resized.
 
 The setup checklist in the app shows whether the nodes are there, with the commands to fix it.
 
@@ -51,7 +55,8 @@ In the web app, open the sidebar and choose **Tools > Live2D model kit**.
    mouth-open edits are made with face inpainting and that LoRA, so they stay on model. Without
    one, Qwen-Image-Edit makes them from the picture alone. A LoRA the WebUI doesn't have is listed
    with its download link: put it in ComfyUI's `models/loras` folder and search again.
-3. **Build the kit.** It takes a few minutes: two edits, then See-through.
+3. Optional: **Swappable clothing** (see below).
+4. **Build the kit.** It takes a few minutes: two edits (four with swappable clothing), then See-through.
 
 When it's done you get the reassembled character, every layer side by side, what's missing, and
 downloads for the puppet (zip), the kit (zip), the Cubism PSD and the See-through PSD. **Try the
@@ -84,6 +89,38 @@ Avoid action poses, strong perspective, crowds and loose sketches.
 | `puppet/<name>/` | The ready-to-play puppet (also in `<name>_puppet.zip` next to the kit). |
 | `manifest.json` | Layers and their boxes, the switch layers and the parameter each belongs to, the picture checks, what's missing. |
 | `README.txt` | The steps below. |
+
+### Swappable clothing
+
+Live2D artists who want outfits that can change draw the whole body under the clothes and each
+garment on its own layer. Turn on **Swappable clothing** and the kit does the same: two more
+Qwen-Image-Edit runs draw the character with the clothes off (the body layer) and then in inner
+wear (plain by default, or what you type under **Inner wear**), and they're cut out under
+See-through's clothes. The puppet stacks body, inner wear and outer clothes, each with a switch
+(`ParamClothesOuter`, `ParamClothesInner`) and outfit expressions `outfit_full`, `outfit_inner` and
+`outfit_nude`. An outfit stays on while the emotions change. **Character description** helps the
+body match the character (build, skin).
+
+These layers show nudity, so they are only made for **drawn adult characters**:
+
+- you tick that the character is an adult and the picture is a drawing,
+- the picture has to look drawn (a photo of a real person is refused),
+- a name or description that reads as a child (school ages, "loli", "15 years old" and similar)
+  turns them off.
+
+When they aren't made, the kit says why and the clothes stay one layer.
+
+### Clean-up after the split
+
+See-through leaves a few things a hand-made model wouldn't have, which the kit fixes before it
+writes the layers:
+
+- Skin, clothes and hair are made opaque inside, with only an anti-aliased edge (no see-through neck).
+- Clothing over the neck or face where the picture shows the neck or face (the back of a collar) is
+  cut away, and anything visible that doesn't match the picture (grey patches in the hair) takes
+  the picture's colours, so the puppet at rest looks like the picture.
+- The hair colour is painted under the bangs, from the hairline down to the brows, so a swaying
+  strand shows hair, never the scalp.
 
 ## Ready-to-play puppet
 
@@ -127,10 +164,22 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 | `ParamBrowLY`, `ParamBrowLAngle`, `ParamBrowLForm` (and R) | Raise, angle and arch the brows. |
 | `ParamMouthOpenY` | Open the mouth: the **Mouth open** art fades in. |
 | `ParamMouthForm` | Smile (corners up) or frown. |
-| `ParamCheek` | Blush. |
+| `ParamCheek` | Blush: a soft pink that takes the skin's tone, with anime hatching when it's strong. |
 | `ParamBodyAngleX`, `ParamBodyAngleY`, `ParamBodyAngleZ` | Lean and turn the upper body. |
 | `ParamBreath` | Breathing (by itself when nothing else drives it). |
 | `ParamHairFront`, `ParamHairBack` | Push the hair; it also swings on its own when the head moves. |
+| `ParamBustX`, `ParamBustY`, `ParamHipX`, `ParamHipY` | Push the soft parts. They also jiggle on their own: each trails the body's movement on a bouncy spring, and bounces when poked. The clothes over them move with them. |
+| `ParamClothesOuter`, `ParamClothesInner` | Show or hide the outer clothes and the inner wear (puppets with swappable clothing). |
+
+Expression changes glide: every parameter eases towards its new value instead of jumping. Skirts
+and ribbons swing behind the body like hair. Dragging the hair's ends, a skirt or a soft part pulls
+it and it springs back with a wobble; a quick click on a soft part pokes it. In SillyTavern dragging
+anywhere else still moves the model, and a click still plays the hit area's reaction. In the
+preview everything can be pulled.
+
+The bust and hip regions are placed from the head size with anime proportions. If they're off for
+a character, change `Rig.Bust` and `Rig.Hips` (`Centers`, `Radius`) in the puppet file; a radius of
+0 turns one off, and `Rig.Strength.bust`, `hips`, `cloth` and `drag` scale each effect.
 
 ### The format
 

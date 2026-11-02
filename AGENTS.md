@@ -22,7 +22,7 @@ a Live2D-style puppet.
 | Remove background | Transparent sprites | Nothing on the WebUI (rembg runs in AutoExpress) | [standalone.md](docs/standalone.md) |
 | Expression LoRAs | Stronger, cleaner expressions | A Civitai key for downloads | [expression-loras.md](docs/expression-loras.md) |
 | Animated sprites | Looping WebP/APNG/GIF per expression, a persona idle | Wan 2.2 I2V 14B on ComfyUI (38 GB, 48 GB+ VRAM is comfortable) | [animated-sprites.md](docs/animated-sprites.md) |
-| Live2D model kits and puppets | A ready-to-play puppet for the SillyTavern Live2D extension, a Cubism-ready PSD, 28 expressions and motions | ComfyUI with the See-through nodes (10 GB of models, 12-16 GB VRAM) | [live2d.md](docs/live2d.md) |
+| Live2D model kits and puppets | A ready-to-play puppet for the SillyTavern Live2D extension, a Cubism-ready PSD, 28 expressions and motions | ComfyUI with the See-through nodes (10 GB of models, 20-24 GB VRAM at the default 2048 px); Qwen-Image-Edit for blink/mouth art and swappable clothing | [live2d.md](docs/live2d.md) |
 | SillyTavern extension | Sprites straight into a character's expressions folder; puppets in the Live2D extension | The standalone app running and reachable from SillyTavern | [sillytavern.md](docs/sillytavern.md) |
 
 ## Ways to run it
@@ -154,6 +154,7 @@ Command line equivalents for the Live2D tools:
 ```bash
 python -m autoexpress_core.live2d check picture.png                     # picture advice
 python -m autoexpress_core.live2d kit --url <ComfyUI URL> --name mira picture.png
+python -m autoexpress_core.live2d kit --url <ComfyUI URL> --name mira --outfits --adult picture.png   # swappable clothing (drawn adults only)
 python -m autoexpress_core.live2d puppet path/to/kit_folder              # puppet from a kit
 python -m autoexpress_core.live2d attach path/to/cubism_model_folder     # 28 emotions on a rigged model
 python -m autoexpress_core.live2d lora "Character Name" --arch illustrious
@@ -215,3 +216,7 @@ Conventions:
 - API keys (RunPod, Civitai, Hugging Face, LLM) come from the environment; never commit or log them.
 - The standalone app is meant to run on the user's machine or a private network. Don't publish it as a
   public online service.
+- Swappable clothing in Live2D kits draws nudity, so it only runs for drawn adult characters with an
+  explicit adult confirmation (`outfit_layers` + `adult_confirmed`); photos and child-coded names or
+  descriptions are refused in `autoexpress_core/live2d/outfits.py`. Keep those checks, and use SFW
+  characters for tests and public examples.

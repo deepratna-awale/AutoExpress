@@ -9,7 +9,7 @@
 # What it does:
 #   1. Clones ComfyUI, ComfyUI-Impact-Pack and ComfyUI-Impact-Subpack (face inpainting), ComfyUI-See-through
 #      (Live2D model kits) and starts ComfyUI on port 8188.
-#   2. Downloads the face detector, Qwen-Image-Edit 2511 (expressions and poses) and Wan 2.2 image to video 14B
+#   2. Downloads the face detector, an anime upscale model (small pictures for Live2D kits), Qwen-Image-Edit 2511 (expressions and poses) and Wan 2.2 image to video 14B
 #      (animated sprites) with AutoExpress's own download commands.
 #   3. Optionally a checkpoint for face inpainting (CHECKPOINT_URL).
 #
@@ -63,6 +63,12 @@ echo "== Face detector"
 mkdir -p "$COMFYUI_DIR/models/ultralytics/bbox"
 [ -f "$COMFYUI_DIR/models/ultralytics/bbox/face_yolov8m.pt" ] || \
   wget -q -O "$COMFYUI_DIR/models/ultralytics/bbox/face_yolov8m.pt" https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt
+
+echo "== Upscale model (Live2D kits upscale small pictures before the layer split)"
+mkdir -p "$COMFYUI_DIR/models/upscale_models"
+[ -f "$COMFYUI_DIR/models/upscale_models/RealESRGAN_x4plus_anime_6B.pth" ] || \
+  wget -q -O "$COMFYUI_DIR/models/upscale_models/RealESRGAN_x4plus_anime_6B.pth" \
+    https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth || true
 
 cd "$AUTOEXPRESS_DIR"
 if [ "${SKIP_QWEN:-0}" != "1" ]; then

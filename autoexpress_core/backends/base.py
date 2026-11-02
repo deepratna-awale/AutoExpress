@@ -593,6 +593,10 @@ class RemoteBackend:
         """Like ensure_ready, for splitting a character into Live2D layers."""
         raise BackendNotReady(f"{self.label} can't split a character into layers. Use the ComfyUI backend with the See-through nodes for Live2D models.")
 
+    def upscale(self, image: str):
+        """A base64 picture upscaled with an upscale model (PIL image), or None when the backend has none."""
+        return None
+
     def decompose_layers(self, image: str, settings) -> tuple[list, tuple[int, int]] | None:
         """Split a base64 character picture into layers. Only backends with can_decompose have it."""
         raise NotImplementedError
