@@ -181,7 +181,7 @@ def build_instruction(
     if style == PHOTO:
         sentence, clause = photo_sentence(expression), ""
         if closed_mouth:
-            sentence += " " + CLOSED_MOUTH_PHOTO
+            sentence += " " + CLOSED_MOUTH
     else:
         sentence = _sentence(expression, tier, closed_mouth)
         clause = data["intensity"][tier]
@@ -195,14 +195,15 @@ def build_instruction(
     return " ".join(part for part in parts if part)
 
 
-CLOSED_MOUTH_PHOTO = "The mouth is closed."
+# Qwen-Image-Edit still opens the mouth for strong emotions unless it's told twice.
+CLOSED_MOUTH = "The mouth is fully closed: the lips are together, with no teeth or tongue showing."
 
 
 def _sentence(expression: str, tier: str, closed_mouth: bool = False) -> str:
     """The expression's sentence for an intensity tier; the closed-mouth version when asked for and there is one."""
     data = _load()
-    if closed_mouth and expression in data.get("closed_mouth", {}):
-        return data["closed_mouth"][expression]
+    if closed_mouth:
+        return data.get("closed_mouth", {}).get(expression, data["subtle" if tier == "subtle" else "expressions"][expression]) + " " + CLOSED_MOUTH
     return data["subtle" if tier == "subtle" else "expressions"][expression]
 
 
@@ -211,7 +212,7 @@ def _posed_instruction(expression: str, extra: str, style: str, tier: str, gestu
     data, poses = _load(), _load_poses()
     if style == PHOTO:
         word = data["photo"]["words"].get(expression, expression)
-        face = f"Facial expression: {word}." + (" " + CLOSED_MOUTH_PHOTO if closed_mouth else "")
+        face = f"Facial expression: {word}." + (" " + CLOSED_MOUTH if closed_mouth else "")
         parts = [face, gesture, poses["keep"], poses["outfit"], (extra or "").strip(), poses["photo_suffix"]]
     else:
         sentence = HEAD_LOCK.sub("", _sentence(expression, tier, closed_mouth))

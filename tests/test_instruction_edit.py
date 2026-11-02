@@ -372,10 +372,11 @@ def test_closed_mouth_for_animated_sprites():
     for name in ("surprise", "joy", "grief", "realization", "excitement", "fear"):
         normal = instruction_edit.build_instruction(name, intensity=1.0)
         closed = instruction_edit.build_instruction(name, intensity=1.0, closed_mouth=True)
-        assert closed != normal and "open" not in closed.split("Keep the same")[0].replace("eyes wide open", "")
+        assert closed != normal and "open" not in closed.split("Keep the same")[0].replace("eyes wide open", "").replace("palm open", "")
     assert "mouth closed" in instruction_edit.build_instruction("surprise", intensity=0.2, closed_mouth=True)
     posed = instruction_edit.build_instruction("joy", pose=True, closed_mouth=True)
     assert "closed-mouth smile" in posed and "Change the facial expression and the pose." in posed
-    # Expressions without an open mouth keep their usual sentence.
-    assert instruction_edit.build_instruction("love", closed_mouth=True) == instruction_edit.build_instruction("love")
-    assert "The mouth is closed." in instruction_edit.build_instruction("joy", style=instruction_edit.PHOTO, closed_mouth=True)
+    # Every expression gets the closed-mouth sentence, photos too.
+    assert instruction_edit.CLOSED_MOUTH in instruction_edit.build_instruction("love", closed_mouth=True)
+    assert instruction_edit.CLOSED_MOUTH not in instruction_edit.build_instruction("love")
+    assert instruction_edit.CLOSED_MOUTH in instruction_edit.build_instruction("joy", style=instruction_edit.PHOTO, closed_mouth=True)
