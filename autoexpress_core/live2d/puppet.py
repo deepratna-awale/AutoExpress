@@ -70,15 +70,39 @@ PARAMETERS = [
     ("ParamHipX", -1, 1, 0),
     ("ParamHipY", -1, 1, 0),
     # Outfit switches: 1 shows the layer. Only puppets with a body layer have something under the clothes.
+    # Outer and Inner switch a whole layer of clothing; the others switch one piece of it, so a
+    # piece can come off on its own (half off: top off and skirt on, or the bra off and briefs on).
     ("ParamClothesOuter", 0, 1, 1),
     ("ParamClothesInner", 0, 1, 1),
+    ("ParamClothesTop", 0, 1, 1),
+    ("ParamClothesBottom", 0, 1, 1),
+    ("ParamClothesLegs", 0, 1, 1),
+    ("ParamInnerTop", 0, 1, 1),
+    ("ParamInnerBottom", 0, 1, 1),
+    ("ParamAccessories", 0, 1, 1),
 ]
-OUTFITS = {
-    # name -> (ParamClothesOuter, ParamClothesInner)
-    "outfit_full": (1, 1),
-    "outfit_inner": (0, 1),
-    "outfit_nude": (0, 0),
+# Which piece switch each garment follows (outer clothes by See-through's tag, inner wear by layer).
+PIECES = {
+    "topwear": "ParamClothesTop", "neckwear": "ParamClothesTop", "arm": "ParamClothesTop",
+    "bottomwear": "ParamClothesBottom",
+    "legwear": "ParamClothesLegs", "footwear": "ParamClothesLegs",
+    "inner_top": "ParamInnerTop", "inner_bottom": "ParamInnerBottom",
 }
+_SWITCHES = ("ParamClothesOuter", "ParamClothesInner", "ParamClothesTop", "ParamClothesBottom", "ParamClothesLegs", "ParamInnerTop", "ParamInnerBottom")
+# name -> (switches turned off, what it needs: "inner" a layer of inner wear, "inner_split" its top and
+# bottom apart, "outer_split" an outer top and bottom apart). Everything not listed stays on.
+OUTFITS = {
+    "outfit_full": ((), ()),
+    "outfit_top_off": (("ParamClothesTop",), ("outer_split", "inner")),
+    "outfit_bottom_off": (("ParamClothesBottom", "ParamClothesLegs"), ("outer_split", "inner")),
+    "outfit_inner": (("ParamClothesOuter",), ("inner",)),
+    "outfit_topless": (("ParamClothesTop", "ParamInnerTop"), ("outer_split", "inner_split")),
+    "outfit_inner_top_off": (("ParamClothesOuter", "ParamInnerTop"), ("inner_split",)),
+    "outfit_inner_bottom_off": (("ParamClothesOuter", "ParamInnerBottom"), ("inner_split",)),
+    "outfit_nude": (("ParamClothesOuter", "ParamClothesInner"), ()),
+}
+# Layers that are accessories (switched by ParamAccessories, on their own expression slot).
+ACCESSORY_LAYERS = ("Headwear", "Eyewear", "Earwear", "Neckwear", "Objects")
 
 # How far things move at the ends of each parameter, as fractions of the face (head) or canvas.
 STRENGTH = {
@@ -122,7 +146,7 @@ _ROLES = {
 _FACE_ROLES = {"Eyebrow": "brow", "Eyebrows": "brow", "Nose": "nose", "Face": "face", "Eyewear": "eyewear", "Eyes": "eyes"}
 _EYE_ROLES = {"Eyelash": "eyelash", "Iris": "iris", "Eye white": "eye_white", "Eye": "eye_white"}
 _BODY_ROLES = {
-    "Neck": "neck", "Arm": "arm", "Arms": "arm", "Body": "nude_body", "Inner wear": "inner",
+    "Neck": "neck", "Arm": "arm", "Arms": "arm", "Body": "nude_body", "Inner wear": "inner", "Inner top": "inner", "Inner bottom": "inner",
     "Topwear": "clothing", "Bottomwear": "clothing", "Legwear": "clothing", "Footwear": "clothing", "Neckwear": "clothing",
 }
 HEAD_ROLES = ("face", "brow", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "mouth", "mouth_open", "ear", "front_hair", "hair_under", "headwear", "back_hair")
@@ -223,6 +247,14 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
             }
             if role == "clothing":
                 entry["Garment"] = layer.name.split()[0].lower()
+            elif role == "inner" and layer.name in ("Inner top", "Inner bottom"):
+                entry["Garment"] = "inner_" + layer.name.split()[1]
+            elif role == "arm":
+                entry["Garment"] = "arm"
+            if entry.get("Garment") in PIECES:
+                entry["Switch"] = PIECES[entry["Garment"]]
+            if " ".join(w for w in layer.name.split() if w not in ("L", "R")) in ACCESSORY_LAYERS:
+                entry["Accessory"] = True
             entries.append(entry)
             order += 1
 
@@ -243,7 +275,7 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
         "Layers": entries,
         "Rig": rig,
         "HitAreas": hit_areas(rig, size),
-        "Outfits": [item["Name"] for item in outfits],
+        "Outfits": [item["Name"] for item in outfits if item["Name"].startswith("outfit_")],
         "FileReferences": {"Expressions": written["Expressions"], "Motions": written["Motions"]},
         "Groups": [
             {"Target": "Parameter", "Name": "EyeBlink", "Ids": ["ParamEyeLOpen", "ParamEyeROpen"]},
@@ -257,27 +289,37 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
 
 def write_outfits(folder, entries: list[dict]) -> list[dict]:
     """
-    Outfit expressions (outfit_full, outfit_inner, outfit_nude) for a puppet with a body layer under
-    its clothes, as expression list entries. The player keeps an outfit on while the emotions change.
+    Outfit expressions for a puppet with a body layer under its clothes (outfit_full, the half-off
+    ones its layers allow, outfit_inner, outfit_nude), plus accessories_off / accessories_on when it
+    has accessories, as expression list entries. The player keeps an outfit (and the accessories)
+    on while the emotions change.
     """
-    roles = {e["Role"] for e in entries}
-    if "nude_body" not in roles:
-        return []
     folder = pathlib.Path(folder)
+    roles = {e["Role"] for e in entries}
+    switches = {e.get("Switch") for e in entries}
+    has = {
+        "inner": "inner" in roles,
+        "inner_split": {"ParamInnerTop", "ParamInnerBottom"} <= switches,
+        "outer_split": "ParamClothesTop" in switches and bool({"ParamClothesBottom", "ParamClothesLegs"} & switches),
+    }
+    wanted: list[tuple[str, list[tuple[str, float]]]] = []
+    if "nude_body" in roles:
+        for name, (off, needs) in OUTFITS.items():
+            if all(has[need] for need in needs):
+                wanted.append((name, [(switch, 0.0 if switch in off else 1.0) for switch in _SWITCHES]))
+    if any(e.get("Accessory") for e in entries):
+        wanted += [("accessories_off", [("ParamAccessories", 0.0)]), ("accessories_on", [("ParamAccessories", 1.0)])]
+    if not wanted:
+        return []
     (folder / model_files.EXPRESSIONS_DIR).mkdir(exist_ok=True)
     result = []
-    for name, (outer, inner) in OUTFITS.items():
-        if name == "outfit_inner" and "inner" not in roles:
-            continue
+    for name, values in wanted:
         relative = f"{model_files.EXPRESSIONS_DIR}/{name}.exp3.json"
         data = {
             "Type": "Live2D Expression",
             "FadeInTime": 0.6,
             "FadeOutTime": 0.6,
-            "Parameters": [
-                {"Id": "ParamClothesOuter", "Value": outer, "Blend": "Overwrite"},
-                {"Id": "ParamClothesInner", "Value": inner, "Blend": "Overwrite"},
-            ],
+            "Parameters": [{"Id": pid, "Value": value, "Blend": "Overwrite"} for pid, value in values],
         }
         (folder / relative).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         result.append({"Name": name, "File": relative})
@@ -441,6 +483,7 @@ PREVIEW = """<!doctype html>
   <label>Expression <select id="expression"></select></label>
   <label>Motion <select id="motion"></select></label>
   <label id="outfit-row" hidden>Outfit <select id="outfit"></select></label>
+  <label id="accessories-row" hidden><input type="checkbox" id="accessories" checked> Accessories</label>
   <label>Blush <input type="range" id="blush" min="0" max="1" step="0.05" value="0"></label>
   <label><input type="checkbox" id="follow" checked> Follow the cursor</label>
   <p style="margin:8px 0 0;opacity:.75">Drag the hair, clothes or body to pull them; click to poke.</p>
@@ -467,10 +510,12 @@ document.getElementById("follow").onchange = (e) => (model.autoInteract = e.targ
 const expressions = document.getElementById("expression");
 const outfits = document.getElementById("outfit");
 for (const item of model.internalModel.settings.expressions) {{
-  if (item.Name.startsWith("outfit_")) outfits.append(new Option(item.Name.slice(7), item.Name));
+  if (item.Name.startsWith("outfit_")) outfits.append(new Option(item.Name.slice(7).replaceAll("_", " "), item.Name));
+  else if (item.Name.startsWith("accessories_")) document.getElementById("accessories-row").hidden = false;
   else expressions.append(new Option(item.Name, item.Name));
 }}
 if (outfits.options.length) document.getElementById("outfit-row").hidden = false;
+document.getElementById("accessories").onchange = (e) => model.expression(e.target.checked ? "accessories_on" : "accessories_off");
 outfits.onchange = () => model.expression(outfits.value);
 document.getElementById("blush").oninput = (e) => model.internalModel.coreModel.setParameterValueById("ParamCheek", Number(e.target.value));
 expressions.onchange = () => model.expression(expressions.value);
