@@ -20,6 +20,7 @@ from urllib3.util.retry import Retry
 
 from ..animation import ANIMATE
 from ..instruction_edit import INPAINT, INSTRUCT, METHODS
+from ..live2d import DECOMPOSE
 from ..payload import SAME_CHECKPOINT, find_nested_key
 from ..log import log
 
@@ -363,6 +364,8 @@ class RemoteBackend:
     edit_methods: tuple[str, ...] = (INPAINT,)
     # True when the WebUI can turn a still into a looping clip (Wan 2.2 image to video, see animation).
     can_animate = False
+    # True when the WebUI can split a character picture into Live2D layers (See-through, see live2d).
+    can_decompose = False
 
     def __init__(self, url: str | None = None, timeout: float | None = None, options: ConnectionOptions | None = None, **option_overrides) -> None:
         self.connection = dataclasses.replace(options) if options else ConnectionOptions()
@@ -555,6 +558,8 @@ class RemoteBackend:
                 self.ensure_ready()
             elif method == ANIMATE:
                 self.ensure_animate_ready()
+            elif method == DECOMPOSE:
+                self.ensure_decompose_ready()
             else:
                 self.ensure_edit_ready()
         except BackendError as e:
@@ -582,6 +587,14 @@ class RemoteBackend:
 
     def animate(self, image: str, prompt: str, negative: str, settings) -> list | None:
         """Turn a base64 still into a list of frames (a looping clip). Only backends with can_animate have it."""
+        raise NotImplementedError
+
+    def ensure_decompose_ready(self) -> None:
+        """Like ensure_ready, for splitting a character into Live2D layers."""
+        raise BackendNotReady(f"{self.label} can't split a character into layers. Use the ComfyUI backend with the See-through nodes for Live2D models.")
+
+    def decompose_layers(self, image: str, settings) -> tuple[list, tuple[int, int]] | None:
+        """Split a base64 character picture into layers. Only backends with can_decompose have it."""
         raise NotImplementedError
 
     def capabilities(self) -> list[Capability]:

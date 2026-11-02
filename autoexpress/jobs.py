@@ -47,6 +47,8 @@ class JobSpec:
     style: str = "illustration"
     # Animate the stills already in the output folder instead of generating new ones.
     animate_existing: bool = False
+    # A Live2D model kit instead of expressions: {"images": [base64], "name", "settings", "character_lora"}.
+    live2d: dict | None = None
 
 
 @dataclass
@@ -63,6 +65,9 @@ class Job:
     cancel_requested: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
     generator: object = None
+    # Live2D kits: the current stage (label, fraction) and the finished kit's files.
+    stage: tuple[str, float] | None = None
+    result: dict | None = None
 
     @property
     def total(self) -> int:
@@ -72,6 +77,8 @@ class Job:
     def current(self) -> str | None:
         if self.status != RUNNING or len(self.completed) >= self.total:
             return None
+        if self.spec.live2d is not None and self.stage:
+            return self.stage[0]
         return self.spec.expressions[len(self.completed)]
 
     def to_dict(self, include_step: bool = True) -> dict:
@@ -83,6 +90,8 @@ class Job:
                 step = None
         done = len(self.completed)
         fraction = (done + (step or {}).get("fraction", 0.0)) / self.total if self.total else 0.0
+        if self.spec.live2d is not None and self.stage and not done:
+            fraction = self.stage[1]
         return {
             "id": self.id,
             "status": self.status,
@@ -100,8 +109,9 @@ class Job:
                 "current": self.current,
                 "step": step,
             },
-            "images": [self._image_entry(name) for name in self.completed],
+            "images": [] if self.spec.live2d is not None else [self._image_entry(name) for name in self.completed],
             "animate": bool(self.spec.animate),
+            "live2d": self.result if self.spec.live2d is not None else None,
             "error": self.error,
             "notes": self.notes,
         }
@@ -245,6 +255,9 @@ def run_expression_job(job: Job) -> None:
     from autoexpress_core import ExpressionGenerator
 
     spec = job.spec
+    if spec.live2d is not None:
+        run_live2d_job(job)
+        return
     for needed in ([] if spec.animate_existing else [spec.method]) + (["animate"] if spec.animate else []):
         ready, message = spec.backend.check_ready(needed)
         if not ready:
@@ -361,3 +374,65 @@ def animate_expression(job: Job, name: str) -> None:
             raise GenerationCancelled("Interrupted.") from e
         raise spec.backend.last_error or BackendNotReady(str(e)) from e
     animation.save_animation(frames, folder / name, settings.fps, settings.formats, comment=f"AutoExpress {name}")
+
+
+LIVE2D_KIT = "live2d kit"
+
+
+def run_live2d_job(job: Job) -> None:
+    """Build a Live2D model kit (see autoexpress_core.live2d.kit) into the output folder."""
+    from autoexpress_core import ExpressionGenerator
+    from autoexpress_core.images import b64_to_pil
+    from autoexpress_core.live2d.kit import KitCancelled, build_kit
+
+    spec = job.spec
+    data = spec.live2d
+    job.generator = ExpressionGenerator(spec.backend)  # its stop() interrupts the backend
+    images = []
+    for item in data["images"]:
+        image = b64_to_pil(item)
+        image.load()
+        images.append(image)
+
+    def progress(label: str, fraction: float) -> None:
+        job.stage = (label, fraction)
+
+    try:
+        result = build_kit(
+            spec.backend,
+            images,
+            pathlib.Path(spec.output_path),
+            data["name"],
+            data.get("settings") or {},
+            character_lora=data.get("character_lora"),
+            log=log.info,
+            cancelled=job.cancel_requested.is_set,
+            progress=progress,
+        )
+    except KitCancelled as e:
+        raise GenerationCancelled("Cancelled.") from e
+    except RuntimeError as e:
+        if job.cancel_requested.is_set():
+            raise GenerationCancelled("Interrupted.") from e
+        raise spec.backend.last_error or BackendNotReady(str(e)) from e
+    base = f"/image/{spec.output_name}"
+    name = data["name"]
+    job.result = {
+        "name": name,
+        "zip": f"{base}/{result.zip_path.name}",
+        "psd": f"{base}/{name}/{name}.psd",
+        "seethrough_psd": f"{base}/{name}/{name}_seethrough.psd",
+        "puppet_zip": f"{base}/{result.puppet_zip.name}" if result.puppet_zip else None,
+        "puppet_preview": f"{base}/{name}/puppet/{name}/preview.html" if result.puppet_zip else None,
+        "preview": f"{base}/{name}/preview.png",
+        "sheet": f"{base}/{name}/sheet.jpg",
+        "layers": sum(len(group["layers"]) for group in result.manifest["groups"]),
+        "groups": [group["name"] for group in result.manifest["groups"]],
+        "switches": result.manifest.get("switches", []),
+        "missing": result.manifest["missing"],
+        "picture": result.manifest["picture"],
+        "notes": result.manifest["notes"],
+    }
+    for note in result.manifest["notes"]:
+        job.notes.append({"kind": "live2d", "title": "Live2D kit", "message": note})
+    job.completed.append(LIVE2D_KIT)

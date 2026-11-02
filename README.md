@@ -23,6 +23,7 @@ AutoExpress repaints a character's face with 28 different emotions and keeps eve
 - **Expression LoRAs.** It downloads and applies the right expression LoRA for the checkpoint, reusing a Civitai key you already have set up.
 - **Two ways to edit.** Face inpainting uses ADetailer or FaceDetailer. Instruction editing uses Qwen-Image-Edit on ComfyUI, which also works on photos.
 - **Animated sprites.** Every expression can become a looping animation (Wan 2.2 image to video on ComfyUI), transparent if you like, with an idle animation written from the character card.
+- **Live2D models from pictures.** A ready-to-play puppet for the SillyTavern Live2D extension (blinking, head turns, hair sway, the 28 expressions), and a layered PSD to rig a full Live2D model in Cubism Editor.
 - **One intensity slider** sets how far each expression is pushed.
 - **Ready for sprites.** Files are named after their expression, and each run can save a labelled sprite sheet.
 
@@ -103,6 +104,7 @@ The full documentation is in [docs/](docs/README.md):
 - [Expression LoRAs and your Civitai key](docs/expression-loras.md)
 - [Instruction edit mode (Qwen-Image-Edit)](docs/comfyui.md#instruction-edit-mode-qwen-image-edit)
 - [Animated sprites and character cards](docs/animated-sprites.md)
+- [Live2D model kits](docs/live2d.md)
 - [Running ComfyUI on RunPod](docs/runpod.md)
 - [Using the results with SillyTavern](docs/sillytavern.md)
 

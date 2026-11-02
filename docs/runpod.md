@@ -30,13 +30,14 @@ Open the pod's Jupyter (`https://<pod id>-8888.proxy.runpod.net`), start a termi
 curl -fsSL https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/scripts/runpod/setup_comfyui.sh | bash
 ```
 
-[`setup_comfyui.sh`](../scripts/runpod/setup_comfyui.sh) installs ComfyUI with the Impact Pack and Subpack, downloads the models and starts ComfyUI on port 8188. It installs into `~/ComfyUI` on the container disk (set `COMFYUI_DIR` to use a volume), and skips anything already there, so it's safe to run again. Set `SKIP_WAN=1` or `SKIP_QWEN=1` to leave out a model, and `CHECKPOINT_URL` to also download a checkpoint for face inpainting.
+[`setup_comfyui.sh`](../scripts/runpod/setup_comfyui.sh) installs ComfyUI with the Impact Pack and Subpack and the See-through nodes (Live2D model kits), downloads the models and starts ComfyUI on port 8188. It installs into `~/ComfyUI` on the container disk (set `COMFYUI_DIR` to use a volume), and skips anything already there, so it's safe to run again. Set `SKIP_WAN=1`, `SKIP_QWEN=1` or `SKIP_SEETHROUGH=1` to leave out a model, and `CHECKPOINT_URL` to also download a checkpoint for face inpainting.
 
 | Model | Used for | Files (ComfyUI `models/`) | Size |
 |---|---|---|---|
 | Face detector | face inpainting (FaceDetailer) | `ultralytics/bbox/face_yolov8m.pt` | 50 MB |
 | Qwen-Image-Edit 2511 | instruction edit expressions, poses | `diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors`, `text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors`, `vae/qwen_image_vae.safetensors`, `loras/Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors` | 31 GB |
 | Wan 2.2 image to video 14B | animated sprites | `diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors`, `diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors`, `text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors`, `vae/wan_2.1_vae.safetensors`, `loras/wan2.2_i2v_lightx2v_4steps_lora_v1_{high,low}_noise.safetensors` | 38 GB |
+| See-through LayerDiff 3D and Marigold depth | [Live2D model kits](live2d.md) | Hugging Face cache (`layerdifforg/seethroughv0.0.2_layerdiff3d`, `layerdifforg/seethroughv0.0.1_marigold`), downloaded by the nodes on first use | 10 GB |
 | Any SDXL / SD 1.5 checkpoint | face inpainting | `checkpoints/` (Animagine XL 4.0 for anime, RealVisXL for photos were used in testing) | 7 GB |
 
 The same files can be fetched on any ComfyUI install with `python -m autoexpress_core.instruction_edit download <ComfyUI folder>` and `python -m autoexpress_core.animation download <ComfyUI folder>`.

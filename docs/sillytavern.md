@@ -48,6 +48,13 @@ AUTOEXPRESS_CORS_ORIGINS="http://localhost:8000,http://192.168.1.20:8000" python
 
 The **AutoExpress address** in the extension must be reachable from the browser you use SillyTavern in. When you open SillyTavern from your phone, `127.0.0.1` is the phone, so use the AutoExpress computer's LAN address instead. A SillyTavern page served over `https` can only call AutoExpress over `https` or on `localhost`/`127.0.0.1`.
 
+### Live2D puppets
+
+With the AutoExpress extension installed, the
+[SillyTavern Live2D extension](https://github.com/SillyTavern/Extension-Live2d) also plays the
+puppets that [Live2D model kits](live2d.md#ready-to-play-puppet) make (`*.puppet.model.json`):
+put the puppet folder in `data/<user>/assets/live2d` and pick it like any Live2D model.
+
 ## Copying sprites by hand
 
 Results from the WebUI extension, the ComfyUI nodes or the standalone app are named `joy.png`, `anger.png` and so on. Copy the character's output folder into SillyTavern's `data/<user>/characters/<character name>/` folder, or zip it and use **Upload sprite pack** in Character Expressions.

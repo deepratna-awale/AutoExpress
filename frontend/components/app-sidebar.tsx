@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { useState } from "react";
-import { Settings2 } from "lucide-react";
+import { Layers, Settings2 } from "lucide-react";
 import { useTheme } from "next-themes";
 
+import { Live2DDialog } from "@/components/live2d-dialog";
 import { NavMain } from "@/components/nav-main";
 import { ThemeEditor } from "@/components/theme-editor";
 import {
@@ -24,6 +25,13 @@ import { ThemeSwitcher } from "@/components/ui/shadcn-io/theme-switcher";
 
 const navMain = [
   {
+    title: "Tools",
+    url: "#",
+    isActive: true,
+    icon: Layers,
+    items: [{ title: "Live2D model kit", url: "#live2d" }],
+  },
+  {
     title: "Settings",
     url: "#",
     isActive: true,
@@ -40,11 +48,13 @@ type ThemeChoice = "light" | "dark" | "system";
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const [themeEditorOpen, setThemeEditorOpen] = useState(false);
   const [guiSettingsOpen, setGuiSettingsOpen] = useState(false);
+  const [live2dOpen, setLive2dOpen] = useState(false);
   const { theme, setTheme } = useTheme();
 
   const handleNavigation = (url: string) => {
     if (url === "#theme-editor") setThemeEditorOpen(true);
     if (url === "#gui-settings") setGuiSettingsOpen(true);
+    if (url === "#live2d") setLive2dOpen(true);
   };
 
   return (
@@ -74,6 +84,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
+
+      <Live2DDialog open={live2dOpen} onOpenChange={setLive2dOpen} />
 
       <Dialog open={guiSettingsOpen} onOpenChange={setGuiSettingsOpen}>
         <DialogContent>

@@ -12,6 +12,8 @@
  * http://localhost:8000 and http://127.0.0.1:8000 by default).
  */
 
+import { installPuppetLoader } from '../autoexpress_core/resources/puppet.js';
+
 const MODULE = 'autoexpress';
 const LOG_PREFIX = '[AutoExpress]';
 const POLL_MS = 1500;
@@ -689,6 +691,9 @@ function registerCommand() {
         helpString: 'Open AutoExpress to generate expression sprites for a character.',
     }));
 }
+
+// Let the Live2D extension play AutoExpress puppets (*.puppet.model.json) as if they were Live2D models.
+installPuppetLoader();
 
 jQuery(async () => {
     settings();

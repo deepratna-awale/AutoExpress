@@ -260,3 +260,94 @@ def validate_animation(data) -> dict:
     if errors:
         raise ValidationError(errors)
     return result
+
+
+MAX_LIVE2D_IMAGES = 8
+LIVE2D_VARIANTS = ("auto", "instruct", "inpaint", "none")
+
+
+def validate_live2d(data, max_pixels: int) -> dict:
+    """
+    Check and normalise a /live2d body.
+
+    Returns:
+        dict: images (list of base64 str), name (folder-safe), output_name, settings (split, variant and
+              face edit settings), character_lora (LoRA entry or None), wait (bool).
+    """
+    if not isinstance(data, dict):
+        raise ValidationError({"body": "Expected a JSON object."})
+    errors: dict[str, str] = {}
+    images = data.get("images")
+    if isinstance(images, str):
+        images = [images]
+    if not isinstance(images, list) or not images:
+        errors["images"] = "Send at least one picture of the character."
+        images = []
+    elif len(images) > MAX_LIVE2D_IMAGES:
+        errors["images"] = f"Send at most {MAX_LIVE2D_IMAGES} pictures."
+    else:
+        for index, image in enumerate(images):
+            try:
+                decode_image(image, max_pixels)
+            except ValidationError as e:
+                errors[f"images[{index}]"] = next(iter(e.errors.values()))
+
+    raw = data.get("settings") or {}
+    if not isinstance(raw, dict):
+        errors["settings"] = "must be an object"
+        raw = {}
+    settings: dict = {}
+    for key, (cast, low, high) in {"resolution": (int, 768, 2048), "steps": (int, 8, 60), "seed": (int, 0, 2**32 - 1), "base_index": (int, 0, MAX_LIVE2D_IMAGES - 1)}.items():
+        if raw.get(key) in (None, ""):
+            continue
+        try:
+            number = cast(float(raw[key]))
+        except (TypeError, ValueError):
+            errors[key] = f"must be a number, got {raw[key]!r}"
+            continue
+        if not low <= number <= high:
+            errors[key] = f"must be between {low} and {high}"
+        else:
+            settings[key] = number
+    variants = raw.get("variants", "auto")
+    if variants not in LIVE2D_VARIANTS:
+        errors["variants"] = f"must be one of {', '.join(LIVE2D_VARIANTS)}"
+    settings["variants"] = variants
+    settings["low_vram"] = bool(raw.get("low_vram", False))
+    if raw.get("remove_background") is not None:
+        settings["remove_background"] = bool(raw["remove_background"])
+    for key, (cast, low, high) in NUMERIC_FIELDS.items():
+        if raw.get(key) in (None, "") or key == "seed":
+            continue
+        try:
+            number = cast(float(raw[key])) if cast is int else cast(raw[key])
+        except (TypeError, ValueError):
+            errors[key] = f"must be a number, got {raw[key]!r}"
+            continue
+        if low <= number <= high:
+            settings[key] = number
+    for key in TEXT_FIELDS:
+        value = raw.get(key)
+        if isinstance(value, str) and len(value) <= MAX_TEXT:
+            settings[key] = value
+
+    lora = data.get("character_lora")
+    if lora is not None:
+        entry = lora.get("entry") if isinstance(lora, dict) else None
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            errors["character_lora"] = "must be {entry, installed_name} from /live2d/character-lora"
+            lora = None
+        else:
+            installed = lora.get("installed_name")
+            lora = {"entry": entry, "installed_name": installed if isinstance(installed, str) and installed else None}
+
+    if errors:
+        raise ValidationError(errors)
+    return {
+        "images": images,
+        "name": safe_dir_name(data.get("name"), "character"),
+        "output_name": safe_dir_name(data.get("output_dir"), "live2d"),
+        "settings": settings,
+        "character_lora": lora,
+        "wait": data.get("wait", False) is True,
+    }

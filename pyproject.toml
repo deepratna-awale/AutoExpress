@@ -34,7 +34,10 @@ standalone = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "psd-tools>=1.26.0",
+    "pytest",
+]
 
 # The WebUI extension and nodes still run on Python 3.10 (with the WebUI's own
 # Pillow), but the standalone app needs 3.11+: Pillow 13 and the patched rembg
@@ -49,10 +52,10 @@ Documentation = "https://github.com/deepratna-awale/AutoExpress#readme"
 "Bug Tracker" = "https://github.com/deepratna-awale/AutoExpress/issues"
 
 [tool.setuptools]
-packages = ["autoexpress_core", "autoexpress_core.backends"]
+packages = ["autoexpress_core", "autoexpress_core.backends", "autoexpress_core.live2d"]
 
 [tool.setuptools.package-data]
-autoexpress_core = ["resources/*.json", "resources/expressions/*.json"]
+autoexpress_core = ["resources/*.json", "resources/*.js", "resources/expressions/*.json"]
 
 # Comfy Registry metadata. .github/workflows/publish-comfy-registry.yml publishes
 # a new version whenever `version` above changes on main. Files listed in
