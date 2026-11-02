@@ -84,20 +84,32 @@ def drawing_score(image: Image.Image) -> float:
     return round(calm, 3) if lines >= 0.012 else round(min(calm, 0.45) * 0.5, 3)
 
 
-def check(settings: dict, picture: Image.Image, name: str = "", safe_mode: bool = False) -> tuple[bool, str]:
-    if not safe_mode:
-        return True, "Safe Mode is Off."
-    """(allowed, why not) for the body and inner wear layers. See the module docstring."""
+def check(settings: dict, picture: Image.Image, name: str = "", safe_mode: bool | None = None) -> tuple[bool, str]:
+    """
+    (allowed, why not) for the body and inner wear layers. See the module docstring.
+
+    safe_mode (default on, or settings["safe_mode"]) runs the drawing check on the picture. Off,
+    for drawings the check wrongly reads as photos, the picture is taken as the drawing the user
+    confirmed it is. The adult confirmation and the child check always run.
+    """
+    if safe_mode is None:
+        safe_mode = settings.get("safe_mode", True) is not False
     if not settings.get("outfit_layers"):
         return False, "Swappable clothing is off."
     if not settings.get("adult_confirmed"):
         return False, "Swappable clothing needs you to confirm the character is an adult."
     if settings.get("is_realistic") or settings.get("photo"):
         return False, "Swappable clothing is only made for drawn characters, never for photos."
-    score = drawing_score(picture)
+    score = drawing_score(picture) if safe_mode else 1.0
     if score < 0.5:
         return False, f"The picture looks like a photo (drawing score {score:.2f}), so no body or inner wear layers were made. They are only made for drawn characters."
-    found = blocked_terms(name, settings.get("character_description", ""), settings.get("inner_wear", ""))
+    found = blocked_terms(
+        name,
+        settings.get("character_description", ""),
+        settings.get("inner_wear", ""),
+        settings.get("outfit_prompt", ""),
+        settings.get("prompt_data", ""),
+    )
     if found:
         return False, "The character's name or description reads as a child (" + ", ".join(sorted(set(found))[:5]) + "), so no body or inner wear layers were made."
     return True, ""
@@ -106,6 +118,24 @@ def check(settings: dict, picture: Image.Image, name: str = "", safe_mode: bool 
 def _describe(description: str) -> str:
     description = " ".join((description or "").split())[:400]
     return f" The character: {description}." if description else ""
+
+
+REVEALING = re.compile(
+    r"(?<![a-z])(nude|naked|topless|bottomless|nothing|undressed|unclothed|lingerie|underwear|bra|bras|panties|panty|thong|"
+    r"g-string|bikini|micro bikini|see-through|sheer|transparent|nipples?|pasties|body paint)(?![a-z])",
+    re.IGNORECASE,
+)
+
+
+def revealing(text: str) -> bool:
+    """Whether an outfit asks for nudity or underwear (then it needs the same check as the body layer)."""
+    return bool(REVEALING.search(text or ""))
+
+
+def outfit_instruction(outfit: str, description: str = "") -> str:
+    """The Qwen edit that dresses the character in the outfit the user asked for, before the split."""
+    outfit = " ".join((outfit or "").split())[:300]
+    return f"Change her clothes to {outfit}. Keep any accessories that still fit. " + KEEP + _describe(description)
 
 
 def nude_instruction(description: str = "") -> str:
@@ -135,6 +165,7 @@ def adapt(instruction: str, description: str) -> str:
         instruction.replace("adult woman's", "adult man's")
         .replace("so she is", "so he is")
         .replace("Dress her", "Dress him")
+        .replace("Change her clothes", "Change his clothes")
         .replace("her build", "his build")
         .replace("her outfit", "his outfit")
         .replace("a simple matching bra and briefs", "simple briefs")
@@ -286,6 +317,59 @@ def outfit_parts(parts: list, size, nude: Image.Image | None, inner: Image.Image
     if inner is not None:
         wear = inner_layer(inner, nude, body)
         if wear is not None:
-            box = wear.getchannel("A").getbbox()
-            result.append(layers.Part("inner wear", wear.crop(box), box[0], box[1], depth))
+            for tag, piece in split_inner(wear, parts, size):
+                box = piece.getchannel("A").getbbox()
+                result.append(layers.Part(tag, piece.crop(box), box[0], box[1], depth))
     return result
+
+
+def waist_line(parts: list, size) -> int | None:
+    """
+    Where the top half of the clothes meets the bottom half (canvas y): the top of the skirt or
+    trousers, else the bottom of the top; None for a picture with neither (a dress, or no split).
+    """
+    bottom = layers._alpha_union(parts, size, ("bottomwear",)).point(lambda v: 255 if v > 128 else 0).getbbox()
+    top = layers._alpha_union(parts, size, ("topwear",)).point(lambda v: 255 if v > 128 else 0).getbbox()
+    if bottom and top and bottom[1] > top[1]:
+        return bottom[1]
+    if top and not bottom:
+        return top[3]
+    return None
+
+
+def split_inner(wear: Image.Image, parts: list, size) -> list[tuple[str, Image.Image]]:
+    """
+    The inner wear as its pieces, so each can come off on its own: [("inner top", bra), ("inner
+    bottom", briefs)] split at the waist, or [("inner wear", all of it)] when it can't be split
+    (no waist line, or one side is only specks, as with a one-piece).
+    """
+    waist = waist_line(parts, size)
+    alpha = wear.getchannel("A")
+    box = alpha.getbbox()
+    if waist is None or box is None or not box[1] < waist < box[3]:
+        return [("inner wear", wear)]
+    # Cut through the gap between the pieces (bare midriff) nearest the waist; a one-piece has no gap.
+    height = box[3] - box[1]
+    rows = alpha.crop((0, box[1], size[0], box[3])).point(lambda v: 255 if v > 64 else 0).resize((1, height), Image.Resampling.BOX)
+    widths = [rows.getpixel((0, y)) for y in range(height)]
+    low, high = max(0, waist - box[1] - int(height * 0.25)), min(height, waist - box[1] + int(height * 0.15))
+    if high <= low:
+        return [("inner wear", wear)]
+    gap = min(range(low, high), key=lambda y: (widths[y], abs(y + box[1] - waist)))
+    # A one-piece crosses every row there; specks the edits left (they never match pixel for
+    # pixel) can cross the gap of a two-piece, so the gap only has to be much narrower than the wear.
+    if widths[gap] > max(2, 0.2 * max(widths)):
+        return [("inner wear", wear)]
+    waist = box[1] + gap
+    pieces = []
+    for tag, region in (("inner top", (0, 0, size[0], waist)), ("inner bottom", (0, waist, size[0], size[1]))):
+        mask = Image.new("L", size, 0)
+        mask.paste(255, region)
+        piece = wear.copy()
+        piece.putalpha(ImageChops.multiply(alpha, mask))
+        kept = ImageStat.Stat(piece.getchannel("A")).sum[0]
+        pieces.append((tag, piece, kept))
+    total = sum(kept for _, _, kept in pieces) or 1
+    if min(kept for _, _, kept in pieces) / total < 0.08:
+        return [("inner wear", wear)]
+    return [(tag, piece) for tag, piece, _ in pieces]

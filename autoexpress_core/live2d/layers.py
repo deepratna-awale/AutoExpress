@@ -53,6 +53,8 @@ _PARTS = {
     # clothing layers (outfits.py) under See-through's clothes.
     "hair underlay": ("Front hair", "Hair underlay", 5),
     "inner wear": ("Body", "Inner wear", 15),
+    "inner top": ("Body", "Inner top", 14),
+    "inner bottom": ("Body", "Inner bottom", 15),
     "nude body": ("Body", "Body", 20),
 }
 

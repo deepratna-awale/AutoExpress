@@ -41,7 +41,7 @@ from PIL import Image, ImageDraw
 from .. import instruction_edit
 from ..images import pil_to_b64
 from ..payload import build_expression_payload
-from . import DECOMPOSE, guidance, layers, model_files, outfits, psd, puppet
+from . import DECOMPOSE, guidance, layers, model_files, outfits, prompt_data, psd, puppet
 
 MAX_SIDE = 2048
 EYES_CLOSED = "eyes_closed"
@@ -166,6 +166,8 @@ def make_outfit_edits(backend, picture: Image.Image, settings: dict, log, check_
         notes.append("Swappable clothing needs Qwen-Image-Edit on ComfyUI; the clothes stay one layer.")
         return edits, notes
     description = settings.get("character_description", "")
+    if settings.get("outfit_from_prompt"):
+        description = (description + f". Her outfit: {settings['outfit_from_prompt']}").strip(". ")
     edit = instruction_edit.EditSettings.from_settings(settings)
     edit = dataclasses.replace(edit, keep_size=True, photo=False, intensity=1.0)
     check_cancel()
@@ -188,6 +190,59 @@ def make_outfit_edits(backend, picture: Image.Image, settings: dict, log, check_
     else:
         edits[outfits.INNER] = inner.convert("RGB").resize(picture.size, Image.Resampling.LANCZOS) if inner.size != picture.size else inner.convert("RGB")
     return edits, notes
+
+
+def read_clothing(image: Image.Image, settings: dict, log) -> dict:
+    """
+    The clothing named in the picture's prompt data (PNG metadata), filled into settings where the
+    user left them empty: the inner wear, and the outfit as context for the edits. The whole prompt
+    goes to the clothing check too. Returns what was found, for the manifest.
+    """
+    found: dict = {}
+    if settings.get("use_prompt_data", True) is False:
+        return found
+    prompt = prompt_data.prompt_of(image)
+    if not prompt:
+        return found
+    settings["prompt_data"] = prompt[:2000]
+    outer, inner = prompt_data.clothing(prompt)
+    if outer:
+        found["outfit"] = outer
+        settings.setdefault("outfit_from_prompt", outer)
+    if inner:
+        found["inner_wear"] = inner
+        if not (settings.get("inner_wear") or "").strip():
+            settings["inner_wear"] = inner
+    if found:
+        log("From the picture's prompt: " + "; ".join(f"{k.replace('_', ' ')} {v}" for k, v in found.items()) + ".")
+    return found
+
+
+def change_outfit(backend, picture: Image.Image, settings: dict, name: str, log) -> tuple[Image.Image | None, str]:
+    """
+    The picture with the character in the outfit the user typed (settings outfit_prompt), drawn with
+    Qwen-Image-Edit before the split so every layer has it. An outfit that asks for nudity or
+    underwear needs what the body layer needs (outfits.check). Returns (picture or None, note).
+    """
+    outfit = " ".join(str(settings.get("outfit_prompt") or "").split())
+    if INSTRUCT not in getattr(backend, "edit_methods", ()):
+        return None, "Changing the outfit needs Qwen-Image-Edit on ComfyUI; the picture keeps its clothes."
+    if outfits.revealing(outfit):
+        allowed, reason = outfits.check({**settings, "outfit_layers": True}, picture, name)
+        if not allowed:
+            return None, f"The outfit wasn't changed: {reason}"
+    elif outfits.blocked_terms(outfit):
+        return None, "The outfit wasn't changed: it reads as a child's."
+    description = settings.get("character_description", "")
+    edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
+    log(f"Dressing the character in {outfit} (Qwen-Image-Edit).")
+    changed = backend.instruction_edit(pil_to_b64(picture), outfits.adapt(outfits.outfit_instruction(outfit, description), description), edit)
+    if changed is None:
+        return None, f"Couldn't change the outfit: {getattr(backend, 'last_error', None) or 'the WebUI failed'}. The picture keeps its clothes."
+    changed = changed.convert("RGB")
+    if changed.size != picture.size:
+        changed = changed.resize(picture.size, Image.Resampling.LANCZOS)
+    return changed, ""
 
 
 def to_canvas(picture: Image.Image, box: tuple[int, int, int, int], size: tuple[int, int]) -> Image.Image:
@@ -294,7 +349,9 @@ def build_kit(
     settings: base_index (which picture, default the best), remove_background (None = only busy ones),
       variants ("auto", "inpaint", "instruct" or "none"), split settings (resolution, steps, seed,
       low_vram), the usual face inpainting / instruction edit settings (ad_*, edit_*), and for
-      swappable clothing outfit_layers, adult_confirmed, character_description, inner_wear (outfits.py).
+      swappable clothing outfit_layers, adult_confirmed, character_description, inner_wear (outfits.py),
+      outfit_prompt (dress the character in this before the split) and use_prompt_data (default on:
+      read the clothing from the picture's prompt metadata, see prompt_data.py).
     character_lora: {"entry": LoRA entry, "installed_name": name on the WebUI} from character_lora, or None.
     """
     settings = dict(settings or {})
@@ -324,8 +381,22 @@ def build_kit(
     log(f"Using picture {base_index + 1} of {len(images)} (score {report['score']}).")
 
     # 2. Prepare it.
+    clothing_info = read_clothing(images[base_index], settings, log)
+    original = images[base_index]
+    notes = []
+    if (settings.get("outfit_prompt") or "").strip():
+        # Before the background removal and upscaling, so the new outfit gets both.
+        check_cancel()
+        progress("changing the outfit", 0.03)
+        changed, note = change_outfit(backend, original, settings, name, log)
+        if changed is not None:
+            original = changed
+            clothing_info["outfit_changed"] = True
+            settings["outfit_from_prompt"] = " ".join(settings["outfit_prompt"].split())[:300]
+        if note:
+            notes.append(note)
     split = layers.SplitSettings.from_settings(settings)
-    picture = prepare_picture(images[base_index], settings.get("remove_background"), log, backend, split.resolution)
+    picture = prepare_picture(original, settings.get("remove_background"), log, backend, split.resolution)
     picture.save(folder / "input.png")
     check_cancel()
 
@@ -340,7 +411,6 @@ def build_kit(
         if lora_installed:
             lora_prompt = lora_tag(character_lora["entry"], character_lora["installed_name"])
     variants: dict[str, Image.Image] = {}
-    notes = []
     if method:
         for index, which in enumerate((EYES_CLOSED, MOUTH_OPEN)):
             check_cancel()
@@ -447,6 +517,7 @@ def build_kit(
             "character_lora": (character_lora or {}).get("entry"),
             "split": dataclasses.asdict(split),
             "outfits": outfit_state,
+            "clothing": clothing_info,
             "notes": notes,
         }
     )

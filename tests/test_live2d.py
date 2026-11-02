@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 from autoexpress_core.backends.comfyui_api import ComfyUIClient
 from autoexpress_core.images import b64_to_pil, pil_to_b64
-from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, outfits, psd, puppet
+from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, outfits, prompt_data, psd, puppet
 
 from test_remote_backends import ComfySession, FakeResponse, comfy_routes
 
@@ -638,20 +638,24 @@ def test_match_picture_cuts_collars_over_the_neck_and_fixes_grey_hair():
     assert (r, g, b) == (70, 40, 30)  # visible grey hair takes the picture's colour
 
 
-# def test_outfit_layers_need_an_adult_drawn_character():
-#     drawn = character()
-#     on = {"outfit_layers": True, "adult_confirmed": True}
-#     assert outfits.check(on, drawn, "mira") == (True, "")
-#     assert not outfits.check({"outfit_layers": True}, drawn)[0]  # no adult confirmation
-#     assert not outfits.check({}, drawn)[0]
-#     assert not outfits.check({**on, "is_realistic": True}, drawn)[0]
-#     noisy = Image.effect_noise((400, 400), 60).convert("RGB")  # grain everywhere, like a photo
-#     allowed, reason = outfits.check(on, noisy)
-#     assert not allowed and "photo" in reason
-#     for text in ("a shy schoolgirl", "she is 15 years old", "loli", "aged 12", "a teen idol"):
-#         assert not outfits.check({**on, "character_description": text}, drawn)[0], text
-#     for text in ("a 19 year old person", "nineteen, tall", "18 years old", "an adult sorceress, 25", "Sonia, a swordswoman"):
-#         assert outfits.blocked_terms(text) == [], text
+def test_outfit_layers_need_an_adult_drawn_character():
+    drawn = character()
+    on = {"outfit_layers": True, "adult_confirmed": True}
+    assert outfits.check(on, drawn, "mira") == (True, "")
+    assert not outfits.check({"outfit_layers": True}, drawn)[0]  # no adult confirmation
+    assert not outfits.check({}, drawn)[0]
+    assert not outfits.check({**on, "is_realistic": True}, drawn)[0]
+    noisy = Image.effect_noise((400, 400), 60).convert("RGB")  # grain everywhere, like a photo
+    allowed, reason = outfits.check(on, noisy)
+    assert not allowed and "photo" in reason
+    # Safe mode off skips only the drawing check: the adult confirmation and the child check stay.
+    assert outfits.check({**on, "safe_mode": False}, noisy) == (True, "")
+    assert not outfits.check({"outfit_layers": True, "safe_mode": False}, drawn)[0]
+    assert not outfits.check({**on, "character_description": "loli"}, drawn, safe_mode=False)[0]
+    for text in ("a shy schoolgirl", "she is 15 years old", "loli", "aged 12", "a teen idol"):
+        assert not outfits.check({**on, "character_description": text}, drawn)[0], text
+    for text in ("a 19 year old person", "nineteen, tall", "18 years old", "an adult sorceress, 25", "Sonia, a swordswoman"):
+        assert outfits.blocked_terms(text) == [], text
 
 
 def test_outfit_parts_cut_the_body_and_inner_wear():
@@ -692,17 +696,103 @@ def test_build_kit_with_swappable_clothing(tmp_path):
     assert roles.index("nude_body") < roles.index("inner") < roles.index("clothing")
     assert document["Outfits"] == ["outfit_full", "outfit_inner", "outfit_nude"]
     nude = json.loads((folder / "expressions" / "outfit_nude.exp3.json").read_text())
-    assert {p["Id"]: p["Value"] for p in nude["Parameters"]} == {"ParamClothesOuter": 0, "ParamClothesInner": 0}
+    values = {p["Id"]: p["Value"] for p in nude["Parameters"]}
+    assert values["ParamClothesOuter"] == 0 and values["ParamClothesInner"] == 0
     assert "hair_under" in roles
 
 
-# def test_build_kit_refuses_clothing_layers_without_confirmation(tmp_path):
-#     backend = OutfitBackend()
-#     result = kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024, "outfit_layers": True}, log=lambda _: None)
-#     assert not any("Remove all" in call[1] for call in backend.calls if call[0] == "edit")
-#     assert "confirm" in result.manifest["outfits"]["refused"]
-#     document = puppet.load(result.folder / "puppet" / "mira" / "mira.puppet.model.json")
-#     assert document["Outfits"] == [] and "nude_body" not in {e["Role"] for e in document["Layers"]}
+def test_build_kit_reads_clothing_from_prompt_data_and_changes_the_outfit(tmp_path):
+    backend = OutfitBackend()
+    picture = character()
+    picture.info["parameters"] = "1girl, adult, office lady, grey blazer, (pencil skirt:1.2), red lace bra, <lora:x:1>\nNegative prompt: bad"
+    settings = {"resolution": 1024, "outfit_layers": True, "adult_confirmed": True, "outfit_prompt": "a red kimono"}
+    result = kit.build_kit(backend, [picture], tmp_path, "mira", settings, log=lambda _: None)
+    edits = [call[1] for call in backend.calls if call[0] == "edit"]
+    assert any(e.startswith("Change her clothes to a red kimono") for e in edits)
+    assert any(e.startswith("Dress her in red lace bra") for e in edits)  # inner wear from the prompt
+    assert any("Her outfit: a red kimono" in e for e in edits if "Remove all" in e)
+    clothing = result.manifest["clothing"]
+    assert clothing["outfit"] == "grey blazer, pencil skirt" and clothing["inner_wear"] == "red lace bra" and clothing["outfit_changed"]
+
+
+def test_revealing_outfit_needs_the_clothing_check(tmp_path):
+    backend = OutfitBackend()
+    result = kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024, "outfit_prompt": "black lingerie"}, log=lambda _: None)
+    assert not any(call[1].startswith("Change") for call in backend.calls if call[0] == "edit")
+    assert any("outfit wasn't changed" in note and "confirm" in note for note in result.manifest["notes"])
+    picture = character()
+    picture.info["parameters"] = "1girl, loli, white dress"
+    settings = {"resolution": 1024, "outfit_layers": True, "adult_confirmed": True}
+    result = kit.build_kit(OutfitBackend(), [picture], tmp_path, "nia", settings, log=lambda _: None)
+    assert "child" in result.manifest["outfits"]["refused"]  # the prompt data is checked too
+
+
+def test_prompt_data_reads_webui_metadata():
+    image = Image.new("RGB", (8, 8))
+    image.info["parameters"] = "masterpiece, white shirt, black_thighhighs, no bra, striped panties\nNegative prompt: nsfw\nSteps: 20"
+    prompt = prompt_data.prompt_of(image)
+    assert prompt.endswith("striped panties") and "Negative" not in prompt
+    assert prompt_data.clothing(prompt) == ("white shirt, black thighhighs", "striped panties")
+    graph = {
+        "3": {"class_type": "KSampler", "inputs": {"positive": ["6", 0], "negative": ["7", 0]}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "1girl, sailor uniform, pleated skirt", "clip": ["4", 1]}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "lowres, bad anatomy, worst quality, extra fingers", "clip": ["4", 1]}},
+    }
+    image = Image.new("RGB", (8, 8))
+    image.info["prompt"] = json.dumps(graph)
+    assert prompt_data.prompt_of(image) == "1girl, sailor uniform, pleated skirt"
+    assert prompt_data.prompt_of(Image.new("RGB", (8, 8))) == ""
+
+
+def test_inner_wear_splits_into_top_and_bottom_at_the_midriff():
+    size = (400, 400)
+    parts = [
+        layers.Part("topwear", blob(size, (140, 200, 260, 300), (60, 90, 160, 255), "rectangle"), 0, 0, 0.6),
+        layers.Part("bottomwear", blob(size, (140, 300, 260, 380), (160, 40, 60, 255), "rectangle"), 0, 0, 0.6),
+    ]
+    two_piece = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(two_piece)
+    draw.rectangle((160, 220, 240, 250), fill=(20, 20, 20, 255))  # bra
+    draw.rectangle((165, 310, 235, 340), fill=(20, 20, 20, 255))  # briefs
+    pieces = outfits.split_inner(two_piece, parts, size)
+    assert [tag for tag, _ in pieces] == ["inner top", "inner bottom"]
+    top, bottom = (piece.getchannel("A").getbbox() for _, piece in pieces)
+    assert top[3] <= 260 and bottom[1] >= 300
+    one_piece = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(one_piece).rectangle((160, 220, 240, 340), fill=(20, 20, 20, 255))  # a swimsuit
+    assert [tag for tag, _ in outfits.split_inner(one_piece, parts, size)] == ["inner wear"]
+
+
+def test_half_off_outfits_and_accessories(tmp_path):
+    entries = [
+        {"Role": "nude_body", "Name": "Body"},
+        {"Role": "inner", "Name": "Inner top", "Garment": "inner_top", "Switch": "ParamInnerTop"},
+        {"Role": "inner", "Name": "Inner bottom", "Garment": "inner_bottom", "Switch": "ParamInnerBottom"},
+        {"Role": "clothing", "Name": "Topwear", "Garment": "topwear", "Switch": "ParamClothesTop"},
+        {"Role": "clothing", "Name": "Bottomwear", "Garment": "bottomwear", "Switch": "ParamClothesBottom"},
+        {"Role": "headwear", "Name": "Headwear", "Accessory": True},
+    ]
+    written = {item["Name"]: item["File"] for item in puppet.write_outfits(tmp_path, entries)}
+    assert list(written) == [
+        "outfit_full", "outfit_top_off", "outfit_bottom_off", "outfit_inner", "outfit_topless",
+        "outfit_inner_top_off", "outfit_inner_bottom_off", "outfit_nude", "accessories_off", "accessories_on",
+    ]
+    topless = {p["Id"]: p["Value"] for p in json.loads((tmp_path / written["outfit_topless"]).read_text())["Parameters"]}
+    assert topless["ParamClothesTop"] == 0 and topless["ParamInnerTop"] == 0
+    assert topless["ParamClothesBottom"] == 1 and topless["ParamInnerBottom"] == 1 and topless["ParamClothesOuter"] == 1
+    # Without a body layer only the accessories switch; without accessories, nothing.
+    assert [i["Name"] for i in puppet.write_outfits(tmp_path, entries[3:])] == ["accessories_off", "accessories_on"]
+    assert puppet.write_outfits(tmp_path, entries[3:5]) == []
+    assert puppet.role_of("Body", "Inner top") == ("inner", None)
+
+
+def test_build_kit_refuses_clothing_layers_without_confirmation(tmp_path):
+    backend = OutfitBackend()
+    result = kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024, "outfit_layers": True}, log=lambda _: None)
+    assert not any("Remove all" in call[1] for call in backend.calls if call[0] == "edit")
+    assert "confirm" in result.manifest["outfits"]["refused"]
+    document = puppet.load(result.folder / "puppet" / "mira" / "mira.puppet.model.json")
+    assert document["Outfits"] == [] and "nude_body" not in {e["Role"] for e in document["Layers"]}
 
 
 def test_puppet_rig_has_soft_body_and_cloth_for_a_full_body():

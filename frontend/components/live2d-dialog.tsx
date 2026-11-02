@@ -59,6 +59,8 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const [adultConfirmed, setAdultConfirmed] = useState(false);
   const [description, setDescription] = useState("");
   const [innerWear, setInnerWear] = useState("");
+  const [outfitPrompt, setOutfitPrompt] = useState("");
+  const [usePromptData, setUsePromptData] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -146,6 +148,8 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           adult_confirmed: outfitLayers && adultConfirmed,
           ...(outfitLayers && description.trim() ? { character_description: description.trim() } : {}),
           ...(outfitLayers && innerWear.trim() ? { inner_wear: innerWear.trim() } : {}),
+          ...(outfitPrompt.trim() ? { outfit_prompt: outfitPrompt.trim() } : {}),
+          use_prompt_data: usePromptData,
           ...(chosen !== null ? { base_index: chosen } : {}),
         },
         character_lora: lora ? { entry: lora.entry, installed_name: lora.installed_name } : null,
@@ -350,11 +354,27 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 
             {/* Swappable clothing */}
             <section className="space-y-3 rounded-md border p-3">
+              <div className="space-y-2">
+                <Label htmlFor="live2d-outfit">Outfit (optional)</Label>
+                <input
+                  id="live2d-outfit"
+                  value={outfitPrompt}
+                  onChange={(e) => setOutfitPrompt(e.target.value)}
+                  maxLength={300}
+                  placeholder="Keep the picture's clothes, or e.g. a black blazer and a pleated skirt"
+                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                />
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={usePromptData} onChange={(e) => setUsePromptData(e.target.checked)} />
+                  <span>Read the clothing from the picture&apos;s prompt data when a field is empty</span>
+                </label>
+              </div>
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <Label htmlFor="live2d-outfits">Swappable clothing</Label>
                   <p className="text-xs text-muted-foreground">
-                    Body, inner wear and outer clothes as separate layers the puppet can switch. Drawn adult characters only, never photos.
+                    Body, inner wear (top and bottom) and outer clothes as separate layers the puppet can switch, one piece at a time
+                    or all at once. Drawn adult characters only, never photos.
                   </p>
                 </div>
                 <Switch id="live2d-outfits" checked={outfitLayers} onCheckedChange={setOutfitLayers} />
@@ -386,7 +406,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                     value={innerWear}
                     onChange={(e) => setInnerWear(e.target.value)}
                     maxLength={200}
-                    placeholder="a simple matching set"
+                    placeholder="From the prompt data, else a simple matching set"
                     className="h-9 w-full rounded-md border bg-background px-2 text-sm"
                   />
                 </div>

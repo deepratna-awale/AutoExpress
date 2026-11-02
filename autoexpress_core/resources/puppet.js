@@ -33,6 +33,8 @@ const EYE_ROLES = new Set(['eye_white', 'iris', 'eyelash', 'eyes']);
 const SOFT_ROLES = new Set(['body', 'clothing', 'nude_body', 'inner']);
 // The outer clothes, hidden by ParamClothesOuter when there is a body layer under them.
 const OUTER_ROLES = new Set(['clothing', 'arm']);
+// Expressions whose names start with these stay on (each in its own slot) while emotions change.
+const PERSISTENT_SLOTS = ['outfit_', 'accessories_'];
 // How long parameter changes take to settle (seconds): expressions glide instead of snapping.
 const EASE_TIME = 0.16;
 const CURSOR_DEFAULTS = {
@@ -204,13 +206,26 @@ class Expression {
 // The model ---------------------------------------------------------------------------------
 let PuppetClass = null;
 
+/**
+ * A file of a puppet packed into the page (play.html sets window.AUTOEXPRESS_PUPPET_FILES: path ->
+ * parsed JSON, or a data: URL for a texture), so it plays when opened straight from the disk,
+ * where browsers block fetch().
+ */
+function bundled(path) {
+    const files = typeof window !== 'undefined' && window.AUTOEXPRESS_PUPPET_FILES;
+    return files && Object.prototype.hasOwnProperty.call(files, path) ? files[path] : null;
+}
+
 function definePuppetClass(PIXI) {
     class Puppet extends PIXI.Container {
         static async from(source) {
             const url = new URL(source, document.baseURI).href;
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`${LOG} can't load ${source}: ${response.status}`);
-            const document_ = await response.json();
+            let document_ = bundled(source);
+            if (!document_) {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`${LOG} can't load ${source}: ${response.status}`);
+                document_ = await response.json();
+            }
             if (document_.Type !== FORMAT) throw new Error(`${LOG} ${source} is not an ${FORMAT}`);
             const puppet = new Puppet(document_, url);
             await puppet._loadTextures();
@@ -237,8 +252,9 @@ function definePuppetClass(PIXI) {
             this._hair = {};
             this._soft = {};
             this._drag = { active: false, sx: 0, sy: 0, tx: 0, ty: 0, x: 0, y: 0, vx: 0, vy: 0, moved: 0, start: 0, soft: null };
-            this._outfit = null; // the outfit expression that stays on while emotions change
-            this._outfitOld = null;
+            // Expressions that stay on while the emotions change, one per slot (outfit_*, accessories_*):
+            // slot -> { now: {expression, start}, old: the one it fades from }.
+            this._slots = {};
             this._eased = null;
             this._easedVelocity = null;
             // Drag anywhere to pull (the preview page); in SillyTavern only cloth, hair and soft parts,
@@ -517,7 +533,7 @@ function definePuppetClass(PIXI) {
             const cheekAfter = this.doc.Layers.findIndex(l => l.Role === 'face');
             let index = 0;
             for (const entry of this.doc.Layers) {
-                const texture = await PIXI.Texture.fromURL(this.base + entry.Texture);
+                const texture = await PIXI.Texture.fromURL(bundled(entry.Texture) || this.base + entry.Texture);
                 this.layers.push(this._makeLayer(entry, texture));
                 if (index === cheekAfter) {
                     for (const side of Object.keys(rig.Eyes || {})) {
@@ -622,6 +638,19 @@ function definePuppetClass(PIXI) {
                 X: (l + r) / 2 - w / 2, Y: b + (b - t) * 0.05, Width: w, Height: h, Grid: [2, 2],
             };
             const layer = this._makeLayer(entry, PIXI.Texture.from(canvas));
+            // Line the blush up with the eyes: a drawn head is often tilted already, and the blush
+            // should sit along the face, not level with the screen. Head tilt then turns it further.
+            const angle = this._eyeLineAngle();
+            if (angle) {
+                const ox = entry.X + w / 2, oy = entry.Y + h / 2;
+                const c = Math.cos(angle), s = Math.sin(angle);
+                for (let k = 0; k < layer.rest.length; k += 2) {
+                    const dx = layer.rest[k] - ox, dy = layer.rest[k + 1] - oy;
+                    layer.rest[k] = ox + dx * c - dy * s;
+                    layer.rest[k + 1] = oy + dx * s + dy * c;
+                }
+                layer.out.set(layer.rest);
+            }
             layer.dz = ROLE_DEPTH.cheek;
             layer.head = true;
             if (!hatch && PIXI.BLEND_MODES?.MULTIPLY !== undefined) layer.mesh.blendMode = PIXI.BLEND_MODES.MULTIPLY;
@@ -629,7 +658,21 @@ function definePuppetClass(PIXI) {
             return layer;
         }
 
+        /** The slant of the line through both eyes in the drawing (radians, 0 with one eye box). */
+        _eyeLineAngle() {
+            const eyes = this.doc.Rig.Eyes || {};
+            if (!eyes.L || !eyes.R) return 0;
+            const centre = (box) => [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
+            let [ax, ay] = centre(eyes.L.Box);
+            let [bx, by] = centre(eyes.R.Box);
+            if (ax > bx) [ax, ay, bx, by] = [bx, by, ax, ay];
+            const angle = Math.atan2(by - ay, Math.max(1, bx - ax));
+            return clamp(angle, -0.6, 0.6);
+        }
+
         async _loadJson(relative) {
+            const inline = bundled(relative);
+            if (inline) return inline;
             const response = await fetch(this.base + relative);
             if (!response.ok) throw new Error(`${LOG} can't load ${relative}`);
             return response.json();
@@ -649,10 +692,12 @@ function definePuppetClass(PIXI) {
                 expression = new Expression(await this._loadJson(item.File));
                 this._expressionCache.set(item.File, expression);
             }
-            if (String(item.Name).startsWith('outfit_')) {
-                // Outfits stay on while the emotions change.
-                this._outfitOld = this._outfit;
-                this._outfit = { expression, start: this._time, name: item.Name };
+            const slot = PERSISTENT_SLOTS.find(prefix => String(item.Name).startsWith(prefix));
+            if (slot) {
+                // Outfits and accessories stay on while the emotions change.
+                const state = this._slots[slot] || (this._slots[slot] = { now: null, old: null });
+                state.old = state.now;
+                state.now = { expression, start: this._time, name: item.Name };
                 return true;
             }
             for (const active of this._expressions) if (active.fadeOutStart === undefined) active.fadeOutStart = this._time;
@@ -756,12 +801,13 @@ function definePuppetClass(PIXI) {
                     if (i >= 0) values[i] = lerp(values[i], p.value, weight);
                 }
             };
-            if (this._outfit) {
-                const e = this._outfit.expression;
-                const weight = smoothstep(0, 1, e.fadeIn > 0 ? clamp((now - this._outfit.start) / e.fadeIn, 0, 1) : 1);
-                if (this._outfitOld && weight < 1) applyOutfit(this._outfitOld, 1);
-                else this._outfitOld = null;
-                applyOutfit(this._outfit, weight);
+            for (const state of Object.values(this._slots)) {
+                if (!state.now) continue;
+                const e = state.now.expression;
+                const weight = smoothstep(0, 1, e.fadeIn > 0 ? clamp((now - state.now.start) / e.fadeIn, 0, 1) : 1);
+                if (state.old && weight < 1) applyOutfit(state.old, 1);
+                else state.old = null;
+                applyOutfit(state.now, weight);
             }
 
             // Ease every value towards where the motions and expressions put it (a critically damped
@@ -1000,6 +1046,9 @@ function definePuppetClass(PIXI) {
                 else if (role === 'cheek_hatch') alpha = smoothstep(0.35, 0.85, P('ParamCheek')) * 0.8;
                 else if (OUTER_ROLES.has(role)) alpha = clamp(outer, 0, 1);
                 else if (role === 'inner') alpha = clamp(inner, 0, 1);
+                // One piece of the clothes on its own (half off), and the accessories.
+                if (layer.entry.Switch && this._hasBody) alpha *= clamp(P(layer.entry.Switch), 0, 1);
+                if (layer.entry.Accessory) alpha *= clamp(P('ParamAccessories'), 0, 1);
                 layer.mesh.alpha = alpha;
                 layer.mesh.visible = alpha > 0.003;
                 if (!layer.mesh.visible) continue;

@@ -49,7 +49,10 @@ def _kit(args) -> int:
         with Image.open(path) as image:
             image.load()
             images.append(image.copy())
-    settings = {"resolution": args.resolution, "low_vram": args.low_vram, "variants": args.variants}
+    settings = {"resolution": args.resolution, "low_vram": args.low_vram, "variants": args.variants, "use_prompt_data": not args.no_prompt_data}
+    if args.outfit:
+        settings["outfit_prompt"] = args.outfit
+        settings.setdefault("adult_confirmed", args.adult)
     if args.outfits:
         settings.update(
             outfit_layers=True,
@@ -105,7 +108,9 @@ def main(argv=None) -> int:
     kit.add_argument("--outfits", action="store_true", help="swappable clothing: body, inner wear and outer clothes as separate layers (drawn adult characters only)")
     kit.add_argument("--adult", action="store_true", help="confirm the character is an adult (needed with --outfits)")
     kit.add_argument("--description", default="", help="the character's description, for the body and inner wear edits")
-    kit.add_argument("--inner-wear", default="", help="what the inner wear looks like (default: a simple matching set)")
+    kit.add_argument("--inner-wear", default="", help="what the inner wear looks like (default: from the picture's prompt, else a simple matching set)")
+    kit.add_argument("--outfit", default="", help="dress the character in this outfit (Qwen-Image-Edit) before the split")
+    kit.add_argument("--no-prompt-data", action="store_true", help="don't read the clothing from the picture's prompt metadata")
     kit.set_defaults(run=_kit)
 
     attach = commands.add_parser("attach", help="add the 28 emotions to a rigged model folder")

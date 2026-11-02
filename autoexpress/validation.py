@@ -317,7 +317,11 @@ def validate_live2d(data, max_pixels: int) -> dict:
     # Swappable clothing (autoexpress_core.live2d.outfits): only with an explicit adult confirmation.
     settings["outfit_layers"] = raw.get("outfit_layers") is True
     settings["adult_confirmed"] = raw.get("adult_confirmed") is True
-    for key in ("character_description", "inner_wear"):
+    if "safe_mode" in raw:
+        settings["safe_mode"] = raw.get("safe_mode") is not False
+    if "use_prompt_data" in raw:
+        settings["use_prompt_data"] = raw.get("use_prompt_data") is not False
+    for key in ("character_description", "inner_wear", "outfit_prompt"):
         value = raw.get(key)
         if value is None:
             continue
