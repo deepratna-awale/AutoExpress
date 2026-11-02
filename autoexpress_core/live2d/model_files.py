@@ -133,9 +133,10 @@ def motion_value(emotion: str) -> str:
     return f"{emotion}_id=0"
 
 
-def sillytavern_settings(emotions=EMOTIONS, motions: set[str] | None = None, parameters: set[str] | None = None) -> dict:
+def sillytavern_settings(emotions=EMOTIONS, motions: set[str] | None = None, parameters: set[str] | None = None, reactions: dict | None = None) -> dict:
     """
-    The extension's per-model settings, with every emotion mapped to its expression and motion.
+    The extension's per-model settings, with every emotion mapped to its expression and motion,
+    and each hit area in reactions (area -> emotion) mapped to that emotion's expression and motion.
 
     The extension replaces its defaults with this file as a whole, so every key it reads is here.
     """
@@ -156,7 +157,14 @@ def sillytavern_settings(emotions=EMOTIONS, motions: set[str] | None = None, par
         "animation_starter": {"expression": "neutral" if "neutral" in emotions else "none", "motion": "none", "delay": 0},
         "animation_default": {"expression": "neutral" if "neutral" in emotions else "none", "motion": "none"},
         "animation_click": {"expression": "none", "motion": "none", "message": ""},
-        "hit_areas": {},
+        "hit_areas": {
+            area: {
+                "expression": emotion if emotion in emotions else "none",
+                "motion": motion_value(emotion) if emotion in motions else "none",
+                "message": "",
+            }
+            for area, emotion in (reactions or {}).items()
+        },
         "classify_mapping": {
             emotion: {"expression": emotion, "motion": motion_value(emotion) if emotion in motions else "none"} for emotion in EMOTIONS if emotion in emotions
         },

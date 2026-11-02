@@ -101,12 +101,23 @@ See-through's clothes. The puppet stacks body, inner wear and outer clothes, eac
 `outfit_nude`. An outfit stays on while the emotions change. **Character description** helps the
 body match the character (build, skin).
 
-Each piece can also come off on its own (half off). The inner wear is split at the bare midriff
-into **Inner top** and **Inner bottom** layers (a one-piece stays whole), and the outer clothes
-follow See-through's top, bottom and legwear layers. Their switches are `ParamClothesTop`,
-`ParamClothesBottom`, `ParamClothesLegs`, `ParamInnerTop` and `ParamInnerBottom`, and the puppet
-gets the outfits its layers allow: `outfit_top_off`, `outfit_bottom_off`, `outfit_topless`,
-`outfit_inner_top_off` and `outfit_inner_bottom_off`.
+The clothes are dressed in slots, the way Koikatsu does it: **coat** (the outermost layer: coat,
+jacket, blazer, cardigan, haori), **top**, **bottom**, **legwear**, **inner top** and **inner
+bottom**, over the body. Each slot is on (1), half off (0.5) or off (0):
+
+- Two more Qwen-Image-Edit runs take the coat off and slip it halfway off the shoulders, so the
+  coat is its own layer, the top under it is drawn complete, and the coat has a half-off art. These
+  are made for every character (turn off **Coat on its own layer** to skip them).
+- With the inner wear made, two more draw the top opened at the front and the skirt lifted, the
+  half-off art of the top and the bottom.
+- The inner wear is split at the bare midriff into **Inner top** and **Inner bottom** (a one-piece
+  stays whole).
+
+The slot switches are `ParamClothesCoat`, `ParamClothesTop`, `ParamClothesBottom`,
+`ParamClothesLegs`, `ParamInnerTop` and `ParamInnerBottom`, and the puppet gets the outfits its
+layers allow: `outfit_coat_half`, `outfit_coat_off`, `outfit_top_open`, `outfit_skirt_lifted`,
+`outfit_top_off`, `outfit_bottom_off`, `outfit_inner`, `outfit_topless`, `outfit_inner_top_off`,
+`outfit_inner_bottom_off` and `outfit_nude`. The preview page has a control for each slot.
 
 Accessories (headwear, eyewear, earrings, neckwear, held objects) are layers of their own, switched
 by `ParamAccessories` with the `accessories_off` and `accessories_on` expressions, which also stay on
@@ -192,12 +203,31 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 | `ParamHairFront`, `ParamHairBack` | Push the hair; it also swings on its own when the head moves. |
 | `ParamBustX`, `ParamBustY`, `ParamHipX`, `ParamHipY` | Push the soft parts. They also jiggle on their own: each trails the body's movement on a bouncy spring, and bounces when poked. The clothes over them move with them. |
 | `ParamClothesOuter`, `ParamClothesInner` | Show or hide the outer clothes and the inner wear (puppets with swappable clothing). |
+| `ParamClothesCoat`, `ParamClothesTop`, `ParamClothesBottom`, `ParamClothesLegs`, `ParamInnerTop`, `ParamInnerBottom` | One clothing slot each: 1 on, 0.5 half off (when the slot has half-off art), 0 off. |
+| `ParamAccessories` | Show or hide the accessories. |
+| `ParamArmLA`, `ParamArmRA` | Turn an arm at the shoulder (posing). |
 
 Expression changes glide: every parameter eases towards its new value instead of jumping. Skirts
-and ribbons swing behind the body like hair. Dragging the hair's ends, a skirt or a soft part pulls
-it and it springs back with a wobble; a quick click on a soft part pokes it. In SillyTavern dragging
-anywhere else still moves the model, and a click still plays the hit area's reaction. In the
-preview everything can be pulled.
+and ribbons swing behind the body like hair.
+
+**Touch.** Dragging the bust or hips pulls them, only as far as skin and cloth stretch, and they
+spring back with a wobble; a quick click pokes them. Dragging the head, an arm or the torso poses
+the skeleton instead: the head turns and nods, the arm swings at the shoulder, the torso leans,
+each stopping at its joint's limit, and the pose stays (**Reset pose** in the preview,
+`puppet.resetPose()`, or `puppet.poseable = false` to turn posing off). In SillyTavern dragging the
+rest of the character still moves the model.
+
+**Reactions.** Tapping the face (a boop), the head (a pat), the chest, the hips or the body plays
+an emotion's expression and motion: the hit areas `Face`, `Head`, `Chest`, `Hips` and `Body` are
+mapped in `sillytavern_settings.json` (surprise, joy, embarrassment, annoyance, curiosity), so the
+Live2D extension plays them and they can be changed there. Pulling the bust or hips plays
+embarrassment. The reactions are the puppet's own emotions, listed in its `Reactions`; the preview
+plays them itself, and after a few seconds the puppet goes back to the emotion from before.
+
+**Emotions in SillyTavern.** The Live2D extension only asks the local and Extras classifiers for a
+message's emotion, so with an LLM classifier every message would show neutral. The AutoExpress
+extension takes the emotion Character Expressions found (with whichever API it uses) and plays it on
+the character's puppet with the Live2D extension's mapping.
 
 The bust and hip regions are placed from the head size with anime proportions. If they're off for
 a character, change `Rig.Bust` and `Rig.Hips` (`Centers`, `Radius`) in the puppet file; a radius of

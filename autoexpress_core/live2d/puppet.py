@@ -75,32 +75,51 @@ PARAMETERS = [
     # piece can come off on its own (half off: top off and skirt on, or the bra off and briefs on).
     ("ParamClothesOuter", 0, 1, 1),
     ("ParamClothesInner", 0, 1, 1),
+    ("ParamClothesCoat", 0, 1, 1),
     ("ParamClothesTop", 0, 1, 1),
     ("ParamClothesBottom", 0, 1, 1),
     ("ParamClothesLegs", 0, 1, 1),
     ("ParamInnerTop", 0, 1, 1),
     ("ParamInnerBottom", 0, 1, 1),
     ("ParamAccessories", 0, 1, 1),
+    # Posing: each arm turns at the shoulder (degrees, + clockwise on screen).
+    ("ParamArmLA", -30, 30, 0),
+    ("ParamArmRA", -30, 30, 0),
 ]
 # Which piece switch each garment follows (outer clothes by See-through's tag, inner wear by layer).
 PIECES = {
+    "outerwear": "ParamClothesCoat",
     "topwear": "ParamClothesTop", "neckwear": "ParamClothesTop", "arm": "ParamClothesTop",
     "bottomwear": "ParamClothesBottom",
     "legwear": "ParamClothesLegs", "footwear": "ParamClothesLegs",
     "inner_top": "ParamInnerTop", "inner_bottom": "ParamInnerBottom",
 }
-_SWITCHES = ("ParamClothesOuter", "ParamClothesInner", "ParamClothesTop", "ParamClothesBottom", "ParamClothesLegs", "ParamInnerTop", "ParamInnerBottom")
-# name -> (switches turned off, what it needs: "inner" a layer of inner wear, "inner_split" its top and
-# bottom apart, "outer_split" an outer top and bottom apart). Everything not listed stays on.
+_SWITCHES = (
+    "ParamClothesOuter", "ParamClothesInner", "ParamClothesCoat", "ParamClothesTop", "ParamClothesBottom", "ParamClothesLegs",
+    "ParamInnerTop", "ParamInnerBottom",
+)
+# Each piece switch: 1 on, 0.5 half off (when the piece has half-off art), 0 off, like a Koikatsu
+# clothing slot. name -> (switch values that differ from 1, what it needs). Needs: "body" a body
+# layer, "inner" inner wear, "inner_split" its top and bottom apart, "outer_split" an outer top and
+# bottom apart, "coat" a coat layer, "<switch> half" that switch's half-off art.
 OUTFITS = {
-    "outfit_full": ((), ()),
-    "outfit_top_off": (("ParamClothesTop",), ("outer_split", "inner")),
-    "outfit_bottom_off": (("ParamClothesBottom", "ParamClothesLegs"), ("outer_split", "inner")),
-    "outfit_inner": (("ParamClothesOuter",), ("inner",)),
-    "outfit_topless": (("ParamClothesTop", "ParamInnerTop"), ("outer_split", "inner_split")),
-    "outfit_inner_top_off": (("ParamClothesOuter", "ParamInnerTop"), ("inner_split",)),
-    "outfit_inner_bottom_off": (("ParamClothesOuter", "ParamInnerBottom"), ("inner_split",)),
-    "outfit_nude": (("ParamClothesOuter", "ParamClothesInner"), ()),
+    "outfit_full": ({}, ()),
+    "outfit_coat_half": ({"ParamClothesCoat": 0.5}, ("ParamClothesCoat half",)),
+    "outfit_coat_off": ({"ParamClothesCoat": 0}, ("coat",)),
+    "outfit_top_open": ({"ParamClothesCoat": 0, "ParamClothesTop": 0.5}, ("ParamClothesTop half",)),
+    "outfit_skirt_lifted": ({"ParamClothesBottom": 0.5}, ("ParamClothesBottom half",)),
+    "outfit_top_off": ({"ParamClothesCoat": 0, "ParamClothesTop": 0}, ("body", "outer_split", "inner")),
+    "outfit_bottom_off": ({"ParamClothesBottom": 0, "ParamClothesLegs": 0}, ("body", "outer_split", "inner")),
+    "outfit_inner": ({"ParamClothesOuter": 0}, ("body", "inner")),
+    "outfit_topless": ({"ParamClothesCoat": 0, "ParamClothesTop": 0, "ParamInnerTop": 0}, ("body", "outer_split", "inner_split")),
+    "outfit_inner_top_off": ({"ParamClothesOuter": 0, "ParamInnerTop": 0}, ("body", "inner_split")),
+    "outfit_inner_bottom_off": ({"ParamClothesOuter": 0, "ParamInnerBottom": 0}, ("body", "inner_split")),
+    "outfit_nude": ({"ParamClothesOuter": 0, "ParamClothesInner": 0}, ("body",)),
+}
+# Base layer name -> garment (the piece switch it follows, see PIECES).
+GARMENTS = {
+    "Outer wear": "outerwear", "Topwear": "topwear", "Bottomwear": "bottomwear", "Legwear": "legwear",
+    "Footwear": "footwear", "Neckwear": "neckwear", "Inner top": "inner_top", "Inner bottom": "inner_bottom",
 }
 # Layers that are accessories (switched by ParamAccessories, on their own expression slot).
 ACCESSORY_LAYERS = ("Headwear", "Eyewear", "Earwear", "Neckwear", "Objects")
@@ -149,8 +168,11 @@ _EYE_ROLES = {"Eyelash": "eyelash", "Iris": "iris", "Eye white": "eye_white", "E
 _BODY_ROLES = {
     "Neck": "neck", "Arm": "arm", "Arms": "arm", "Body": "nude_body", "Inner wear": "inner", "Inner top": "inner", "Inner bottom": "inner",
     "Topwear": "clothing", "Bottomwear": "clothing", "Legwear": "clothing", "Footwear": "clothing", "Neckwear": "clothing",
+    "Outer wear": "clothing", "Outer wear half": "clothing", "Topwear half": "clothing", "Bottomwear half": "clothing",
 }
 HEAD_ROLES = ("face", "brow", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "mouth", "mouth_open", "ear", "front_hair", "hair_under", "headwear", "back_hair")
+# The eyes and mouth: small on the canvas, drawn large; their textures get upscaled.
+FEATURE_ROLES = ("eyes", "eyelash", "iris", "eye_white", "eye_closed", "brow", "mouth", "mouth_open")
 # The outer clothes: hidden by ParamClothesOuter when the puppet has a body layer under them.
 OUTER_ROLES = ("clothing", "arm")
 
@@ -192,12 +214,14 @@ def grid_for(width: int, height: int, step: int = 28) -> list[int]:
     return [max(2, min(40, round(width / step) + 1)), max(2, min(40, round(height / step) + 1))]
 
 
-def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name: str, parts: list | None = None) -> dict:
+def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name: str, parts: list | None = None, enhance=None) -> dict:
     """
     Write a puppet for the kit's layer tree (top to bottom, as build_tree returns it) into folder.
 
     parts (the decomposition's layers) gives each layer's depth for the head-turn parallax; without
-    it the depth follows the drawing order. Returns the puppet document.
+    it the depth follows the drawing order. enhance, when given, takes the eyes' and mouth's textures
+    (RGBA) and returns sharper, larger copies (or None): those are small on the canvas and the
+    player draws them biggest, so they get more pixels. Returns the puppet document.
     """
     folder = pathlib.Path(folder)
     if folder.exists():
@@ -209,6 +233,7 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
 
     entries = []
     used = set()
+    features = []  # (texture path, image) of the eyes and mouth, for enhance
     total = sum(len(group.children) for group in tree)
     order = 0
     # Bottom to top: the player draws in this order.
@@ -228,6 +253,8 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
                 file_id += "_"
             used.add(file_id)
             image.save(folder / "textures" / f"{file_id}.png")
+            if role in FEATURE_ROLES:
+                features.append((folder / "textures" / f"{file_id}.png", image))
             depth = depths.get(info.get("tag") or "", None)
             if depth is None:
                 depth = 1.0 - order / max(1, total - 1)
@@ -246,10 +273,14 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
                     "Grid": grid_for(image.width, image.height),
                     "Visible": bool(layer.visible),
             }
-            if role == "clothing":
-                entry["Garment"] = layer.name.split()[0].lower()
-            elif role == "inner" and layer.name in ("Inner top", "Inner bottom"):
-                entry["Garment"] = "inner_" + layer.name.split()[1]
+            base = " ".join(w for w in layer.name.split() if w not in ("L", "R") and not w.isdigit())
+            if base.endswith(" half"):
+                base = base[: -len(" half")]
+                entry["State"] = "half"
+            if role in ("clothing", "inner") and base in GARMENTS:
+                entry["Garment"] = GARMENTS[base]
+            elif role == "clothing":
+                entry["Garment"] = base.split()[0].lower()
             elif role == "arm":
                 entry["Garment"] = "arm"
             if entry.get("Garment") in PIECES:
@@ -259,12 +290,27 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
             entries.append(entry)
             order += 1
 
+    if enhance and features:
+        try:
+            sharper = enhance([image for _, image in features])
+        except Exception:  # noqa: BLE001 - sharper textures are a bonus; the puppet works without
+            sharper = None
+        for (path, image), better in zip(features, sharper or []):
+            if better is not None and better.width >= image.width:
+                better.save(path)
+
     rig = build_rig(entries, size)
     written = model_files.write_model_files(folder)
     outfits = write_outfits(folder, entries)
     written["Expressions"] = written["Expressions"] + outfits
     (folder / model_files.SETTINGS_FILE).write_text(
-        json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"]), parameters={p[0] for p in PARAMETERS}), indent=2) + "\n",
+        json.dumps(
+            model_files.sillytavern_settings(
+                motions=set(written["Motions"]), parameters={p[0] for p in PARAMETERS}, reactions={k: v for k, v in REACTIONS.items() if k != "Drag"}
+            ),
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
     document = {
@@ -276,6 +322,7 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
         "Layers": entries,
         "Rig": rig,
         "HitAreas": hit_areas(rig, size),
+        "Reactions": dict(REACTIONS),
         "Outfits": [item["Name"] for item in outfits if item["Name"].startswith("outfit_")],
         "FileReferences": {"Expressions": written["Expressions"], "Motions": written["Motions"]},
         "Groups": [
@@ -290,24 +337,28 @@ def build_puppet(tree: list, manifest: dict, size: tuple[int, int], folder, name
 
 def write_outfits(folder, entries: list[dict]) -> list[dict]:
     """
-    Outfit expressions for a puppet with a body layer under its clothes (outfit_full, the half-off
-    ones its layers allow, outfit_inner, outfit_nude), plus accessories_off / accessories_on when it
-    has accessories, as expression list entries. The player keeps an outfit (and the accessories)
-    on while the emotions change.
+    Outfit expressions (outfit_full, the half-off and off states the puppet's layers allow, down to
+    outfit_nude), plus accessories_off / accessories_on when it has accessories, as expression list
+    entries. The player keeps an outfit (and the accessories) on while the emotions change.
     """
     folder = pathlib.Path(folder)
     roles = {e["Role"] for e in entries}
-    switches = {e.get("Switch") for e in entries}
+    switches = {e.get("Switch") for e in entries if e.get("State") != "half"}
     has = {
+        "body": "nude_body" in roles,
         "inner": "inner" in roles,
         "inner_split": {"ParamInnerTop", "ParamInnerBottom"} <= switches,
         "outer_split": "ParamClothesTop" in switches and bool({"ParamClothesBottom", "ParamClothesLegs"} & switches),
+        "coat": "ParamClothesCoat" in switches,
     }
-    wanted: list[tuple[str, list[tuple[str, float]]]] = []
-    if "nude_body" in roles:
-        for name, (off, needs) in OUTFITS.items():
-            if all(has[need] for need in needs):
-                wanted.append((name, [(switch, 0.0 if switch in off else 1.0) for switch in _SWITCHES]))
+    has.update({f"{e['Switch']} half": True for e in entries if e.get("State") == "half" and e.get("Switch")})
+    wanted: list[tuple[str, list[tuple[str, float]]]] = [
+        (name, [(switch, float(values.get(switch, 1))) for switch in _SWITCHES])
+        for name, (values, needs) in OUTFITS.items()
+        if name != "outfit_full" and all(has.get(need) for need in needs)
+    ]
+    if wanted:  # something to switch: outfit_full puts everything back on
+        wanted.insert(0, ("outfit_full", [(switch, 1.0) for switch in _SWITCHES]))
     if any(e.get("Accessory") for e in entries):
         wanted += [("accessories_off", [("ParamAccessories", 0.0)]), ("accessories_on", [("ParamAccessories", 1.0)])]
     if not wanted:
@@ -399,7 +450,28 @@ def build_rig(entries: list[dict], size: tuple[int, int]) -> dict:
     }
     rig.update(soft_body(entries, face, body_box))
     rig["Cloth"] = cloth(entries, body_box)
+    rig["Arms"] = arms(entries)
     return rig
+
+
+def arms(entries: list[dict]) -> dict:
+    """
+    Each arm's shoulder joint (its layer's top middle) and length, for posing: {"L": {"Pivot",
+    "Length", "Layers"}}. An arm layer without a side counts for both.
+    """
+    found = {}
+    for entry in entries:
+        if entry["Role"] != "arm":
+            continue
+        side = entry.get("Side") or "LR"
+        left, top, right, bottom = _box(entry)
+        width = right - left
+        found[side] = {
+            "Pivot": [round(left + width / 2, 1), round(top + min(width, bottom - top) * 0.3, 1)],
+            "Length": round(bottom - top, 1),
+            "Layers": [entry["Id"]],
+        }
+    return found
 
 
 def soft_body(entries: list[dict], face, body_box) -> dict:
@@ -452,12 +524,42 @@ def _depth(entries, role):
 
 
 def hit_areas(rig: dict, size) -> list[dict]:
-    head = rig["Head"]["Box"]
+    """
+    Where a tap lands, most specific first (the extension takes the first area it has a mapping
+    for): the face (a boop), the top of the head (a pat), the bust, the hips, then the body.
+    """
+    head = [round(v, 1) for v in rig["Head"]["Box"]]
     body = rig["Body"]["Box"]
-    return [
+    face_h = head[3] - head[1]
+    face = [head[0] + (head[2] - head[0]) * 0.15, head[1] + face_h * 0.35, head[2] - (head[2] - head[0]) * 0.15, head[3]]
+    areas = [
+        {"Name": "Face", "Id": "HitAreaFace", "Box": [round(v, 1) for v in face]},
         {"Name": "Head", "Id": "HitAreaHead", "Box": head},
-        {"Name": "Body", "Id": "HitAreaBody", "Box": [body[0], max(body[1], head[3]), body[2], body[3]]},
     ]
+    for name, area in (("Bust", "Chest"), ("Hips", "Hips")):
+        region = rig.get(name)
+        if region and region.get("Radius", [0])[0] > 0:
+            rx, ry = region["Radius"]
+            xs = [c[0] for c in region["Centers"]]
+            ys = [c[1] for c in region["Centers"]]
+            box = [min(xs) - rx, min(ys) - ry, max(xs) + rx, max(ys) + ry]
+            areas.append({"Name": area, "Id": f"HitArea{area}", "Box": [round(v, 1) for v in box]})
+    areas.append({"Name": "Body", "Id": "HitAreaBody", "Box": [body[0], max(body[1], head[3]), body[2], body[3]]})
+    return areas
+
+
+# How the character reacts to being touched: hit area (or "Drag" for a pull on the bust or hips)
+# -> the emotion it shows, played as that emotion's expression and motion. The player falls back to
+# these when nothing else handles the tap (and always for drags); the SillyTavern settings map the
+# same reactions so they can be changed there.
+REACTIONS = {
+    "Face": "surprise",
+    "Head": "joy",
+    "Chest": "embarrassment",
+    "Hips": "annoyance",
+    "Body": "curiosity",
+    "Drag": "embarrassment",
+}
 
 
 PREVIEW = """<!doctype html>
@@ -485,10 +587,12 @@ PREVIEW = """<!doctype html>
   <label>Expression <select id="expression"></select></label>
   <label>Motion <select id="motion"></select></label>
   <label id="outfit-row" hidden>Outfit <select id="outfit"></select></label>
+  <div id="slots"></div>
   <label id="accessories-row" hidden><input type="checkbox" id="accessories" checked> Accessories</label>
   <label>Blush <input type="range" id="blush" min="0" max="1" step="0.05" value="0"></label>
   <label><input type="checkbox" id="follow" checked> Follow the cursor</label>
-  <p style="margin:8px 0 0;opacity:.75">Drag the hair, clothes or body to pull them; click to poke.</p>
+  <button id="reset-pose">Reset pose</button>
+  <p style="margin:8px 0 0;opacity:.75">Drag the head, an arm or the torso to pose; drag the bust or hips to pull them; tap the head, face or body for a reaction.</p>
 </div>
 <p id="file-note" hidden style="position:fixed;bottom:12px;left:12px;right:12px;margin:0">
   Browsers don't load the puppet's files from a page opened from the disk. Open <b>play.html</b> instead
@@ -513,8 +617,8 @@ function fit() {{
 fit();
 addEventListener("resize", fit);
 model.autoInteract = true;
-model.grabAnywhere = true;
 document.getElementById("follow").onchange = (e) => (model.autoInteract = e.target.checked);
+document.getElementById("reset-pose").onclick = () => model.resetPose();
 const expressions = document.getElementById("expression");
 const outfits = document.getElementById("outfit");
 for (const item of model.internalModel.settings.expressions) {{
@@ -524,6 +628,24 @@ for (const item of model.internalModel.settings.expressions) {{
 }}
 if (outfits.options.length) document.getElementById("outfit-row").hidden = false;
 document.getElementById("accessories").onchange = (e) => model.expression(e.target.checked ? "accessories_on" : "accessories_off");
+// One control per clothing slot (on, half off, off), like a Koikatsu character.
+const SLOT_NAMES = {{ ParamClothesCoat: "Coat", ParamClothesTop: "Top", ParamClothesBottom: "Bottom", ParamClothesLegs: "Legwear", ParamInnerTop: "Inner top", ParamInnerBottom: "Inner bottom" }};
+const hasBody = model.doc.Layers.some((e) => e.Role === "nude_body");
+const slotControls = [];
+for (const [id, label] of Object.entries(SLOT_NAMES)) {{
+  const layers = model.doc.Layers.filter((e) => e.Switch === id);
+  if (!layers.length || (!hasBody && id !== "ParamClothesCoat")) continue;
+  const select = document.createElement("select");
+  select.append(new Option("on", "1"));
+  if (layers.some((e) => e.State === "half")) select.append(new Option("half off", "0.5"));
+  select.append(new Option("off", "0"));
+  select.onchange = () => model.internalModel.coreModel.setParameterValueById(id, Number(select.value));
+  const row = document.createElement("label");
+  row.append(label + " ", select);
+  document.getElementById("slots").append(row);
+  slotControls.push(select);
+}}
+outfits.addEventListener("change", () => slotControls.forEach((s) => {{ s.value = "1"; s.onchange(); }}));
 outfits.onchange = () => model.expression(outfits.value);
 document.getElementById("blush").oninput = (e) => model.internalModel.coreModel.setParameterValueById("ParamCheek", Number(e.target.value));
 expressions.onchange = () => model.expression(expressions.value);

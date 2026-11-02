@@ -61,6 +61,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const [innerWear, setInnerWear] = useState("");
   const [outfitPrompt, setOutfitPrompt] = useState("");
   const [usePromptData, setUsePromptData] = useState(true);
+  const [clothingSlots, setClothingSlots] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -150,6 +151,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           ...(outfitLayers && innerWear.trim() ? { inner_wear: innerWear.trim() } : {}),
           ...(outfitPrompt.trim() ? { outfit_prompt: outfitPrompt.trim() } : {}),
           use_prompt_data: usePromptData,
+          clothing_slots: clothingSlots,
           ...(chosen !== null ? { base_index: chosen } : {}),
         },
         character_lora: lora ? { entry: lora.entry, installed_name: lora.installed_name } : null,
@@ -364,6 +366,10 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                   placeholder="Keep the picture's clothes, or e.g. a black blazer and a pleated skirt"
                   className="h-9 w-full rounded-md border bg-background px-2 text-sm"
                 />
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={clothingSlots} onChange={(e) => setClothingSlots(e.target.checked)} />
+                  <span>Coat on its own layer, with a half-off state (two more edits)</span>
+                </label>
                 <label className="flex items-start gap-2 text-sm">
                   <input type="checkbox" className="mt-1" checked={usePromptData} onChange={(e) => setUsePromptData(e.target.checked)} />
                   <span>Read the clothing from the picture&apos;s prompt data when a field is empty</span>
