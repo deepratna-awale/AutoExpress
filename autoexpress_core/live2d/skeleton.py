@@ -600,11 +600,11 @@ def split_arms(masks: dict, skeleton_doc: dict, picture, hands: dict | None = No
             arm |= np.asarray(hand.convert("L")) > 128
         result[group] = Image.fromarray((arm * 255).astype(np.uint8))
     if sleeves:
-        result = _sleeves_from_map(result, masks, by_name, middle, sleeves, hands)
+        result = _sleeves_from_map(result, masks, by_name, middle, sleeves, hands, alpha > 0.5)
     return result
 
 
-def _sleeves_from_map(result: dict, masks: dict, by_name: dict, middle: float, sleeves: dict, hands: dict | None) -> dict:
+def _sleeves_from_map(result: dict, masks: dict, by_name: dict, middle: float, sleeves: dict, hands: dict | None, solid=None) -> dict:
     """result's arm masks with each sleeve the map shows added whole and the garment's body taken off."""
     import numpy as np
     from PIL import Image, ImageFilter
@@ -628,7 +628,36 @@ def _sleeves_from_map(result: dict, masks: dict, by_name: dict, middle: float, s
         own = sleeve & on_side & near
         if own.sum() < 0.0005 * width * height:
             continue
-        arm = ((np.asarray(result[group]) > 0) & ~jacket) | own
+        # In the sleeve's rows the arm ends at the sleeve's inner edge as painted: the cut along the
+        # drawing's lines also took a strip of the coat's side there, which left a notch at the
+        # armpit when the arm rose. Outward of that edge it keeps the cut's (the sleeve's outline,
+        # which the paint stops short of). Below the cuff (the hand) the cut stands.
+        arm = (np.asarray(result[group]) > 0) & ~jacket
+        toward_body = upper["Head"][0] < middle  # the body is at higher columns
+        # The paint stops short of the sleeve's inner outline too: a line's width past it is the
+        # sleeve's (left on the coat, it would hang in the air from armpit to hip).
+        # Where the arm hangs clear of the body, everything up to the gap is the sleeve's.
+        line, far = max(4, height // 200), max(8, height // 60)
+        step = 1 if toward_body else -1
+        for y in np.nonzero(own.any(axis=1))[0]:
+            xs = np.nonzero(own[y])[0]
+            start = xs.max() + 1 if toward_body else xs.min() - 1
+            end = start + step * line
+            for d in range(far):
+                x = start + step * d
+                if not 0 <= x < width:
+                    break
+                if solid is not None and not solid[y, x]:
+                    end = x
+                    break
+            lo, hi = sorted((start, end))
+            lo, hi = max(0, lo), min(width, hi + 1)
+            if toward_body:
+                arm[y, hi:] = False
+            else:
+                arm[y, :lo] = False
+            arm[y, lo:hi] = True
+        arm |= own
         hand = (hands or {}).get(side)
         if hand is not None:
             arm |= np.asarray(hand.convert("L")) > 128

@@ -1364,16 +1364,17 @@ def test_split_arms_takes_each_sleeve_whole_from_a_sleeve_map():
     }
     plain = Image.new("L", size, 0)
     ImageDraw.Draw(plain).rectangle((40, 60, 105, 330), fill=255)  # narrower than the sleeve
+    ImageDraw.Draw(plain).rectangle((40, 60, 140, 200), fill=255)  # and up top, into the jacket's side
     sleeve_map = Image.new("RGB", size, (255, 255, 255))
     draw = ImageDraw.Draw(sleeve_map)
     draw.rectangle((30, 60, 115, 300), fill=(255, 0, 255))  # the sleeve, wider than the arm's mask
-    draw.rectangle((116, 60, 260, 300), fill=(0, 255, 255))  # the jacket's body
     draw.rectangle((180, 320, 200, 340), fill=(255, 0, 255))  # a stray speck, nowhere near the arm
     sleeves = skeleton.sleeve_map_masks(sleeve_map)
     assert sleeves is not None
     arm = skeleton.split_arms({"arm_R": plain}, bones, picture, None, sleeves)["arm_R"]
     assert arm.getpixel((110, 150)) == 255 and arm.getpixel((35, 150)) == 255  # the whole sleeve
-    assert arm.getpixel((130, 150)) == 0 and arm.getpixel((190, 330)) == 0  # not the jacket, not the speck
+    assert arm.getpixel((130, 150)) == 0 and arm.getpixel((190, 330)) == 0  # not the jacket's side, not the speck
+    assert arm.getpixel((118, 150)) == 255  # the sleeve's outline, which the paint stops short of
     assert skeleton.sleeve_map_masks(Image.new("RGB", size, (255, 255, 255))) is None
 
 
