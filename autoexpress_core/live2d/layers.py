@@ -407,11 +407,16 @@ def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48, 
             canvas = _on_canvas(part, size)
             solid = canvas.getchannel("A").point(lambda v: 255 if v > 230 else 0)
             visible = ImageChops.subtract(solid, covered)
+            above = covered
             covered = ImageChops.lighter(covered, solid)
             if parse_tag(part.tag)[0] in _SWITCH_TAGS:
                 continue
             if parse_tag(part.tag)[0] in HAIR_TAGS:
                 canvas = _even_hidden_hair(canvas, solid, visible)
+            if parse_tag(part.tag)[0] == "face":
+                canvas = face_from_picture(canvas, above, picture, subject)
+                parts[index] = dataclasses.replace(part, image=canvas.crop((part.left, part.top, part.left + part.image.width, part.top + part.image.height)))
+                continue
             # Stay off the layer's own edge and the character's outline, where the picture's pixels are
             # mixed with its background (they would paint a pale halo onto the layer).
             inside = ImageChops.multiply(solid.filter(ImageFilter.MinFilter(5)), outline_clear)
@@ -427,6 +432,54 @@ def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48, 
                 fixed = Image.composite(Image.merge("RGBA", (*picture.split(), canvas.getchannel("A"))), canvas, fix.filter(ImageFilter.GaussianBlur(1.5)))
             parts[index] = dataclasses.replace(part, image=fixed.crop((part.left, part.top, part.left + part.image.width, part.top + part.image.height)))
     return parts
+
+
+def face_from_picture(canvas: Image.Image, above: Image.Image, picture: Image.Image, subject: Image.Image) -> Image.Image:
+    """
+    The face's skin rebuilt from the picture (canvas: the face layer, RGBA on the picture's canvas;
+    above: where layers over the face are solid; subject: the character; both mode L 0/255).
+
+    The split repaints the whole face, and its paint is flatter and greyer than the drawing, with a
+    pale rim where its edge was mixed with the background: on the puppet it reads as a mask. Here
+    the bare skin the picture shows is the picture's own, the face keeps its drawn outline (taken
+    in from just outside the split's edge when it lies there), and what the picture hides (under
+    the eyes, the mouth, the fringe) is the skin around it spread in smoothly, so it is plain skin
+    when an eye closes or the hair moves.
+    """
+    import numpy as np
+
+    from .puppet import _push_pull
+
+    alpha = canvas.getchannel("A")
+    solid = alpha.point(lambda v: 255 if v > 128 else 0)
+    open_ = ImageChops.multiply(ImageChops.invert(above), subject)
+    seen = ImageChops.multiply(solid, open_)
+    inner = solid.filter(ImageFilter.MinFilter(9))
+    skin = ImageChops.multiply(_like_skin(picture, ImageChops.multiply(seen, inner)), seen)
+    known = np.asarray(skin) > 128
+    if known.sum() < 200:
+        return canvas
+    pic = np.asarray(picture.convert("RGB")).astype(np.float32)
+    luma = pic.mean(axis=2)
+    level = float(np.median(luma[known]))
+    # Eye whites and highlights pass for pale skin by colour, but are lighter than it.
+    known &= luma <= level + 10
+    # The drawn outline: darker than the skin, in a band across the face's edge, nothing over it.
+    edge = np.asarray(ImageChops.subtract(solid.filter(ImageFilter.MaxFilter(3)), inner)) > 128
+    line = edge & (np.asarray(open_) > 128) & (luma < level - 24)
+    # A line runs on: lone dark specks (a lash tip, a stray hair) don't count.
+    run = np.asarray(Image.fromarray((line * 255).astype(np.uint8), "L").filter(ImageFilter.BoxBlur(2))) >= 60
+    line &= run
+    filled = _push_pull(pic, known)
+    filled = np.asarray(Image.fromarray(filled.clip(0, 255).astype(np.uint8), "RGB").filter(ImageFilter.GaussianBlur(5))).astype(np.float32)
+    out = filled.copy()
+    out[known | line] = pic[known | line]
+    a = np.asarray(alpha).copy()
+    a[line] = 255
+    a[edge & (np.asarray(subject) < 128)] = 0
+    result = Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    result.putalpha(Image.fromarray(a, "L"))
+    return result
 
 
 def _like_skin(picture: Image.Image, where: Image.Image, tolerance: int = 36) -> Image.Image:

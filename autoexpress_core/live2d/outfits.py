@@ -459,6 +459,39 @@ def _share(mask: Image.Image, of: Image.Image) -> float:
     return ImageStat.Stat(mask).sum[0] / total if total else 0.0
 
 
+def _like(image: Image.Image, layer: Image.Image, tolerance: int = 60) -> Image.Image:
+    """Where image (RGB) is close to the median colour of layer (RGBA), mode L 0/255."""
+    solid = layer.getchannel("A").point(lambda v: 255 if v > 128 else 0)
+    if solid.getbbox() is None:
+        return Image.new("L", image.size, 0)
+    colour = tuple(int(v) for v in ImageStat.Stat(layer.convert("RGB"), solid).median)
+    return layers._difference(image, Image.new("RGB", image.size, colour)).point(lambda v: 255 if v < tolerance else 0)
+
+
+def _bottom_cloth(parts: list, size, picture: Image.Image, waist: int | None, tolerance: int = 60) -> Image.Image:
+    """
+    Where the picture shows the skirt or trousers below the waist (mode L, 0/255), by their colour.
+    The edit that takes the coat off redraws the skirt too (a waistband, seams that weren't there):
+    that change is not the coat, and taking it as coat would swap in the redrawn skirt whenever the
+    coat comes off.
+    """
+    empty = Image.new("L", size, 0)
+    bottom = layers._alpha_union(parts, size, ("bottomwear",)).point(lambda v: 255 if v > 128 else 0)
+    if waist is None or bottom.getbbox() is None:
+        return empty
+    over = layers._alpha_union(parts, size, ("topwear", "handwear")).point(lambda v: 255 if v > 128 else 0)
+    shown = ImageChops.subtract(bottom, over)
+    if ImageStat.Stat(shown).sum[0] < 255 * 200:
+        shown = bottom
+    colour = tuple(int(v) for v in ImageStat.Stat(picture.convert("RGB"), shown).median)
+    near = layers._difference(picture, Image.new("RGB", size, colour)).point(lambda v: 255 if v < tolerance else 0)
+    # Closed, so the skirt's own seams and shading lines go with it.
+    near = near.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(5))
+    below = Image.new("L", size, 0)
+    below.paste(255, (0, waist, size[0], size[1]))
+    return ImageChops.multiply(ImageChops.multiply(near, below), bottom.filter(ImageFilter.MaxFilter(9)))
+
+
 def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image.Image | None = None, inner: Image.Image | None = None) -> list:
     """
     The split's clothing rearranged into slots, the way Koikatsu dresses a character: the outermost
@@ -493,6 +526,7 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
     mid = edits.get(MID)
     if mid is not None:
         coat = ImageChops.multiply(_changed(picture, mid), clothed)
+        coat = ImageChops.subtract(coat, _bottom_cloth(parts, size, picture, waist))
         coat = _drop_small(coat, 0.004)
         if waist is not None:
             # A coat covers the shoulders and chest: what the edit changed only further down (a shoe
@@ -524,8 +558,20 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
             for tag, piece in (("topwear", below(under, waist, True) if has_bottom else under), ("bottomwear", below(under, waist, False) if has_bottom else None)):
                 if piece is None or piece.getbbox() is None:
                     continue
-                fill = _layer(mid, piece)
                 current = next((p for p in result if layers.parse_tag(p.tag)[0] == tag), None)
+                if tag == "bottomwear" and current is not None:
+                    # The skirt keeps its own drawing under the coat's hem (the edit redraws it with a
+                    # waistband and seams of its own): the edit fills only what the split left bare,
+                    # and only with skirt (the arms hanging beside it in the edit are not skirt).
+                    canvas = layers._on_canvas(current, size)
+                    piece = ImageChops.multiply(piece, _like(mid, canvas))
+                    fill = _layer(mid, piece)
+                    if fill is not None:
+                        fill.alpha_composite(canvas)
+                        canvas = fill
+                    result[result.index(current)] = _part(tag, canvas, current.depth)
+                    continue
+                fill = _layer(mid, piece)
                 if current is None:
                     extra.append(_part(tag, fill, top_depth))
                     continue

@@ -1007,10 +1007,12 @@ def test_neutral_pose_redraws_the_character_full_body_on_a_portrait_canvas():
     assert _REAL_NEUTRAL_POSE(NoQwen(), character(), {}, lambda _: None)[0] is None
 
 
-def standing(feet_apart: bool) -> Image.Image:
+def standing(feet_apart: bool, arms_apart: bool = True) -> Image.Image:
     image = Image.new("RGB", (400, 1000), (255, 255, 255))
     draw = ImageDraw.Draw(image)
     draw.rectangle((150, 50, 250, 550), fill=(80, 60, 50))  # head and body
+    for x in (100, 270) if arms_apart else (125, 245):
+        draw.rectangle((x, 150, x + 30, 500), fill=(90, 70, 60))  # arms, apart or against the body
     if feet_apart:
         draw.polygon([(150, 550), (190, 550), (170, 950), (120, 950)], fill=(60, 40, 35))
         draw.polygon([(210, 550), (250, 550), (280, 950), (230, 950)], fill=(60, 40, 35))
@@ -1034,6 +1036,23 @@ def test_neutral_pose_asks_again_when_the_feet_stay_together():
     edits = [call[1] for call in backend.calls if call[0] == "edit"]
     assert note == "" and len(edits) == 2 and "planted apart" in edits[1]
     assert kit.feet_gap(posed) >= kit.FEET_GAP
+
+
+def test_arms_apart_tells_arms_held_out_from_arms_against_the_body():
+    assert kit.arms_apart(standing(True, True)) >= kit.ARMS_APART > kit.arms_apart(standing(True, False))
+
+
+def test_neutral_pose_asks_again_when_the_arms_lie_against_the_body():
+    class Close(FakeBackend):
+        def instruction_edit(self, image_b64, instruction, settings):
+            self.calls.append(("edit", instruction))
+            return standing(True, "thirty degrees" in instruction)
+
+    backend = Close()
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    edits = [call[1] for call in backend.calls if call[0] == "edit"]
+    assert note == "" and len(edits) == 2 and "thirty degrees" in edits[1] and "planted apart" not in edits[1]
+    assert kit.arms_apart(posed) >= kit.ARMS_APART
 
 
 def test_skeleton_from_a_pose_proportions_has_limbs_with_mirrored_limits():
