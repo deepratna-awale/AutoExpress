@@ -694,6 +694,54 @@ class ComfyUIClient(RemoteBackend):
         finally:
             self._prompt_id = None
 
+    def pose_keypoints(self, image: str) -> list | None:
+        """
+        The body keypoints in a base64 picture from DWPose (comfyui_controlnet_aux's DWPreprocessor):
+        OpenPose JSON's "people" list in the picture's pixels, or None without the node or on failure.
+        """
+        try:
+            if not self.object_info("DWPreprocessor") or not self.object_info("SavePoseKpsAsJsonFile"):
+                return None
+        except BackendError:
+            return None
+        self._interrupted.clear()
+        try:
+            picture = b64_to_pil(image)
+            # Saved to a file of its own: ComfyUI caches a repeated picture and then reports nothing
+            # from the detector, but a new file name makes the save run again.
+            prefix = f"autoexpress_pose_{uuid.uuid4().hex[:12]}"
+            workflow = {
+                "image": {"class_type": "LoadImage", "inputs": {"image": self.upload_image(image)}},
+                "pose": {
+                    "class_type": "DWPreprocessor",
+                    "inputs": self._with_defaults(
+                        "DWPreprocessor",
+                        {"image": ["image", 0], "detect_hand": "disable", "detect_face": "disable", "detect_body": "enable", "resolution": 1024},
+                    ),
+                },
+                "save": {"class_type": "SavePoseKpsAsJsonFile", "inputs": {"pose_kps": ["pose", 1], "filename_prefix": prefix}},
+            }
+            self._prompt_id = self.queue_prompt(workflow)
+            self.wait_for(self._prompt_id)
+            frames = json.loads(self._output_file(f"{prefix}_00001.json"))
+            frame = frames[0] if isinstance(frames, list) and frames else frames
+            if not isinstance(frame, dict):
+                return None
+            people = frame.get("people") or []
+            # In the detector's own canvas: scale to the picture's pixels.
+            width, height = frame.get("canvas_width") or picture.width, frame.get("canvas_height") or picture.height
+            sx, sy = picture.width / width, picture.height / height
+            for person in people:
+                flat = person.get("pose_keypoints_2d") or []
+                person["pose_keypoints_2d"] = [v * (sx if i % 3 == 0 else sy if i % 3 == 1 else 1) for i, v in enumerate(flat)]
+            return people
+        except BackendError as e:
+            return self._fail(e, "pose detection")
+        except (KeyError, ValueError, TypeError, OSError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "pose detection")
+        finally:
+            self._prompt_id = None
+
     def decompose_layers(self, image: str, settings: "live2d_layers.SplitSettings") -> tuple[list, tuple[int, int]] | None:
         """
         Split a base64 character picture into layers with See-through.

@@ -336,7 +336,12 @@ def _mismatch(layer: Image.Image, picture: Image.Image, threshold: int) -> Image
     return mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
 
 
-def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48) -> list[Part]:
+# The face and neck take the picture's colour wherever they show and differ by more than this: the
+# split's inpainting leaves soft grey shading on bare skin that the larger threshold lets through.
+SKIN_THRESHOLD = 12
+
+
+def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48, subject: Image.Image | None = None) -> list[Part]:
     """
     Make the layers agree with the picture they were split from (picture: RGB on the split's canvas).
 
@@ -346,6 +351,9 @@ def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48) 
     2. Wherever a layer is the one on top and its colour is far from the picture's (grey patches in
        the back hair, smudges in the inpainting), it takes the picture's colour, so the puppet at
        rest looks like the picture.
+
+    subject (mode L, canvas size) is where the character is: the picture's alpha. Without it the
+    character is told from the background by colour, which misses pale skin on white.
     """
     size = picture.size
     picture = picture.convert("RGB")
@@ -380,8 +388,14 @@ def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48) 
     # 2. Visible colour from the picture (the character only: not the picture's background).
     tree, _ = build_tree(parts)
     by_image = {id(p.image): i for i, p in enumerate(parts)}
-    background = picture.getpixel((0, 0))
-    subject = ImageChops.difference(picture, Image.new("RGB", size, background)).convert("L").point(lambda v: 255 if v > 20 else 0)
+    if subject is None:
+        # Without the picture's own outline, whatever differs from the background colour in any
+        # channel (pale skin on white differs only a little, mostly in blue).
+        background = picture.getpixel((0, 0))
+        r, g, b = ImageChops.difference(picture, Image.new("RGB", size, background)).split()
+        subject = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 20 else 0)
+    else:
+        subject = subject.point(lambda v: 255 if v > 128 else 0)
     outline_clear = subject.filter(ImageFilter.MinFilter(13))
     covered = Image.new("L", size, 0)
     for group in tree:
@@ -401,12 +415,28 @@ def match_picture(parts: list[Part], picture: Image.Image, threshold: int = 48) 
             # Stay off the layer's own edge and the character's outline, where the picture's pixels are
             # mixed with its background (they would paint a pale halo onto the layer).
             inside = ImageChops.multiply(solid.filter(ImageFilter.MinFilter(5)), outline_clear)
-            fix = ImageChops.multiply(ImageChops.multiply(visible, inside), ImageChops.multiply(subject, _mismatch(canvas, picture, threshold)))
+            if parse_tag(part.tag)[0] in ("face", "neck"):
+                # Bare skin only: the picture's lines and features over it (lashes, the mouth) belong
+                # to their own layers and would ghost when those move.
+                mismatch = ImageChops.multiply(_mismatch(canvas, picture, SKIN_THRESHOLD), _like_skin(picture, ImageChops.multiply(visible, inside)))
+            else:
+                mismatch = _mismatch(canvas, picture, threshold)
+            fix = ImageChops.multiply(ImageChops.multiply(visible, inside), ImageChops.multiply(subject, mismatch))
             fixed = canvas
             if fix.getbbox() is not None:
                 fixed = Image.composite(Image.merge("RGBA", (*picture.split(), canvas.getchannel("A"))), canvas, fix.filter(ImageFilter.GaussianBlur(1.5)))
             parts[index] = dataclasses.replace(part, image=fixed.crop((part.left, part.top, part.left + part.image.width, part.top + part.image.height)))
     return parts
+
+
+def _like_skin(picture: Image.Image, where: Image.Image, tolerance: int = 36) -> Image.Image:
+    """Where the picture is close to the skin colour it mostly shows in where (mode L, 0/255)."""
+    if ImageStat.Stat(where).sum[0] < 255 * 50:
+        return Image.new("L", picture.size, 0)
+    skin = _median_colour(picture.convert("RGB"), where)
+    r, g, b = ImageChops.difference(picture.convert("RGB"), Image.new("RGB", picture.size, skin)).split()
+    worst = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    return worst.point(lambda v: 255 if v < tolerance else 0).filter(ImageFilter.MinFilter(3))
 
 
 def _even_hidden_hair(canvas: Image.Image, solid: Image.Image, visible: Image.Image) -> Image.Image:

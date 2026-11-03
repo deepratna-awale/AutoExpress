@@ -656,6 +656,22 @@ def test_match_picture_cuts_collars_over_the_neck_and_fixes_grey_hair():
     assert (r, g, b) == (70, 40, 30)  # visible grey hair takes the picture's colour
 
 
+def test_match_picture_cleans_grey_shading_off_pale_skin_but_not_the_features():
+    size = (200, 200)
+    picture = Image.new("RGB", size, (255, 255, 255))
+    draw = ImageDraw.Draw(picture)
+    draw.ellipse((40, 30, 160, 180), fill=(252, 238, 222))  # pale skin on white
+    draw.line((80, 140, 120, 140), fill=(120, 60, 60), width=3)  # the mouth, drawn on the face
+    face_image = blob(size, (40, 30, 160, 180), (252, 238, 222, 255), "ellipse")
+    ImageDraw.Draw(face_image).rectangle((110, 80, 150, 130), fill=(196, 188, 177, 255))  # the split's grey smudge
+    face = layers.Part("face", face_image, 0, 0, 0.5)
+    alpha = Image.new("L", size, 0)
+    ImageDraw.Draw(alpha).ellipse((40, 30, 160, 180), fill=255)
+    fixed = layers.match_picture([face], picture, subject=alpha)[0]
+    assert fixed.image.getpixel((130 - fixed.left, 105 - fixed.top))[:3] == (252, 238, 222)  # smudge gone
+    assert fixed.image.getpixel((100 - fixed.left, 140 - fixed.top))[:3] == (252, 238, 222)  # the mouth isn't baked in
+
+
 def test_outfit_layers_need_an_adult_drawn_character():
     drawn = character()
     on = {"outfit_layers": True, "adult_confirmed": True}
@@ -1064,6 +1080,18 @@ def test_puppet_from_a_neutral_pose_gets_a_skeleton_and_bone_parameters(tmp_path
     assert bones and "Arms" not in document["Rig"]
     ids = {p["Id"] for p in document["Parameters"]}
     assert {b["Param"] for b in bones} <= ids
+
+
+def test_puppet_takes_its_joints_from_a_pose_detector(tmp_path):
+    parts = seethrough_parts(1024)
+    tree, manifest = layers.build_tree(parts)
+    # OpenPose order: nose, neck, right arm, left arm, right leg, left leg (x, y, confidence).
+    points = [(512, 200), (512, 300), (430, 310), (400, 450), (390, 580), (594, 310), (624, 450), (634, 580),
+              (470, 600), (465, 800), (460, 990), (554, 600), (559, 800), (564, 990)]
+    people = [{"pose_keypoints_2d": [v for x, y in points for v in (x, y, 1.0)]}]
+    document = puppet.build_puppet(tree, manifest, (1024, 1024), tmp_path / "p", "p", parts, people=people)
+    bones = {b["Name"]: b for b in document["Rig"]["Skeleton"]["Bones"]}
+    assert bones["UpperArmL"]["Head"] == [594, 310] and bones["ThighR"]["Head"] == [470, 600]
 
 
 def test_skeleton_fits_the_arms_to_the_hands_and_the_legs_to_the_body():

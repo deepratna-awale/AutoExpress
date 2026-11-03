@@ -597,6 +597,13 @@ class RemoteBackend:
         """A base64 picture upscaled with an upscale model (PIL image), or None when the backend has none."""
         return None
 
+    def pose_keypoints(self, image: str) -> list | None:
+        """
+        The body keypoints in a base64 picture (OpenPose JSON's "people" list, in the picture's
+        pixels), or None when the backend has no pose detector.
+        """
+        return None
+
     def decompose_layers(self, image: str, settings) -> tuple[list, tuple[int, int]] | None:
         """Split a base64 character picture into layers. Only backends with can_decompose have it."""
         raise NotImplementedError

@@ -654,7 +654,7 @@ def build_kit(
     parts = layers.solidify_parts(parts)
     box = layers.square_placement(picture.size, canvas_size[0])
     base_canvas = to_canvas(picture, box, canvas_size)
-    parts = layers.match_picture(parts, Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas).convert("RGB"))
+    parts = layers.match_picture(parts, Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas).convert("RGB"), subject=base_canvas.getchannel("A"))
     parts = layers.settle_lash_strays(parts, canvas_size)
     parts = layers.trim_neck(parts, canvas_size)
     underlay = layers.hair_underlay(parts, canvas_size)
@@ -728,7 +728,23 @@ def build_kit(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
     )
 
-    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed, depth_maps=depth_maps)
+    # The joints from a pose detector (DWPose) where the WebUI has one, in the kit's pixels: the
+    # skeleton then sits on the drawn limbs instead of anime proportions.
+    people = None
+    detect = getattr(backend, "pose_keypoints", None)
+    if posed and detect is not None:
+        check_cancel()
+        progress("finding the joints", 0.92)
+        people = detect(pil_to_b64(picture))
+        if people:
+            sx, sy = size[0] / picture.width, size[1] / picture.height
+            for person in people:
+                flat = person.get("pose_keypoints_2d") or []
+                person["pose_keypoints_2d"] = [round(v * (sx if i % 3 == 0 else sy if i % 3 == 1 else 1), 2) for i, v in enumerate(flat)]
+            (folder / puppet.POSE_FILE).write_text(json.dumps({"people": people}, indent=1) + "\n", encoding="utf-8")
+    puppet.build_puppet(
+        tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed, depth_maps=depth_maps, people=people
+    )
 
     switches = ", ".join(o.name for o in overlays) or "none"
     (folder / "README.txt").write_text(README.format(name=name, switches=switches), encoding="utf-8")

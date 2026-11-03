@@ -173,6 +173,8 @@ _BODY_ROLES = {
     "Topwear": "clothing", "Bottomwear": "clothing", "Legwear": "clothing", "Footwear": "clothing", "Neckwear": "clothing",
     "Outer wear": "clothing", "Outer wear half": "clothing", "Topwear half": "clothing", "Bottomwear half": "clothing",
 }
+# The pose detector's keypoints in a kit (OpenPose JSON, the kit's pixels).
+POSE_FILE = "pose.json"
 # How much of the head layers' depth spread around the face is kept (add_depth).
 HEAD_DEPTH_SPREAD = 0.25
 HEAD_ROLES = ("face", "brow", "brow_angry", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "mouth", "mouth_open", "mouth_grin", "ear", "front_hair", "hair_under", "headwear", "back_hair")
@@ -234,6 +236,7 @@ def build_puppet(
     parts: list | None = None,
     enhance=None,
     joints: dict | None = None,
+    people: list | None = None,
     neutral_pose: bool = False,
     depth_maps: dict | None = None,
 ) -> dict:
@@ -246,7 +249,8 @@ def build_puppet(
     player draws them biggest, so they get more pixels.
 
     joints (canvas pixels, from a pose detector: see skeleton.from_keypoints) give the puppet a
-    full-body skeleton to pose; neutral_pose says the character stands in the neutral A-pose, so
+    full-body skeleton to pose, as do people (a pose detector's OpenPose "people" list, canvas
+    pixels) when joints aren't given; neutral_pose says the character stands in the neutral A-pose, so
     without joints the skeleton comes from anime proportions. depth_maps ({See-through tag: mode L
     canvas}, "" for the nearest surface; see layers.depth_canvases) give every mesh point a depth
     ("Z"), so turning the head or the body shows real parallax. Returns the puppet document.
@@ -333,8 +337,13 @@ def build_puppet(
     if rig.get("Mouth"):
         rig["Mouth"]["Jaw"] = jaw_line(folder, entries, rig["Mouth"]["Box"])
     radii, arm_alpha = None, {}
-    if joints is None and neutral_pose:
-        joints = skeleton.from_proportions(rig["Head"]["Box"], rig["Body"]["Box"])
+    if joints is None and people:
+        detected = skeleton.from_keypoints(people, rig["Head"]["Box"], size)
+        if detected:
+            joints = skeleton.complete(detected, rig["Head"]["Box"])
+    if neutral_pose:
+        if joints is None:
+            joints = skeleton.from_proportions(rig["Head"]["Box"], rig["Body"]["Box"])
         arm_alpha, silhouette = limb_alphas(folder, entries, size)
         joints, radii = skeleton.fit_to_layers(joints, rig["Head"]["Box"], arm_alpha, silhouette)
         # Only the hands come off with the arms from their own layers (the split leaves stray bits of
@@ -1416,7 +1425,16 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
         tree.append(Group(group["name"], children))
     groups = [{**group, "layers": [info for info in group["layers"] if any(layer.name == info["name"] for g in tree if g.name == group["name"] for layer in g.children)]} for group in manifest["groups"]]
     output = pathlib.Path(output) if output else kit_folder / "puppet" / name
+    pose = kit_folder / POSE_FILE
+    people = json.loads(pose.read_text(encoding="utf-8")).get("people") if pose.exists() else None
     build_puppet(
-        tree, {**manifest, "groups": groups}, size, output, name, neutral_pose=bool(manifest.get("neutral_pose")), depth_maps=load_depth(kit_folder / "depth") or None
+        tree,
+        {**manifest, "groups": groups},
+        size,
+        output,
+        name,
+        neutral_pose=bool(manifest.get("neutral_pose")),
+        depth_maps=load_depth(kit_folder / "depth") or None,
+        people=people,
     )
     return output
