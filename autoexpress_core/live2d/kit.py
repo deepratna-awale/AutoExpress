@@ -42,7 +42,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from .. import instruction_edit
 from ..images import pil_to_b64
 from ..payload import build_expression_payload
-from . import DECOMPOSE, guidance, layers, model_files, outfits, prompt_data, psd, puppet
+from . import DECOMPOSE, guidance, layers, model_files, outfits, prompt_data, psd, puppet, skeleton
 
 MAX_SIDE = 2048
 EYES_CLOSED = "eyes_closed"
@@ -329,6 +329,11 @@ ARMS_OUT = (
     "the sleeves do not touch the jacket, the waist or the hips."
 )
 NEUTRAL_TRIES = 3
+POSE_GUIDE = (
+    "Picture 2 is an OpenPose stick-figure skeleton. Make the character from picture 1 stand in exactly that skeleton's "
+    "pose, limb for limb: the same angle of each arm out from the body, the same straight legs and the same distance "
+    "between the feet; draw no skeleton, lines or dots. "
+)
 
 
 def feet_gap(picture: Image.Image) -> float:
@@ -402,11 +407,18 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
     log("Redrawing the character in a neutral A-pose, full body (Qwen-Image-Edit).")
     best, best_score = None, (-1, -1.0)
     feet_together = arms_close = False
+    guide = pil_to_b64(skeleton.pose_picture(skeleton.a_pose_points(canvas.size), canvas.size)) if getattr(backend, "takes_reference", False) else None
     for _ in range(NEUTRAL_TRIES):
         # The legs are straightened first, so the 2.5D rig only turns them a little from there; the
         # arms hang clear of the body, so each sleeve is cut whole from the coat it hangs beside.
         instruction = NEUTRAL_POSE + (FEET_APART if feet_together else "") + (ARMS_OUT if arms_close else "")
-        posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(instruction, description) + outfits._describe(description), edit)
+        if guide is not None:
+            # A stick figure in the A-pose to follow (Qwen-Image-Edit takes it as picture 2): words
+            # alone leave a blazer's sleeves lying against its sides.
+            instruction = POSE_GUIDE + instruction
+            posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(instruction, description) + outfits._describe(description), edit, reference=guide)
+        else:
+            posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(instruction, description) + outfits._describe(description), edit)
         if posed is None:
             break
         posed = posed.convert("RGB")

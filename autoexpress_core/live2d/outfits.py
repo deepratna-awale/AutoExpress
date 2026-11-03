@@ -293,6 +293,11 @@ def body_layer(nude: Image.Image, parts: list, size) -> Image.Image | None:
         far_skin = _colour_distance(rgb, skin_colour).point(lambda v: 255 if v > 70 else 0)
         drop = ImageChops.multiply(near_hair, far_skin).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(5))
         alpha = ImageChops.subtract(alpha, drop)
+    # The edit's white background shut in between an arm and the body (the hand touching the hip)
+    # isn't reached from the picture's border: skin is never this white over a patch.
+    r, g, b = rgb.split()
+    white = ImageChops.darker(ImageChops.darker(r, g), b).point(lambda v: 255 if v > 245 else 0)
+    alpha = ImageChops.subtract(alpha, white.filter(ImageFilter.MinFilter(5)).filter(ImageFilter.MaxFilter(7)))
     alpha = alpha.filter(ImageFilter.MedianFilter(3))
     if alpha.getbbox() is None:
         return None
@@ -551,6 +556,9 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
                 close = max(5, ((face[2] - face[0]) // 10 if face else 15) // 2 * 2 + 1)
                 cloth = _changed(mid, under_base, 18).filter(ImageFilter.MaxFilter(close)).filter(ImageFilter.MinFilter(close))
                 under = ImageChops.multiply(coat, cloth)
+            # Never the edit's white background: a shirt's sleeve is narrower than the coat's, and the
+            # white beside it would hang round the arm as a pale halo once the coat is off.
+            under = ImageChops.multiply(under, _key_from_white(mid).point(lambda v: 255 if v > 128 else 0))
             skirt_shape = layers._alpha_union(result, size, ("bottomwear",)).point(lambda v: 255 if v > 128 else 0)
             changed = []
             for part in result:

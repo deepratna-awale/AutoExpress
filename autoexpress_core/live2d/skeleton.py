@@ -549,15 +549,24 @@ def split_arms(masks: dict, skeleton_doc: dict, picture, hands: dict | None = No
             bone = next((b for b in chain if y <= b["Tail"][1]), chain[-1])
             (hx, hy), (tx, ty) = bone["Head"], bone["Tail"]
             x = hx + (tx - hx) * (y - hy) / (ty - hy)
-            near, far = x - toward * bone["Radius"] * 0.3, x + toward * bone["Radius"] * 1.4
+            # A sleeve hangs about evenly round the arm: its outer edge (where the drawing ends)
+            # mirrored across the bone is about where its inner edge lies. The line is looked for
+            # from a little short of there, never right beside the bone (a fold inside the sleeve).
+            outer = x
+            step = -toward
+            while 0 <= outer + step < width and alpha[y, int(outer + step)] > 0.5 and abs(outer - x) < 3 * bone["Radius"]:
+                outer += step
+            reach = max(bone["Radius"] * 0.6, abs(x - outer))
+            mirror = x + toward * reach
+            near, far = x + toward * reach * 0.6, mirror + toward * (reach * 0.5 + bone["Radius"] * 0.3)
             lo, hi = sorted((near, far))
-            windows.append((max(0, int(lo)), min(width - 1, int(hi)), x, bone["Radius"]))
+            windows.append((max(0, int(lo)), min(width - 1, int(hi)), mirror, bone["Radius"]))
         inf = 1e9
         total = np.full((len(rows), width), inf, np.float32)
         back = np.zeros((len(rows), width), np.int32)
         columns_f = np.arange(width, dtype=np.float32)
-        # The first line out from the arm: further in, the jacket's front has lines of its own (the
-        # lapel's edge) that would take the front panel with the sleeve.
+        # The first line out from the mirrored edge: further in, the jacket's front has lines of its
+        # own (the lapel's edge) that would take the front panel with the sleeve.
         costs = [cost[y] + 0.15 * np.maximum(0.0, (columns_f - x0) * toward) / radius for y, (_, _, x0, radius) in zip(rows, windows, strict=True)]
         lo, hi = windows[0][:2]
         total[0, lo : hi + 1] = costs[0][lo : hi + 1]
@@ -589,3 +598,53 @@ def split_arms(masks: dict, skeleton_doc: dict, picture, hands: dict | None = No
             arm |= np.asarray(hand.convert("L")) > 128
         result[group] = Image.fromarray((arm * 255).astype(np.uint8))
     return result
+
+
+# OpenPose's own drawing: its 18 points (OPENPOSE above, then the eyes and ears), its limbs and colours.
+_OPENPOSE_LIMBS = ((1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13), (1, 0), (0, 14), (14, 16), (0, 15), (15, 17))
+_OPENPOSE_COLOURS = (
+    (255, 0, 0), (255, 85, 0), (255, 170, 0), (255, 255, 0), (170, 255, 0), (85, 255, 0), (0, 255, 0), (0, 255, 85), (0, 255, 170),
+    (0, 255, 255), (0, 170, 255), (0, 85, 255), (0, 0, 255), (85, 0, 255), (170, 0, 255), (255, 0, 255), (255, 0, 170), (255, 0, 85),
+)
+
+
+def a_pose_points(size: tuple[int, int], arm_angle: float = 22.0, heads: float = 7.5) -> list[tuple[float, float]]:
+    """
+    The 18 OpenPose points of a front-facing A-pose that fills a canvas of size (width, height): an
+    adult of heads head-heights, arms straight and angled out arm_angle degrees from the sides,
+    legs straight and apart. The person's right side is on the viewer's left, as OpenPose has it.
+    """
+    width, height = size
+    top = height * 0.05
+    h = height * 0.86 / heads
+    cx = width / 2
+    out = math.radians(arm_angle)
+
+    def at(dx: float, dy: float) -> tuple[float, float]:
+        return (cx + dx * h, top + dy * h)
+
+    points = [at(0, 0.62), at(0, 1.2)]
+    for sign in (-1, 1):  # right (viewer's left), then left
+        shoulder = (0.85 * sign, 1.45)
+        elbow = (shoulder[0] + sign * 1.45 * math.sin(out), shoulder[1] + 1.45 * math.cos(out))
+        wrist = (elbow[0] + sign * 1.25 * math.sin(out + 0.03), elbow[1] + 1.25 * math.cos(out + 0.03))
+        points += [at(*shoulder), at(*elbow), at(*wrist)]
+    for sign in (-1, 1):
+        points += [at(0.5 * sign, 3.9), at(0.6 * sign, 5.6), at(0.68 * sign, 7.3)]
+    points += [at(-0.2, 0.48), at(0.2, 0.48), at(-0.42, 0.52), at(0.42, 0.52)]
+    return points
+
+
+def pose_picture(points: list[tuple[float, float]], size: tuple[int, int]):
+    """OpenPose's stick figure for 18 points on a black canvas (RGB), the picture pose models follow."""
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", size, (0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    stick = max(4, round(size[1] / 220))
+    for index, (a, b) in enumerate(_OPENPOSE_LIMBS):
+        colour = tuple(int(c * 0.6) for c in _OPENPOSE_COLOURS[index])
+        draw.line([points[a], points[b]], fill=colour, width=stick * 2)
+    for index, (x, y) in enumerate(points):
+        draw.ellipse((x - stick, y - stick, x + stick, y + stick), fill=_OPENPOSE_COLOURS[index])
+    return image

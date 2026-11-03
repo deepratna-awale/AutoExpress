@@ -213,7 +213,8 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 
 **Skeleton.** By default the kit first redraws the character standing in a neutral A-pose, full
 body, with Qwen-Image-Edit (`--no-neutral-pose` or the **Neutral pose** switch off keeps the
-picture's pose). The legs come out straight and apart, the knees over the ankles, and the arms
+picture's pose). With ComfyUI's TextEncodeQwenImageEditPlus the redraw follows an OpenPose A-pose
+stick figure given as a second picture. The legs come out straight and apart, the knees over the ankles, and the arms
 hang clear of the body: when the redraw keeps the feet together or crossed (a model's walk often
 survives it), or a sleeve lies against the jacket from the armpit to the waist (it would then be
 cut from the jacket too narrow), the kit asks again, up to three times. When ComfyUI has DWPose ([comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux),
