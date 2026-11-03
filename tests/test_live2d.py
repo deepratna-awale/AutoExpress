@@ -1060,6 +1060,15 @@ def test_sam_sleeve_map_paints_each_named_sleeve_and_retries_a_dropped_request()
     assert sleeve_map.getpixel((100, 10)) == (255, 255, 255)
 
 
+def test_row_span_fills_each_row_between_its_outermost_pixels():
+    mask = Image.new("L", (40, 10), 0)
+    ImageDraw.Draw(mask).rectangle((5, 2, 8, 6), fill=255)  # an arm
+    ImageDraw.Draw(mask).rectangle((20, 2, 30, 6), fill=255)  # the body, with a gap between
+    span = outfits._row_span(mask)
+    assert span.getpixel((14, 4)) == 255  # the gap where a slipped coat hangs
+    assert span.getpixel((3, 4)) == 0 and span.getpixel((14, 8)) == 0
+
+
 def test_trim_neck_takes_the_chin_out_of_the_neck_layer():
     size = (200, 300)
     face = Image.new("RGBA", (100, 120), (240, 200, 180, 255))

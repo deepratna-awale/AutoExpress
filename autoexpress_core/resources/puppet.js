@@ -774,6 +774,11 @@ function definePuppetClass(PIXI) {
                         const d = joint ? Math.hypot(x - b.Head[0], y - b.Head[1]) : segmentDistance(x, y, b.Head, b.Tail);
                         const q = d / Math.max(1, joint ? b.Radius * 0.9 : b.Radius);
                         let score = Math.exp(-3 * q * q) * (joint ? 0.8 : 1);
+                        if (joint && b.Name.startsWith('UpperArm')) {
+                            // Only the shoulder itself: the chest and bust beside the armpit stay
+                            // with the chest (they were dragged up with a raised arm).
+                            score *= clamp(1 - (y - b.Head[1]) / Math.max(1, b.Radius * 0.5), 0, 1);
+                        }
                         if (piece && piece !== 'torso' && ROOT_BONES.has(b.Name)) {
                             // Around the shoulder or hip joint the limb's own piece follows the body
                             // too, so the top of a thigh stays tucked under a skirt and the top of

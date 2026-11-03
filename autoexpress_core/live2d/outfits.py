@@ -512,6 +512,21 @@ def _skirt_under(skirt: Image.Image, coat: Image.Image, more: Image.Image) -> Im
     return result
 
 
+def _row_span(mask: Image.Image) -> Image.Image:
+    """mask (mode L) filled in each row from its leftmost to its rightmost pixel."""
+    import numpy as np
+
+    on = np.asarray(mask) > 127
+    out = np.zeros_like(on)
+    rows = np.flatnonzero(on.any(axis=1))
+    if rows.size:
+        first = on[rows].argmax(axis=1)
+        last = on.shape[1] - 1 - on[rows][:, ::-1].argmax(axis=1)
+        columns = np.arange(on.shape[1])
+        out[rows] = (columns >= first[:, None]) & (columns <= last[:, None])
+    return Image.fromarray((out * 255).astype(np.uint8), "L")
+
+
 def _coat_shadow(skirt: Image.Image, coat: Image.Image, size) -> Image.Image:
     """
     The coat's shadow drawn on the skirt (mode L): skirt that shows just below and beside the coat
@@ -668,7 +683,9 @@ def slot_parts(
                 result[result.index(current)] = _part(tag, canvas, current.depth)
             half = edits.get(OUTER_HALF)
             if half is not None:
-                reach = clothed.filter(ImageFilter.MaxFilter(31))
+                # The slipped coat hangs beside the body too, in the gap between an arm and the
+                # hips: the reach spans each row of the clothes from side to side.
+                reach = _row_span(clothed).filter(ImageFilter.MaxFilter(31))
                 slipped = ImageChops.multiply(ImageChops.multiply(_changed(half, mid), _key_from_white(half).point(lambda v: 255 if v > 128 else 0)), reach)
                 # The edit often bares the shoulders under the slipped coat too: that skin isn't
                 # coat. It is told by the body edit's skin at the same place (a pale coat can be
