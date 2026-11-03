@@ -31,6 +31,36 @@ const HEAD_ROLES = new Set(Object.keys(ROLE_DEPTH));
 // The bones where each limb joins the body.
 const ROOT_BONES = new Set(['UpperArmL', 'UpperArmR', 'ThighL', 'ThighR']);
 const EYE_ROLES = new Set(['eye_white', 'iris', 'eyelash', 'eyes']);
+// The open mouth in pieces for lip sync (the kit's "Mouth inside", "Teeth upper", ...).
+const MOUTH_PART_ROLES = new Set(['mouth_inside', 'teeth_upper', 'teeth_lower', 'tongue', 'mouth_lips']);
+// Mouth shapes for speech (the Oculus / Azure viseme set, which TTS engines report), as the
+// parameters the mouth pieces move by: open, wide (-1 rounded, 1 stretched), tongue raised, teeth
+// brought to the lips.
+const VISEMES = {
+    sil: { open: 0, wide: 0, tongue: 0, teeth: 0 },
+    PP: { open: 0, wide: -0.1, tongue: 0, teeth: 0 },
+    FF: { open: 0.1, wide: 0.2, tongue: 0, teeth: 1 },
+    TH: { open: 0.18, wide: 0.1, tongue: 0.7, teeth: 0.6 },
+    DD: { open: 0.22, wide: 0.2, tongue: 0.6, teeth: 0.5 },
+    kk: { open: 0.28, wide: 0.1, tongue: 0.2, teeth: 0.3 },
+    CH: { open: 0.2, wide: -0.5, tongue: 0, teeth: 0.9 },
+    SS: { open: 0.12, wide: 0.5, tongue: 0, teeth: 1 },
+    nn: { open: 0.18, wide: 0.15, tongue: 0.6, teeth: 0.4 },
+    RR: { open: 0.22, wide: -0.35, tongue: 0.3, teeth: 0.3 },
+    aa: { open: 0.75, wide: 0.05, tongue: 0, teeth: 0.6 },
+    E: { open: 0.42, wide: 0.5, tongue: 0, teeth: 0.7 },
+    ih: { open: 0.24, wide: 0.75, tongue: 0, teeth: 0.9 },
+    oh: { open: 0.55, wide: -0.6, tongue: 0, teeth: 0.3 },
+    ou: { open: 0.28, wide: -0.95, tongue: 0, teeth: 0.2 },
+};
+// Letters to visemes, for speaking a line without a TTS engine's viseme events (a rough guess:
+// digraphs first, then single letters; vowels hold longer).
+const LETTER_VISEMES = [
+    ['th', 'TH'], ['sh', 'CH'], ['ch', 'CH'], ['ee', 'ih'], ['oo', 'ou'], ['ou', 'ou'], ['ph', 'FF'],
+    ['a', 'aa'], ['e', 'E'], ['i', 'ih'], ['y', 'ih'], ['o', 'oh'], ['u', 'ou'], ['w', 'ou'],
+    ['b', 'PP'], ['m', 'PP'], ['p', 'PP'], ['f', 'FF'], ['v', 'FF'], ['d', 'DD'], ['t', 'DD'], ['l', 'nn'], ['n', 'nn'],
+    ['k', 'kk'], ['g', 'kk'], ['c', 'kk'], ['q', 'kk'], ['x', 'kk'], ['s', 'SS'], ['z', 'SS'], ['j', 'CH'], ['r', 'RR'], ['h', 'kk'],
+];
 // Layers of the body under the head: they jiggle with the soft parts and follow the mouse's pull.
 const SOFT_ROLES = new Set(['body', 'clothing', 'nude_body', 'inner']);
 // The outer clothes, hidden by ParamClothesOuter when there is a body layer under them.
@@ -665,7 +695,24 @@ function definePuppetClass(PIXI) {
                 index += 1;
             }
             this._setupSkeleton();
+            // Where the open mouth's inside is: the pieces open and close about its middle.
+            const inside = this.layers.find(l => l.role === 'mouth_inside');
+            if (inside) {
+                const ys = inside.rest.filter((_, i) => i % 2 === 1), xs = inside.rest.filter((_, i) => i % 2 === 0);
+                const top = Math.min(...ys), bottom = Math.max(...ys);
+                this._mouthParts = { top, bottom, cy: (top + bottom) / 2, cx: (Math.min(...xs) + Math.max(...xs)) / 2 };
+            }
             for (const mesh of this._drawOrder()) this.addChild(mesh);
+            if (inside && (inside.entry.Grid || [2, 2]).every(n => n >= 2)) {
+                const masks = [];
+                for (const layer of this.layers.filter(l => l.role === 'teeth_upper' || l.role === 'teeth_lower' || l.role === 'tongue')) {
+                    const g = new PIXI.Graphics();
+                    this.addChild(g);
+                    layer.mesh.mask = g;
+                    masks.push(g);
+                }
+                this._mouthClip = { inside, masks };
+            }
             this._hasBody = this.layers.some(l => l.role === 'nude_body');
             this._halfSwitches = new Set(this.doc.Layers.filter(e => e.State === 'half' && e.Switch).map(e => e.Switch));
             this._ready = true;
@@ -1056,6 +1103,69 @@ function definePuppetClass(PIXI) {
             return response.json();
         }
 
+        // Speech ------------------------------------------------------------------------------
+        /**
+         * Show one mouth shape (a VISEMES name: 'aa', 'ih', 'ou', 'E', 'oh', 'PP', 'FF', 'TH', 'DD',
+         * 'kk', 'CH', 'SS', 'nn', 'RR', 'sil') for a moment; call it again as a TTS engine reports each
+         * viseme. weight scales it.
+         */
+        viseme(name, weight = 1) {
+            const v = VISEMES[name];
+            if (!v) return false;
+            this._speech = { frames: [{ t: 0, v: name, w: weight }], start: performance.now(), hold: 180 };
+            return true;
+        }
+
+        /** The available mouth shapes, for a picker. */
+        static get visemes() { return Object.keys(VISEMES); }
+
+        /**
+         * Mouth a line: visemes from its letters at about charsPerSecond (a stand-in for a TTS
+         * engine's viseme timeline), or a timeline itself: [{t: seconds, v: viseme, w: weight}, ...].
+         * Returns the length in seconds.
+         */
+        speak(line, charsPerSecond = 14) {
+            let frames = [];
+            if (Array.isArray(line)) frames = line.map(f => ({ t: f.t * 1000, v: f.v, w: f.w ?? 1 }));
+            else {
+                const text = String(line).toLowerCase();
+                const step = 1000 / charsPerSecond;
+                let t = 0;
+                for (let i = 0; i < text.length;) {
+                    const ch = text[i];
+                    if (/[.,!?;:]/.test(ch)) { frames.push({ t, v: 'sil', w: 1 }); t += step * 3; i++; continue; }
+                    if (!/[a-z]/.test(ch)) { if (ch === ' ') t += step * 0.4; i++; continue; }
+                    const hit = LETTER_VISEMES.find(([g]) => text.startsWith(g, i)) || [ch, 'kk'];
+                    const vowel = 'aeiouy'.includes(hit[0][0]);
+                    frames.push({ t, v: hit[1], w: 1 });
+                    t += step * (vowel ? 1.4 : 0.8) * Math.max(1, hit[0].length * 0.7);
+                    i += hit[0].length;
+                }
+                frames.push({ t, v: 'sil', w: 1 });
+            }
+            this._speech = { frames, start: performance.now(), hold: 0 };
+            return (frames.length ? frames[frames.length - 1].t : 0) / 1000;
+        }
+
+        /** This frame's mouth from the speech playing ({parameter id: value}), or null. */
+        _speakFrame() {
+            const sp = this._speech;
+            if (!sp || !sp.frames.length) return null;
+            const now = performance.now() - sp.start;
+            const frames = sp.frames;
+            const end = frames[frames.length - 1].t + (sp.hold || 120);
+            if (now > end) { this._speech = null; return null; }
+            // Ease from each shape into the next (a mouth doesn't jump).
+            let i = 0;
+            while (i + 1 < frames.length && frames[i + 1].t <= now) i++;
+            const a = frames[i], b = frames[i + 1] || a;
+            const span = Math.max(1, b.t - a.t);
+            const u = b === a ? 0 : smoothstep(0, 1, Math.min(1, (now - a.t) / Math.min(span, 90)));
+            const va = VISEMES[a.v] || VISEMES.sil, vb = VISEMES[b.v] || VISEMES.sil;
+            const mix = (k) => (va[k] * a.w) * (1 - u) + (vb[k] * b.w) * u;
+            return { ParamMouthOpenY: mix('open'), ParamMouthWide: mix('wide'), ParamTongueUp: mix('tongue'), ParamTeeth: mix('teeth') };
+        }
+
         // Expressions and motions (the Live2DModel calls the extension makes) ---------------
         async expression(id) {
             const list = this.internalModel.settings.expressions;
@@ -1240,13 +1350,20 @@ function definePuppetClass(PIXI) {
             addFocus(im.idParamEyeBallX, f.x);
             addFocus(im.idParamEyeBallY, f.y);
 
-            // Lip sync and other short offsets, then values set by hand.
+            // Lip sync and other short offsets, then values set by hand, then speech (visemes).
             const wall = performance.now();
             for (const [i, add] of core.adds) {
                 if (wall - add.time > 160) core.adds.delete(i);
                 else values[i] += add.value;
             }
             for (const [i, value] of core.overrides) values[i] = value;
+            const said = this._speakFrame();
+            if (said) {
+                for (const [id, value] of Object.entries(said)) {
+                    const i = core.getParameterIndex(id);
+                    if (i >= 0) values[i] = value;
+                }
+            }
             // The pose the user dragged the skeleton into, on top of whatever plays.
             for (const [id, offset] of this._pose) {
                 const i = core.getParameterIndex(id);
@@ -1369,6 +1486,15 @@ function definePuppetClass(PIXI) {
             const hasArt = (role) => this.layers.some(l => l.role === role);
             const angry = hasArt('brow_angry') ? smoothstep(0.1, 0.7, P('ParamBrowAngry')) : 0;
             const grin = hasArt('mouth_grin') ? smoothstep(0.1, 0.7, P('ParamMouthGrin')) : 0;
+            // The open mouth in pieces (lips, inside, teeth, tongue): lip sync opens, widens and rounds
+            // it and moves the tongue, in place of the one drawn open mouth.
+            const talk = this._mouthParts;
+            const talkShow = talk ? smoothstep(0.03, 0.14, mouthOpen) : 0;
+            const talkOpen = talk ? Math.max(0.06, Math.min(1, mouthOpen)) : 0;
+            const talkWide = P('ParamMouthWide');
+            const talkX = 1 + (talkWide >= 0 ? 0.22 : 0.4) * talkWide;
+            const talkUp = talk ? (talk.top - talk.cy) * (talkOpen - 1) : 0;
+            const talkDown = talk ? (talk.bottom - talk.cy) * (talkOpen - 1) : 0;
             const tears = smoothstep(0.05, 0.6, P('ParamTear'));
             const outer = this._hasBody ? P('ParamClothesOuter') : 1;
             const inner = P('ParamClothesInner');
@@ -1449,8 +1575,10 @@ function definePuppetClass(PIXI) {
                 if (role === 'eye_closed') alpha = 1 - smoothstep(0.2, 0.42, eyeOpen);
                 else if (role === 'eye_white' || role === 'iris') alpha = hasClosed ? smoothstep(0.22, 0.4, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen);
                 else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.2, 0.42, eyeOpen) : 1;
+                else if (role === 'mouth' && talk) alpha = (1 - talkShow) * (1 - grin);
                 else if (role === 'mouth') alpha = (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1) * (1 - grin);
-                else if (role === 'mouth_open') alpha = smoothstep(0.15, 0.55, mouthOpen);
+                else if (role === 'mouth_open') alpha = talk ? 0 : smoothstep(0.15, 0.55, mouthOpen);
+                else if (MOUTH_PART_ROLES.has(role)) alpha = talk ? talkShow * (1 - grin) : 0;
                 else if (role === 'mouth_grin') alpha = grin * (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1);
                 else if (role === 'brow') alpha = 1 - angry;
                 else if (role === 'brow_angry') alpha = angry;
@@ -1509,6 +1637,24 @@ function definePuppetClass(PIXI) {
                         y -= P(`ParamBrow${side}Y`) * (S.brow ?? 0.35) * eh;
                         y += P(`ParamBrow${side}Angle`) * 0.22 * eh * inner;
                         y -= P(`ParamBrow${side}Form`) * 0.15 * eh * (1 - n * n);
+                    } else if (talk && MOUTH_PART_ROLES.has(role)) {
+                        // The opening scales about its middle; the teeth ride its top and bottom edges
+                        // whole, the tongue the bottom (raised for t, d, l, th); the lips follow both.
+                        x = talk.cx + (x - talk.cx) * talkX;
+                        const h = talk.bottom - talk.top;
+                        // The teeth stay a little behind the lips as the mouth closes: a small opening
+                        // shows a sliver of them and the dark, not a row of white.
+                        // ParamTeeth brings them to the lips' edge (s, ee, f).
+                        const teeth = clamp(P('ParamTeeth'), 0, 1);
+                        if (role === 'teeth_upper') y += talkUp * (0.45 + 0.55 * teeth);
+                        else if (role === 'teeth_lower') y += talkDown * (0.3 + 0.7 * teeth);
+                        else if (role === 'tongue') y = talk.cy + (y - talk.cy) * talkOpen + (1 - talkOpen) * 0.3 * h - P('ParamTongueUp') * 0.4 * h;
+                        else y += talkUp + (talkDown - talkUp) * clamp((rest[k + 1] - talk.top) / Math.max(1, h), 0, 1);
+                        if (mouth) {
+                            const mw = Math.max(1, mouth.Box[2] - mouth.Box[0]);
+                            const n = clamp((x - talk.cx) / (mw / 2), -1.2, 1.2);
+                            y -= mouthForm * (S.mouth_form ?? 0.35) * mw * 0.3 * (n * n - 0.35);
+                        }
                     } else if ((role === 'mouth' || role === 'mouth_open') && mouth) {
                         const [ml, mt, mr, mb] = mouth.Box;
                         const mw = Math.max(1, mr - ml);
@@ -1518,7 +1664,7 @@ function definePuppetClass(PIXI) {
                         else y = mcy + (y - mcy) * (0.3 + 0.7 * mouthOpen);
                         y -= mouthForm * (S.mouth_form ?? 0.35) * mw * 0.3 * (n * n - 0.35);
                     }
-                    if ((role === 'mouth' || role === 'mouth_open') && mouth && mouth.Jaw) {
+                    if ((role === 'mouth' || role === 'mouth_open' || role === 'mouth_lips' || role === 'teeth_lower' || role === 'tongue') && mouth && mouth.Jaw) {
                         // Never past the jaw: an open or stretched mouth stays inside the face.
                         const jaw = jawAt(mouth.Jaw, x);
                         if (jaw !== null) y = Math.min(y, jaw - Math.max(3, (jaw - mouth.Center[1]) * 0.18));
@@ -1650,6 +1796,39 @@ function definePuppetClass(PIXI) {
                     out[k] = x;
                     out[k + 1] = y;
                 }
+            }
+            if (this._mouthClip) this._clipMouth();
+        }
+
+        /**
+         * Keep the teeth and tongue inside the mouth: each is masked by the opening, an oval through
+         * the inside layer's points as they are drawn this frame (so it follows the head too).
+         */
+        _clipMouth() {
+            const { inside, masks } = this._mouthClip;
+            const [cols, rows] = inside.entry.Grid || [2, 2];
+            const v = inside.out;
+            const at = (u, w) => {
+                const fx = u * (cols - 1), fy = w * (rows - 1);
+                const c0 = Math.min(cols - 2, Math.floor(fx)), r0 = Math.min(rows - 2, Math.floor(fy));
+                const tx = fx - c0, ty = fy - r0;
+                const p = (r, c) => (r * cols + c) * 2;
+                const a = p(r0, c0), b = p(r0, c0 + 1), c = p(r0 + 1, c0), d = p(r0 + 1, c0 + 1);
+                return [
+                    (v[a] * (1 - tx) + v[b] * tx) * (1 - ty) + (v[c] * (1 - tx) + v[d] * tx) * ty,
+                    (v[a + 1] * (1 - tx) + v[b + 1] * tx) * (1 - ty) + (v[c + 1] * (1 - tx) + v[d + 1] * tx) * ty,
+                ];
+            };
+            const points = [];
+            for (let i = 0; i < 32; i++) {
+                const t = (i / 32) * Math.PI * 2;
+                points.push(...at(0.5 + 0.5 * Math.cos(t), 0.5 + 0.5 * Math.sin(t)));
+            }
+            for (const g of masks) {
+                g.clear();
+                g.beginFill(0xffffff);
+                g.drawPolygon(points);
+                g.endFill();
             }
         }
 

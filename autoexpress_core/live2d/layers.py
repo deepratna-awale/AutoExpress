@@ -990,6 +990,70 @@ def eye_area(parts: list[Part], size, allowed: Image.Image | None) -> Image.Imag
     return ImageChops.subtract(allowed, brows)
 
 
+# The open mouth cut into the pieces a talking rig moves on their own (MOUTH_PARTS names them, top
+# first like a layer list): the lips around the opening, the upper and lower teeth, the tongue
+# behind them and the dark inside.
+MOUTH_PARTS = ("Mouth lips", "Teeth upper", "Teeth lower", "Tongue", "Mouth inside")
+
+
+def mouth_parts(open_mouth: Overlay, edited: Image.Image, masks: dict) -> list[Overlay]:
+    """
+    The open mouth as separate layers for lip sync (MOUTH_PARTS), from the segmentation model's masks
+    of the mouth-open edit: masks has "opening", "teeth upper", "teeth lower" and "tongue", each mode L
+    on edited's canvas. The inside is the whole opening in its dark colour (teeth and tongue go over it
+    and move on their own), the lips the open mouth layer without the opening. Empty when the opening
+    wasn't found or nothing in it was.
+    """
+    image = open_mouth.image
+    box = (open_mouth.left, open_mouth.top, open_mouth.left + image.width, open_mouth.top + image.height)
+    if masks.get("opening") is None:
+        return []
+    own = image.getchannel("A").point(lambda v: 255 if v > 32 else 0).filter(ImageFilter.MaxFilter(5))
+    opening = ImageChops.multiply(masks["opening"].crop(box).point(lambda v: 255 if v > 127 else 0), own)
+    area = image.width * image.height
+    if opening.getbbox() is None or ImageStat.Stat(opening).sum[0] / 255 < 0.05 * area:
+        return []
+    near = opening.filter(ImageFilter.MaxFilter(5))
+    art = edited.convert("RGB").crop(box)
+    pieces = {}
+    for name, key in (("Teeth upper", "teeth upper"), ("Teeth lower", "teeth lower"), ("Tongue", "tongue")):
+        mask = masks.get(key)
+        if mask is None:
+            continue
+        mask = ImageChops.multiply(mask.crop(box).point(lambda v: 255 if v > 127 else 0), near)
+        if mask.getbbox() is not None and ImageStat.Stat(mask).sum[0] / 255 >= 0.005 * area:
+            pieces[name] = mask
+    if not pieces:
+        return []
+    covered = Image.new("L", art.size, 0)
+    for mask in pieces.values():
+        covered = ImageChops.lighter(covered, mask)
+    # The inside's own colour where teeth or tongue hid it: the median of what shows.
+    dark = ImageChops.multiply(opening, ImageChops.invert(covered.filter(ImageFilter.MaxFilter(3))))
+    colour = tuple(int(v) for v in ImageStat.Stat(art, dark if dark.getbbox() else opening).median)
+    inside = art.copy()
+    inside.paste(colour, mask=covered.filter(ImageFilter.MaxFilter(3)))
+    layers_ = {"Mouth inside": (inside, opening)}
+    for name, mask in pieces.items():
+        layers_[name] = (art, mask)
+    # The lips overlap the opening a little, so no gap shows round the inside when they move.
+    lips = image.getchannel("A")
+    lips = ImageChops.multiply(lips, ImageChops.invert(opening.filter(ImageFilter.MinFilter(5))))
+    layers_["Mouth lips"] = (image.convert("RGB"), lips)
+    result = []
+    for name in MOUTH_PARTS:
+        if name not in layers_:
+            continue
+        rgb, alpha = layers_[name]
+        piece = rgb.convert("RGBA")
+        piece.putalpha(alpha.filter(ImageFilter.GaussianBlur(0.6)) if name != "Mouth lips" else alpha)
+        bbox = piece.getchannel("A").getbbox()
+        if bbox is None:
+            continue
+        result.append(Overlay("Mouth", name, piece.crop(bbox), box[0] + bbox[0], box[1] + bbox[1], "ParamMouthOpenY"))
+    return result
+
+
 def mouth_area(parts: list[Part], size, allowed: Image.Image | None) -> Image.Image | None:
     """Where an open mouth may go: inside the face, kept clear of its outline (which edits tend to redraw)."""
     if allowed is None:
