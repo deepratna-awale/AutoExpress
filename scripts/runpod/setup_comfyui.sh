@@ -21,7 +21,7 @@
 #   AUTOEXPRESS_REF  branch or tag of AutoExpress to use (default main)
 #   SKIP_QWEN=1      skip Qwen-Image-Edit (about 31 GB)
 #   SKIP_WAN=1       skip Wan 2.2 (about 38 GB)
-#   SKIP_SEETHROUGH=1  skip the See-through, DWPose and SAM 3.1 nodes and models (about 12 GB, Live2D model kits)
+#   SKIP_SEETHROUGH=1  skip the See-through, DWPose, SAM 3.1 and Qwen3-VL nodes and models (about 22 GB, Live2D model kits)
 #   CHECKPOINT_URL   a .safetensors checkpoint to put in models/checkpoints (for face inpainting)
 #   HF_TOKEN         Hugging Face token, only needed when downloads are rate limited
 #   COMFYUI_PORT     ComfyUI's port (default 8188)
@@ -58,6 +58,9 @@ if [ "${SKIP_SEETHROUGH:-0}" != "1" ]; then
   echo "== SAM 3.1 (finds the coat and each sleeve by name for the clothing layers)"
   [ -f "$COMFYUI_DIR/models/checkpoints/sam3.1_multiplex_fp16.safetensors" ] || \
     wget -q -O "$COMFYUI_DIR/models/checkpoints/sam3.1_multiplex_fp16.safetensors" https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors || true
+  echo "== Qwen3-VL 8B (names the clothes for SAM 3.1 when nothing else does)"
+  [ -f "$COMFYUI_DIR/models/text_encoders/qwen3vl_8b_fp8_scaled.safetensors" ] || \
+    wget -q -O "$COMFYUI_DIR/models/text_encoders/qwen3vl_8b_fp8_scaled.safetensors" https://huggingface.co/Comfy-Org/Qwen3-VL/resolve/main/text_encoders/qwen3vl_8b_fp8_scaled.safetensors || true
 fi
 
 echo "== AutoExpress ($AUTOEXPRESS_REF) in $AUTOEXPRESS_DIR"

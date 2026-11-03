@@ -33,6 +33,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import re
 import shutil
 import zipfile
 from typing import Callable
@@ -261,6 +262,12 @@ def read_clothing(image: Image.Image, settings: dict, log) -> dict:
     found: dict = {}
     if settings.get("use_prompt_data", True) is False:
         return found
+    from ..character_card import from_image
+
+    card = from_image(image)
+    if card is not None and card.description:
+        # A character card's description often says what the character wears.
+        settings["card_description"] = card.description[:2000]
     prompt = prompt_data.prompt_of(image)
     if not prompt:
         return found
@@ -458,8 +465,11 @@ OUTER_PROMPT = "jacket, coat, blazer, cardigan"
 OUTER_FILE = "outer_mask.png"
 
 
-def outer_mask(backend, picture: Image.Image) -> Image.Image | None:
-    """The coat in picture (RGBA) from the backend's segmentation model (SAM 3), mode L, or None."""
+def outer_mask(backend, picture: Image.Image, garment: str = "") -> Image.Image | None:
+    """
+    The coat in picture (RGBA) from the backend's segmentation model (SAM 3), mode L, or None:
+    garment by name when known ("dark green haori"), else any jacket, coat, blazer or cardigan.
+    """
     segment = getattr(backend, "segment", None)
     if segment is None:
         return None
@@ -467,14 +477,85 @@ def outer_mask(backend, picture: Image.Image) -> Image.Image | None:
     rgba = picture.convert("RGBA")
     on_white.paste(rgba, mask=rgba.getchannel("A"))
     b64 = pil_to_b64(on_white)
-    mask = next((m for m in (segment(b64, OUTER_PROMPT) for _ in range(SEGMENT_TRIES)) if m is not None), None)
+    mask = next((m for m in (segment(b64, garment or OUTER_PROMPT) for _ in range(SEGMENT_TRIES)) if m is not None), None)
     if mask is None or mask.getbbox() is None:
         return None
     return mask
 
 
-SLEEVE_PROMPTS = ("right sleeve of jacket", "left sleeve of jacket")
+SLEEVE_PROMPTS = ("right sleeve of jacket", "left sleeve of jacket")  # "jacket" becomes the garment's name when known
 SEGMENT_TRIES = 3
+
+
+NO_GARMENT = "none"
+# Garments worn open over the rest: what the coat layer is.
+OUTER_WORDS = (
+    "jacket", "coat", "blazer", "cardigan", "hoodie", "haori", "cloak", "cape", "capelet", "robe", "parka", "poncho",
+    "shawl", "overcoat", "trenchcoat", "windbreaker", "bolero", "shrug", "mantle", "duster", "kimono jacket", "labcoat",
+)
+_OUTER_RE = re.compile(r"((?:[a-z-]+ ){0,3}(?:" + "|".join(sorted(OUTER_WORDS, key=len, reverse=True)) + r")s?)(?![a-z])")
+VISION_PROMPT = (
+    'Look at the clothing of the character in this picture. Reply with JSON only: {"outer": the outermost garment '
+    "worn open over the other clothes on the upper body (a jacket, coat, haori, cardigan, cloak, hoodie...) as a short "
+    'noun phrase of at most four words, or "none" if there is none, "clothes": every garment and accessory the '
+    "character wears, outermost first, as short noun phrases}."
+)
+_STOP = {"a", "an", "the", "her", "his", "their", "wears", "wearing", "with", "and", "in", "of", "open", "over"}
+
+
+def _outer_in(text: str) -> str:
+    """The first outer garment text names ("long green haori"), or ""."""
+    for term in re.split(r"[,.;\n|]", (text or "").lower()):
+        if term.strip().startswith(("no ", "without ")):
+            continue
+        found = _OUTER_RE.search(" ".join(term.replace("_", " ").split()))
+        if found:
+            words = found.group(1).split()
+            while words and words[0] in _STOP:
+                words = words[1:]
+            return " ".join(words)
+    return ""
+
+
+def outer_garment(backend, picture: Image.Image, settings: dict, log) -> tuple[str, str]:
+    """
+    The name of the character's outermost garment, which segmentation and the coat edits look for:
+    (name, where it came from). What the user typed (settings outer_garment; "none" for none) wins,
+    then the character card or description, then the picture's prompt data, then a vision language
+    model looking at the picture (where the WebUI has one). ("", "") when unknown: any jacket, coat,
+    blazer or cardigan is looked for.
+    """
+    typed = " ".join(str(settings.get("outer_garment") or "").split())[:60]
+    if typed:
+        return (NO_GARMENT if typed.lower() in ("none", "no", "nothing", "-") else typed.lower()), "typed"
+    for key, source in (("character_description", "description"), ("card_description", "character card"), ("outfit_from_prompt", "prompt data")):
+        found = _outer_in(settings.get(key, ""))
+        if found:
+            return found, source
+    describe = getattr(backend, "describe", None)
+    if describe is None:
+        return "", ""
+    on_white = Image.new("RGB", picture.size, (255, 255, 255))
+    rgba = picture.convert("RGBA")
+    on_white.paste(rgba, mask=rgba.getchannel("A"))
+    b64 = pil_to_b64(on_white)
+    answer = next((a for a in (describe(b64, VISION_PROMPT) for _ in range(SEGMENT_TRIES)) if a), None)
+    if not answer:
+        return "", ""
+    try:
+        data = json.loads(answer[answer.index("{") : answer.rindex("}") + 1])
+    except ValueError:
+        data = {"outer": _outer_in(answer) or ""}
+    if not isinstance(data, dict):
+        return "", ""
+    outer = " ".join(str(data.get("outer") or "").lower().split())[:60]
+    clothes = data.get("clothes")
+    if isinstance(clothes, list):
+        settings["clothes_seen"] = ", ".join(" ".join(str(c).split()) for c in clothes)[:300]
+        log(f"The vision model sees: {settings['clothes_seen']}.")
+    if outer in ("", "none", "no", "n/a", "null"):
+        return NO_GARMENT, "vision model"
+    return outer, "vision model"
 
 
 def has_segmentation(backend) -> bool:
@@ -483,7 +564,7 @@ def has_segmentation(backend) -> bool:
     return bool(find and find())
 
 
-def sam_sleeve_map(backend, picture: Image.Image, outer: Image.Image) -> Image.Image | None:
+def sam_sleeve_map(backend, picture: Image.Image, outer: Image.Image, garment: str = "") -> Image.Image | None:
     """
     The sleeve map (see skeleton.sleeve_map_masks) from the segmentation model: each sleeve of the
     coat found by name (SAM 3 cuts a whole sleeve from "right sleeve of jacket"; a point on the arm
@@ -498,6 +579,8 @@ def sam_sleeve_map(backend, picture: Image.Image, outer: Image.Image) -> Image.I
     b64 = pil_to_b64(on_white)
     sleeves = np.zeros((picture.height, picture.width), bool)
     for prompt in SLEEVE_PROMPTS:
+        if garment:
+            prompt = prompt.replace("jacket", garment)
         # A remote ComfyUI drops the odd request; a map with one sleeve missing tears that arm.
         mask = next((m for m in (backend.segment(b64, prompt) for _ in range(SEGMENT_TRIES)) if m is not None), None)
         if mask is None:
@@ -570,9 +653,13 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
         edits[key] = result
         return result
 
-    mid = run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
+    garment = settings.get("outer_garment_found", "")
+    mid = None
+    if garment != NO_GARMENT or settings.get("outer_garment_source") != "typed":
+        garment = "" if garment == NO_GARMENT else garment
+        mid = run(outfits.MID, picture, outfits.mid_instruction(description, garment), f"the outfit without the {garment or 'outer layer'}", 0.36)
     if mid is not None:
-        run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description), "the outer layer half off", 0.37)
+        run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description, garment), f"the {garment or 'outer layer'} half off", 0.37)
         if not has_segmentation(backend):
             # Without a segmentation model Qwen paints the sleeves for the map.
             run(SLEEVE_MAP, picture, SLEEVE_MAP_INSTRUCTION, "the sleeve map", 0.375)
@@ -786,9 +873,21 @@ def build_kit(
     else:
         notes.append("No eyes-closed or mouth-open art was made (turned off, or the WebUI can't edit pictures).")
 
+    # The outermost garment's name, for the coat edits and segmentation.
+    if settings.get("clothing_slots", True) is not False and INSTRUCT in getattr(backend, "edit_methods", ()):
+        check_cancel()
+        progress("naming the clothes", 0.34)
+        garment, source = outer_garment(backend, picture, settings, log)
+        settings["outer_garment_found"], settings["outer_garment_source"] = garment, source
+        if source:
+            log(f"Outer garment ({source}): {garment}.")
     # Swappable clothing: the body under the clothes and in inner wear.
     outfit_edits: dict[str, Image.Image] = {}
     outfit_state = {"requested": bool(settings.get("outfit_layers")), "made": []}
+    if settings.get("outer_garment_source"):
+        outfit_state["outer_garment"] = {"name": settings["outer_garment_found"], "source": settings["outer_garment_source"]}
+        if settings.get("clothes_seen"):
+            outfit_state["outer_garment"]["clothes"] = settings["clothes_seen"]
     if settings.get("outfit_layers"):
         allowed, reason = outfits.check(settings, picture, name)
         if allowed:
@@ -808,11 +907,12 @@ def build_kit(
     if outfits.MID in outfit_edits:
         check_cancel()
         progress("finding the coat", 0.395)
-        outer = outer_mask(backend, picture)
+        garment = settings.get("outer_garment_found", "")
+        outer = outer_mask(backend, picture, garment) if garment != NO_GARMENT else None
         if outer is not None:
             outer.save(folder / OUTER_FILE)
             progress("finding the sleeves", 0.397)
-            sam_map = sam_sleeve_map(backend, picture, outer)
+            sam_map = sam_sleeve_map(backend, picture, outer, garment)
             if sam_map is not None:
                 sam_map.save(folder / f"{SLEEVE_MAP}.png")
                 outfit_edits[SLEEVE_MAP] = sam_map

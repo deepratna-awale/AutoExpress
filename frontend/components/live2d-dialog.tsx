@@ -60,6 +60,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const [description, setDescription] = useState("");
   const [innerWear, setInnerWear] = useState("");
   const [outfitPrompt, setOutfitPrompt] = useState("");
+  const [outerGarment, setOuterGarment] = useState("");
   const [usePromptData, setUsePromptData] = useState(true);
   const [clothingSlots, setClothingSlots] = useState(true);
   const [expressionArt, setExpressionArt] = useState(true);
@@ -152,6 +153,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           ...(outfitLayers && description.trim() ? { character_description: description.trim() } : {}),
           ...(outfitLayers && innerWear.trim() ? { inner_wear: innerWear.trim() } : {}),
           ...(outfitPrompt.trim() ? { outfit_prompt: outfitPrompt.trim() } : {}),
+          ...(clothingSlots && outerGarment.trim() ? { outer_garment: outerGarment.trim() } : {}),
           use_prompt_data: usePromptData,
           clothing_slots: clothingSlots,
           expression_art: expressionArt,
@@ -380,8 +382,21 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 />
                 <label className="flex items-start gap-2 text-sm">
                   <input type="checkbox" className="mt-1" checked={clothingSlots} onChange={(e) => setClothingSlots(e.target.checked)} />
-                  <span>Coat on its own layer (one more edit); half-off states fade each piece to show what&apos;s under it</span>
+                  <span>Coat on its own layer, with a drawn half-off state (two more edits)</span>
                 </label>
+                {clothingSlots && (
+                  <div className="space-y-1">
+                    <Label htmlFor="live2d-outer">Outer garment (optional)</Label>
+                    <input
+                      id="live2d-outer"
+                      value={outerGarment}
+                      onChange={(e) => setOuterGarment(e.target.value)}
+                      maxLength={60}
+                      placeholder="e.g. dark green haori, or none. Empty: from the card, prompt or a vision model"
+                      className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    />
+                  </div>
+                )}
                 <label className="flex items-start gap-2 text-sm">
                   <input type="checkbox" className="mt-1" checked={usePromptData} onChange={(e) => setUsePromptData(e.target.checked)} />
                   <span>Read the clothing from the picture&apos;s prompt data when a field is empty</span>

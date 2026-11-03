@@ -325,6 +325,7 @@ export interface Live2DRequest {
     character_description?: string;
     inner_wear?: string;
     outfit_prompt?: string;
+    outer_garment?: string;
     use_prompt_data?: boolean;
     clothing_slots?: boolean;
     expression_art?: boolean;

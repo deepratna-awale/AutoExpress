@@ -760,6 +760,42 @@ def test_build_kit_finds_the_coat_and_sleeves_with_a_segmentation_model(tmp_path
     assert (result.folder / kit.OUTER_FILE).exists() and (result.folder / f"{kit.SLEEVE_MAP}.png").exists()
 
 
+class SeeingBackend(SegmentingBackend):
+    def describe(self, image, prompt):
+        self.calls.append(("describe", prompt))
+        return '{"outer": "Dark Green Haori", "clothes": ["dark green haori", "white top", "black obi"]}'
+
+
+def test_build_kit_names_the_outer_garment_with_a_vision_model(tmp_path):
+    backend = SeeingBackend()
+    result = kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024}, log=lambda _: None)
+    assert [c[1] for c in backend.calls if c[0] == "segment"] == ["dark green haori", "right sleeve of dark green haori", "left sleeve of dark green haori"]
+    edits = [c[1] for c in backend.calls if c[0] == "edit"]
+    assert any("her dark green haori" in e for e in edits)
+    seen = result.manifest["outfits"]["outer_garment"]
+    assert seen["name"] == "dark green haori" and seen["source"] == "vision model" and "black obi" in seen["clothes"]
+
+
+def test_outer_garment_prefers_what_the_user_typed_then_the_description_then_prompt_data():
+    backend = SeeingBackend()
+    picture = Image.new("RGBA", (64, 64), (200, 180, 150, 255))
+    log = lambda _: None
+    assert kit.outer_garment(backend, picture, {"outer_garment": "  Fur-lined Cloak "}, log) == ("fur-lined cloak", "typed")
+    assert kit.outer_garment(backend, picture, {"outer_garment": "none"}, log) == (kit.NO_GARMENT, "typed")
+    assert kit.outer_garment(backend, picture, {"character_description": "An adult knight. She wears a long red cape over silver armour."}, log) == ("long red cape", "description")
+    assert kit.outer_garment(backend, picture, {"outfit_from_prompt": "white shirt, no jacket, black leather jacket, skirt"}, log) == ("black leather jacket", "prompt data")
+    assert not any(c[0] == "describe" for c in backend.calls)  # no need to look
+    assert kit.outer_garment(backend, picture, {}, log) == ("dark green haori", "vision model")
+    assert kit.outer_garment(FakeBackend(), picture, {}, log) == ("", "")  # no vision model: any jacket or coat
+
+
+def test_build_kit_skips_the_coat_edits_when_the_user_says_there_is_no_outer_garment(tmp_path):
+    backend = SeeingBackend()
+    kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024, "outer_garment": "none"}, log=lambda _: None)
+    assert not any(c[0] in ("segment", "describe") for c in backend.calls)
+    assert not any("outermost" in c[1] for c in backend.calls if c[0] == "edit")
+
+
 def test_build_kit_reads_clothing_from_prompt_data_and_changes_the_outfit(tmp_path):
     backend = OutfitBackend()
     picture = character()

@@ -230,7 +230,13 @@ the kit has a sleeve map (`sleeves.png`), exactly where the map paints them. Wit
 (`sam3.1_multiplex_fp16.safetensors` from [Comfy-Org/sam3.1](https://huggingface.co/Comfy-Org/sam3.1) in
 `models/checkpoints`, installed by the RunPod setup script; ComfyUI's own SAM3_Detect node) the kit
 finds the coat (`outer_mask.png`) and each sleeve by name ("right sleeve of jacket") and paints the map
-from them; the coat layer then takes the coat's exact outline, and its shadow on the skirt comes off with
+from them. The name is the garment's own when the kit knows it: what you type in **Outer garment**
+(`outer_garment`, `--outer-garment`; `none` skips the coat edits), else an outer garment the character
+description, the character card or the picture's prompt data names, else what a vision language model on
+ComfyUI sees in the picture (Qwen3-VL through ComfyUI's TextGenerate node; `qwen3vl_8b_fp8_scaled.safetensors`
+from [Comfy-Org/Qwen3-VL](https://huggingface.co/Comfy-Org/Qwen3-VL) in `models/text_encoders`, installed by
+the RunPod setup script). So a haori, a cloak or a cape is cut as well as a blazer, and the coat edits ask
+for it by name. The kit's manifest says which garment it used and where the name came from; the coat layer then takes the coat's exact outline, and its shadow on the skirt comes off with
 it. Without SAM one more Qwen-Image-Edit run paints the sleeves flat magenta instead; a skirt stays whole while the legs move under
 it, the body behind a hand is painted in, a top's sides run on behind the arms, and touching legs
 are split along the line drawn between them. Each vertex follows its nearest bones, and the
