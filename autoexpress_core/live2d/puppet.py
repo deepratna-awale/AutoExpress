@@ -795,9 +795,10 @@ def _into_shoes(folder: pathlib.Path, entries: list[dict]) -> None:
             end, start = lowest[column], shoe_top[column]
             if end < 0 or start - end > reach:
                 continue  # the leg doesn't end at the shoe here
-            # Over the gap and on down behind the shoe.
+            # Over the gap and on down behind the shoe, never into the background a heel's arch shows.
             below = np.nonzero(shoe_a[:, column])[0]
-            add[end + 1 : below.max() + 1, column] = True
+            add[end + 1 : start, column] = True
+            add[start : below.max() + 1, column] = shoe_a[start : below.max() + 1, column]
         add &= ~a
         # Only behind the shoe or in the gap just above it, never out past it.
         grown = np.asarray(shoe.filter(ImageFilter.MaxFilter(2 * reach + 1))) > 0
@@ -979,10 +980,25 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
             # The legs take all of their side below the crotch, the strip between them too: a
             # sliver of torso left there would stay behind when a leg moves. A limb takes only
             # what its piece holds (on a skirt, just the bit on the hand).
-            region = (grown if group.startswith("leg") else cores)[group].crop(box)
+            if group.startswith("leg"):
+                region = grown[group].crop(box)
+            else:
+                # The overlap is kept only along the seam with the rest of the layer: along the
+                # limb's own outline the torso would keep a sliver of it (specks of the sleeve's
+                # outline hanging in the air once the arm moves).
+                limb = masks[group].crop(box).point(lambda v: 255 if v > 0 else 0)
+                rest = ImageChops.multiply(alpha.point(lambda v: 255 if v > 128 else 0), ImageChops.invert(limb))
+                region = ImageChops.subtract(limb, rest.filter(ImageFilter.MaxFilter(2 * overlap + 1)))
             held = piece.point(lambda v: 255 if v > 0 else 0)
             taken = ImageChops.lighter(taken, ImageChops.multiply(region, held))
         torso_alpha = ImageChops.multiply(alpha, ImageChops.invert(taken))
+        if any(group.startswith("arm") for group, _ in limbs):
+            # Slivers of an arm's outline the arm's mask fell just short of, cut off from the rest:
+            # left on the torso they'd hang in the air once the arm moves.
+            from .outfits import _drop_small
+
+            kept = _drop_small(torso_alpha.point(lambda v: 255 if v > 128 else 0), 0.012)
+            torso_alpha = ImageChops.multiply(torso_alpha, kept.filter(ImageFilter.MaxFilter(3)))
         # The tops' sides run on behind the arms (the body and what's under stays as drawn: it's
         # covered, and drawn wider it would show past the clothes).
         sides = entry.get("Garment") in ("topwear", "outerwear")

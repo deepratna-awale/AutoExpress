@@ -42,7 +42,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from .. import instruction_edit
 from ..images import pil_to_b64
 from ..payload import build_expression_payload
-from . import DECOMPOSE, guidance, layers, model_files, outfits, prompt_data, psd, puppet
+from . import DECOMPOSE, guidance, layers, model_files, outfits, prompt_data, psd, puppet, skeleton
 
 MAX_SIDE = 2048
 EYES_CLOSED = "eyes_closed"
@@ -323,7 +323,17 @@ FEET_APART = (
 )
 # The narrowest gap between the feet (share of the figure's height) that reads as standing apart.
 FEET_GAP = 0.04
+ARMS_OUT = (
+    " Her arms are angled out from her sides at about thirty degrees, like a mannequin's A-pose, with a wide gap of white "
+    "background between each arm (sleeve included) and her body and clothes all the way from the armpit to the hand; "
+    "the sleeves do not touch the jacket, the waist or the hips."
+)
 NEUTRAL_TRIES = 3
+POSE_GUIDE = (
+    "Picture 2 is an OpenPose stick-figure skeleton. Make the character from picture 1 stand in exactly that skeleton's "
+    "pose, limb for limb: the same angle of each arm out from the body, the same straight legs and the same distance "
+    "between the feet; draw no skeleton, lines or dots. "
+)
 
 
 def feet_gap(picture: Image.Image) -> float:
@@ -347,6 +357,38 @@ def feet_gap(picture: Image.Image) -> float:
     return min(gaps)
 
 
+# The share of the rows from the armpits to the waist that must show background between each arm
+# and the body: a sleeve that touches the body there can't be told from the coat it lies against.
+ARMS_APART = 0.6
+
+
+def arms_apart(picture: Image.Image) -> float:
+    """
+    How clearly the arms hang apart from the body in a full-body picture on white: the share of the
+    rows from the armpits to the waist (0.24 to 0.42 of the figure's height) with background between
+    the body and the arm on both sides. Near 0 when the arms lie against the body.
+    """
+    import numpy as np
+
+    rgb = np.asarray(picture.convert("RGB")).astype(np.int16)
+    figure = rgb.min(axis=2) < 230
+    rows = np.nonzero(figure.any(axis=1))[0]
+    if len(rows) < 20:
+        return 0.0
+    top, height = rows[0], rows[-1] - rows[0]
+    least = max(2, round(0.004 * height))
+    band = range(int(top + 0.24 * height), int(top + 0.42 * height))
+    apart = 0
+    for y in band:
+        xs = np.nonzero(figure[y])[0]
+        if len(xs) < 2:
+            continue
+        steps = np.diff(xs)
+        gaps = steps[steps > least]
+        apart += len(gaps) >= 2
+    return apart / max(1, len(band))
+
+
 def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Image.Image | None, str]:
     """
     The character redrawn in the neutral A-pose, full body on white (Qwen-Image-Edit), so every limb
@@ -363,22 +405,35 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
     description = settings.get("character_description", "")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
     log("Redrawing the character in a neutral A-pose, full body (Qwen-Image-Edit).")
-    best, best_gap = None, -1.0
-    for attempt in range(NEUTRAL_TRIES):
-        # The legs are straightened first, so the 2.5D rig only turns them a little from there.
-        instruction = NEUTRAL_POSE + (FEET_APART if attempt else "")
-        posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(instruction, description) + outfits._describe(description), edit)
+    best, best_score = None, (-1, -1.0)
+    feet_together = arms_close = False
+    guide = pil_to_b64(skeleton.pose_picture(skeleton.a_pose_points(canvas.size), canvas.size)) if getattr(backend, "takes_reference", False) else None
+    for _ in range(NEUTRAL_TRIES):
+        # The legs are straightened first, so the 2.5D rig only turns them a little from there; the
+        # arms hang clear of the body, so each sleeve is cut whole from the coat it hangs beside.
+        instruction = NEUTRAL_POSE + (FEET_APART if feet_together else "") + (ARMS_OUT if arms_close else "")
+        if guide is not None:
+            # A stick figure in the A-pose to follow (Qwen-Image-Edit takes it as picture 2): words
+            # alone leave a blazer's sleeves lying against its sides.
+            instruction = POSE_GUIDE + instruction
+            posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(instruction, description) + outfits._describe(description), edit, reference=guide)
+        else:
+            posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(instruction, description) + outfits._describe(description), edit)
         if posed is None:
             break
         posed = posed.convert("RGB")
         if posed.size != canvas.size:
             posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
-        gap = feet_gap(posed)
-        if gap > best_gap:
-            best, best_gap = posed, gap
-        if gap >= FEET_GAP:
+        gap, apart = feet_gap(posed), arms_apart(posed)
+        feet_ok, arms_ok = gap >= FEET_GAP, apart >= ARMS_APART
+        score = (feet_ok + arms_ok, min(gap / FEET_GAP, 1.0) + min(apart / ARMS_APART, 1.0))
+        if score > best_score:
+            best, best_score = posed, score
+        if feet_ok and arms_ok:
             break
-        log("The redraw kept the feet together; asking again with the legs apart.")
+        feet_together |= not feet_ok
+        arms_close |= not arms_ok
+        log(f"The redraw kept the {'feet together' if not feet_ok else 'arms against the body'}{' and the arms against the body' if not (feet_ok or arms_ok) else ''}; asking again.")
     if best is None:
         return None, f"Couldn't redraw the neutral pose: {getattr(backend, 'last_error', None) or 'the WebUI failed'}. The puppet keeps the picture's pose."
     return best, ""

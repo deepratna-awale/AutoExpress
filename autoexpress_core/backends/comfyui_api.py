@@ -942,8 +942,11 @@ class ComfyUIClient(RemoteBackend):
         workflow["output"] = {"class_type": "PreviewImage", "inputs": {"images": ["face_detailer", 0]}}
         return workflow
 
-    def build_edit_workflow(self, instruction: str, image_name: str, settings: instruction_edit.EditSettings) -> dict:
-        """A Qwen-Image-Edit workflow that applies one edit instruction to the uploaded image, plus a face mask output for paste-back."""
+    def build_edit_workflow(self, instruction: str, image_name: str, settings: instruction_edit.EditSettings, reference_name: str | None = None) -> dict:
+        """
+        A Qwen-Image-Edit workflow that applies one edit instruction to the uploaded image, plus a face mask output for paste-back.
+        reference_name is a second uploaded image the instruction can refer to as picture 2 (a pose skeleton to follow).
+        """
         unet = instruction_edit.find_model("diffusion_model", self.options("UNETLoader", "unet_name"), settings.model)
         text_encoder = instruction_edit.find_model("text_encoder", self.options("CLIPLoader", "clip_name"))
         vae_name = instruction_edit.find_model("vae", self.options("VAELoader", "vae_name"))
@@ -978,9 +981,16 @@ class ComfyUIClient(RemoteBackend):
             encoder, image_input = "TextEncodeQwenImageEditPlus", "image1"
         else:
             encoder, image_input = "TextEncodeQwenImageEdit", "image"
+        references = {}
+        if reference_name and encoder == "TextEncodeQwenImageEditPlus":
+            workflow["reference"] = self._node("LoadImage", {"image": reference_name})
+            workflow["reference_scaled"] = self._node(
+                "ImageScaleToTotalPixels", {"image": ["reference", 0], "upscale_method": "lanczos", "megapixels": settings.megapixels}
+            )
+            references = {"image2": ["reference_scaled", 0]}
         conditioning = {}
         for node_id, text in (("positive", instruction), ("negative", "")):
-            workflow[node_id] = self._node(encoder, {"clip": ["clip", 0], "prompt": text, "vae": ["vae", 0], image_input: ["scaled", 0]})
+            workflow[node_id] = self._node(encoder, {"clip": ["clip", 0], "prompt": text, "vae": ["vae", 0], image_input: ["scaled", 0], **references})
             conditioning[node_id] = [node_id, 0]
         # 2511 was trained with its reference image at timestep zero; ComfyUI's own 2511 template sets this method.
         if "2511" in unet and "index_timestep_zero" in self.options(REFERENCE_METHOD_NODE, "reference_latents_method"):
@@ -1246,9 +1256,13 @@ class ComfyUIClient(RemoteBackend):
             self._prompt_id = None
             self._progress = None
 
-    def instruction_edit(self, image: str, instruction: str, settings: instruction_edit.EditSettings) -> Image.Image | None:
+    # A second picture (a pose skeleton) can go with an edit, with TextEncodeQwenImageEditPlus.
+    takes_reference = True
+
+    def instruction_edit(self, image: str, instruction: str, settings: instruction_edit.EditSettings, reference: str | None = None) -> Image.Image | None:
         """
-        Apply one edit instruction to a base64 image with Qwen-Image-Edit.
+        Apply one edit instruction to a base64 image with Qwen-Image-Edit; reference is an optional
+        second base64 image the instruction calls picture 2.
 
         Returns the edited image at the input's size, or None on failure (the reason is in last_error).
         """
@@ -1259,7 +1273,7 @@ class ComfyUIClient(RemoteBackend):
         try:
             if settings.seed < 0:
                 settings = dataclasses.replace(settings, seed=random.randint(0, 2**32 - 1))
-            workflow = self.build_edit_workflow(instruction, self.upload_image(image), settings)
+            workflow = self.build_edit_workflow(instruction, self.upload_image(image), settings, self.upload_image(reference) if reference else None)
             stop_listening = self._listen_for_progress()
             self._prompt_id = self.queue_prompt(workflow)
             entry = self.wait_for(self._prompt_id)

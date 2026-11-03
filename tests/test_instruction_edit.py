@@ -176,6 +176,17 @@ def test_comfyui_builds_qwen_edit_workflow(face_image):
     assert "Seed: 5" in result.info["parameters"]
 
 
+def test_comfyui_qwen_edit_takes_a_second_picture_to_follow(face_image):
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = ComfySession(edit_routes())
+    pose = Image.new("RGB", face_image.size, (0, 0, 0))
+    backend.instruction_edit(pil_to_b64(face_image), "follow picture 2", instruction_edit.EditSettings(seed=1), reference=pil_to_b64(pose))
+    workflow = next(kw["json"]["prompt"] for m, p, kw in backend.session.calls if p == "/prompt")
+    assert workflow["reference_scaled"]["inputs"]["image"] == ["reference", 0]
+    assert workflow["positive"]["inputs"]["image2"] == ["reference_scaled", 0]
+    assert workflow["negative"]["inputs"]["image2"] == ["reference_scaled", 0]
+
+
 def test_comfyui_qwen_edit_without_lightning_uses_more_steps(face_image):
     routes = edit_routes()
     routes["GET /object_info/LoraLoaderModelOnly"]["LoraLoaderModelOnly"]["input"]["required"]["lora_name"] = [["other.safetensors"]]
