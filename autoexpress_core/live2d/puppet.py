@@ -175,6 +175,8 @@ _BODY_ROLES = {
 }
 # The pose detector's keypoints in a kit (OpenPose JSON, the kit's pixels).
 POSE_FILE = "pose.json"
+# The sleeve map in a kit (the kit's pixels): the outer garment's sleeves magenta, its body cyan.
+SLEEVE_FILE = "sleeves.png"
 # How much of the head layers' depth spread around the face is kept (add_depth).
 HEAD_DEPTH_SPREAD = 0.25
 HEAD_ROLES = ("face", "brow", "brow_angry", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "mouth", "mouth_open", "mouth_grin", "ear", "front_hair", "hair_under", "headwear", "back_hair")
@@ -239,6 +241,7 @@ def build_puppet(
     people: list | None = None,
     neutral_pose: bool = False,
     depth_maps: dict | None = None,
+    sleeve_map=None,
 ) -> dict:
     """
     Write a puppet for the kit's layer tree (top to bottom, as build_tree returns it) into folder.
@@ -253,7 +256,9 @@ def build_puppet(
     pixels) when joints aren't given; neutral_pose says the character stands in the neutral A-pose, so
     without joints the skeleton comes from anime proportions. depth_maps ({See-through tag: mode L
     canvas}, "" for the nearest surface; see layers.depth_canvases) give every mesh point a depth
-    ("Z"), so turning the head or the body shows real parallax. Returns the puppet document.
+    ("Z"), so turning the head or the body shows real parallax. sleeve_map (RGB, canvas size; see
+    skeleton.sleeve_map_masks) marks the outer garment's sleeves, so each comes off whole with its
+    arm. Returns the puppet document.
     """
     folder = pathlib.Path(folder)
     if folder.exists():
@@ -364,7 +369,8 @@ def build_puppet(
         rig.pop("Arms", None)
         parameters += skeleton.parameters(bones)
         picture = body_picture(folder, entries, size)
-        masks = skeleton.split_legs(skeleton.split_arms(skeleton.limb_masks(bones, size, arms=arm_alpha), bones, picture, arm_alpha), bones, picture)
+        sleeves = skeleton.sleeve_map_masks(sleeve_map, size) if sleeve_map is not None else None
+        masks = skeleton.split_legs(skeleton.split_arms(skeleton.limb_masks(bones, size, arms=arm_alpha), bones, picture, arm_alpha, sleeves), bones, picture)
         entries = split_limbs(folder, entries, masks, rig, hands=arm_alpha)
         for entry in entries:
             if entry["Role"] not in HEAD_ROLES:
@@ -1443,6 +1449,10 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
     output = pathlib.Path(output) if output else kit_folder / "puppet" / name
     pose = kit_folder / POSE_FILE
     people = json.loads(pose.read_text(encoding="utf-8")).get("people") if pose.exists() else None
+    sleeve_map = None
+    if (kit_folder / SLEEVE_FILE).exists():
+        with Image.open(kit_folder / SLEEVE_FILE) as image:
+            sleeve_map = image.convert("RGB")
     build_puppet(
         tree,
         {**manifest, "groups": groups},
@@ -1452,5 +1462,6 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
         neutral_pose=bool(manifest.get("neutral_pose")),
         depth_maps=load_depth(kit_folder / "depth") or None,
         people=people,
+        sleeve_map=sleeve_map,
     )
     return output

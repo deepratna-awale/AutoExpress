@@ -507,14 +507,16 @@ def split_legs(masks: dict, skeleton_doc: dict, picture) -> dict:
     return {**masks, "leg_L": Image.fromarray((new_l * 255).astype(np.uint8)), "leg_R": Image.fromarray((new_r * 255).astype(np.uint8))}
 
 
-def split_arms(masks: dict, skeleton_doc: dict, picture, hands: dict | None = None) -> dict:
+def split_arms(masks: dict, skeleton_doc: dict, picture, hands: dict | None = None, sleeves: dict | None = None) -> dict:
     """
     masks with each hanging arm's inner side cut along the line the drawing has there: the outline
     between the sleeve and the body, or the gap under the arm. A sleeve is often wider than the arm's
     measured thickness, so the nearest bone alone gives the arm a strip of the jacket's front, which
     then comes off the chest when the arm moves. Arms raised away from the body (more across than
     down) keep the plain split. picture is the body as drawn (RGBA, canvas size); hands ({"L"/"R":
-    mask}) stay with their arms whatever side of the line they're on.
+    mask}) stay with their arms whatever side of the line they're on. sleeves (see sleeve_map_masks)
+    is where the outer garment's sleeves and body were painted on a map of the picture: each sleeve
+    then goes with its arm whole, and none of the garment's body does, wherever the line fell.
     """
     import numpy as np
     from PIL import Image
@@ -597,6 +599,40 @@ def split_arms(masks: dict, skeleton_doc: dict, picture, hands: dict | None = No
         if hand is not None:
             arm |= np.asarray(hand.convert("L")) > 128
         result[group] = Image.fromarray((arm * 255).astype(np.uint8))
+    if sleeves:
+        result = _sleeves_from_map(result, masks, by_name, middle, sleeves, hands)
+    return result
+
+
+def _sleeves_from_map(result: dict, masks: dict, by_name: dict, middle: float, sleeves: dict, hands: dict | None) -> dict:
+    """result's arm masks with each sleeve the map shows added whole and the garment's body taken off."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    sleeve = np.asarray(sleeves["sleeves"].convert("L")) > 127
+    jacket = np.asarray(sleeves["body"].convert("L")) > 127
+    height, width = sleeve.shape
+    columns = np.arange(width)[None, :]
+    for side in "LR":
+        group = f"arm_{side}"
+        upper = by_name.get(f"UpperArm{side}")
+        if group not in masks or group not in result or upper is None:
+            continue
+        # The sleeve beside this arm: on its side of the body and within a radius or so of the
+        # arm's own mask (a magenta speck elsewhere, a red skirt's highlight, is left alone).
+        on_side = (columns < middle) if upper["Head"][0] < middle else (columns > middle)
+        scale = 4
+        small = masks[group].convert("L").resize((max(1, width // scale), max(1, height // scale)), Image.Resampling.NEAREST)
+        grow = max(3, int(upper["Radius"] * 1.2 / scale) * 2 + 1)
+        near = np.asarray(small.filter(ImageFilter.MaxFilter(min(grow, 31))).resize((width, height), Image.Resampling.NEAREST)) > 0
+        own = sleeve & on_side & near
+        if own.sum() < 0.0005 * width * height:
+            continue
+        arm = ((np.asarray(result[group]) > 0) & ~jacket) | own
+        hand = (hands or {}).get(side)
+        if hand is not None:
+            arm |= np.asarray(hand.convert("L")) > 128
+        result[group] = Image.fromarray((arm * 255).astype(np.uint8))
     return result
 
 
@@ -606,6 +642,11 @@ _OPENPOSE_COLOURS = (
     (255, 0, 0), (255, 85, 0), (255, 170, 0), (255, 255, 0), (170, 255, 0), (85, 255, 0), (0, 255, 0), (0, 255, 85), (0, 255, 170),
     (0, 255, 255), (0, 170, 255), (0, 85, 255), (0, 0, 255), (85, 0, 255), (170, 0, 255), (255, 0, 255), (255, 0, 170), (255, 0, 85),
 )
+
+
+# Half the shoulder width, in head heights: anime figures are drawn narrow-shouldered, and a
+# skeleton any wider gives the character a linebacker's frame.
+SHOULDER_HALF = 0.66
 
 
 def a_pose_points(size: tuple[int, int], arm_angle: float = 22.0, heads: float = 7.5) -> list[tuple[float, float]]:
@@ -625,7 +666,7 @@ def a_pose_points(size: tuple[int, int], arm_angle: float = 22.0, heads: float =
 
     points = [at(0, 0.62), at(0, 1.2)]
     for sign in (-1, 1):  # right (viewer's left), then left
-        shoulder = (0.85 * sign, 1.45)
+        shoulder = (SHOULDER_HALF * sign, 1.45)
         elbow = (shoulder[0] + sign * 1.45 * math.sin(out), shoulder[1] + 1.45 * math.cos(out))
         wrist = (elbow[0] + sign * 1.25 * math.sin(out + 0.03), elbow[1] + 1.25 * math.cos(out + 0.03))
         points += [at(*shoulder), at(*elbow), at(*wrist)]
@@ -636,15 +677,75 @@ def a_pose_points(size: tuple[int, int], arm_angle: float = 22.0, heads: float =
 
 
 def pose_picture(points: list[tuple[float, float]], size: tuple[int, int]):
-    """OpenPose's stick figure for 18 points on a black canvas (RGB), the picture pose models follow."""
+    """
+    OpenPose's stick figure for 18 points on a black canvas (RGB), the picture pose models follow. A
+    point may be None (not found): its limbs are left out.
+    """
     from PIL import Image, ImageDraw
 
     image = Image.new("RGB", size, (0, 0, 0))
     draw = ImageDraw.Draw(image)
     stick = max(4, round(size[1] / 220))
     for index, (a, b) in enumerate(_OPENPOSE_LIMBS):
+        if points[a] is None or points[b] is None:
+            continue
         colour = tuple(int(c * 0.6) for c in _OPENPOSE_COLOURS[index])
         draw.line([points[a], points[b]], fill=colour, width=stick * 2)
-    for index, (x, y) in enumerate(points):
+    for index, point in enumerate(points):
+        if point is None:
+            continue
+        x, y = point
         draw.ellipse((x - stick, y - stick, x + stick, y + stick), fill=_OPENPOSE_COLOURS[index])
     return image
+
+
+def keypoint_points(people: list | None, scale: tuple[float, float] = (1.0, 1.0)) -> list | None:
+    """
+    The first person's 18 OpenPose points from a pose detector's "people" list (OpenPose JSON),
+    scaled by (sx, sy), with None for a point it didn't find; None when there's no one.
+    """
+    if not people:
+        return None
+    flat = people[0].get("pose_keypoints_2d") or []
+    points = []
+    for index in range(18):
+        x, y, confidence = (flat[index * 3 : index * 3 + 3] + [0, 0, 0])[:3]
+        points.append((x * scale[0], y * scale[1]) if confidence > 0.1 and (x or y) else None)
+    return points if sum(p is not None for p in points) >= 6 else None
+
+
+def elbow_bend(points: list | None) -> float:
+    """
+    How far the more bent arm bends at the elbow, in degrees (0 = straight from shoulder to wrist),
+    from 18 OpenPose points; 0 when an arm wasn't found.
+    """
+    worst = 0.0
+    for shoulder, elbow, wrist in ((2, 3, 4), (5, 6, 7)):
+        if not points or any(points[i] is None for i in (shoulder, elbow, wrist)):
+            continue
+        (ax, ay), (bx, by), (cx, cy) = points[shoulder], points[elbow], points[wrist]
+        upper = math.atan2(by - ay, bx - ax)
+        fore = math.atan2(cy - by, cx - bx)
+        turn = abs(math.degrees((fore - upper + math.pi) % (2 * math.pi) - math.pi))
+        worst = max(worst, turn)
+    return worst
+
+
+def sleeve_map_masks(image, size: tuple[int, int] | None = None) -> dict | None:
+    """
+    The masks from a sleeve map (the picture with the outer garment's sleeves painted flat magenta,
+    see kit.SLEEVE_MAP_INSTRUCTION; anything painted flat cyan is the rest of the garment):
+    {"sleeves": mask, "body": mask} (L, 255 inside), or None when the map shows no sleeves (no outer
+    garment, or the edit failed).
+    """
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    rgb = np.asarray(image.convert("RGB").resize(size, Image.Resampling.NEAREST) if size and image.size != size else image.convert("RGB")).astype(np.int16)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    found = {}
+    for name, inside in (("sleeves", (r > 180) & (b > 180) & (g < 110) & (abs(r - b) < 70)), ("body", (g > 180) & (b > 180) & (r < 110) & (abs(g - b) < 70))):
+        mask = Image.fromarray((inside * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(3))
+        found[name] = mask
+    area = (np.asarray(found["sleeves"]) > 0).mean()
+    return found if area >= 0.002 else None

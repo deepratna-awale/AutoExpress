@@ -217,13 +217,17 @@ picture's pose). With ComfyUI's TextEncodeQwenImageEditPlus the redraw follows a
 stick figure given as a second picture. The legs come out straight and apart, the knees over the ankles, and the arms
 hang clear of the body: when the redraw keeps the feet together or crossed (a model's walk often
 survives it), or a sleeve lies against the jacket from the armpit to the waist (it would then be
-cut from the jacket too narrow), the kit asks again, up to three times. When ComfyUI has DWPose ([comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux),
+cut from the jacket too narrow), the kit asks again, up to three times. With DWPose it also asks
+again when an arm bends more than about 18 degrees at the elbow: the clothing edits draw the arms
+straight, and a sleeve bent in one picture and straight in another doesn't line up. When ComfyUI has DWPose ([comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux),
 installed by the RunPod setup script), the joints come from it and are kept in `pose.json` in the
 kit; otherwise from anime proportions. The puppet then gets a skeleton (hips, spine, chest, neck, head, and each arm and
 leg), stored under `Rig.Skeleton` (`Bones` with `Name`, `Parent`, `Head`, `Tail`, `Radius` and
 limits), fitted to the drawing: the hands from the split's arm layers, the legs from the body's
 outline. Each layer is cut into a torso piece and arm and leg pieces with matching edges (`"Piece"`
-in the layer entry): whole sleeves go with the arms, cut from the jacket along the outline drawn between them, a skirt stays whole while the legs move under
+in the layer entry): whole sleeves go with the arms, cut from the jacket along the outline drawn between them or, when
+the kit has a sleeve map (`sleeves.png`: one more Qwen-Image-Edit run that paints the outer garment's
+sleeves flat magenta), exactly where the map paints them, a skirt stays whole while the legs move under
 it, the body behind a hand is painted in, a top's sides run on behind the arms, and touching legs
 are split along the line drawn between them. Each vertex follows its nearest bones, and the
 weights blend across the seams: around the shoulder and the hip the body and the limb share the

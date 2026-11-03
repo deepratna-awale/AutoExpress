@@ -307,13 +307,16 @@ def change_outfit(backend, picture: Image.Image, settings: dict, name: str, log)
 
 NEUTRAL_POSE = (
     "Redraw this exact character standing in a neutral A-pose, seen straight from the front, full body from the top of the "
-    "head to the feet: standing straight and relaxed, arms straight down and held a little away from the sides with open "
+    "head to the feet: standing straight and relaxed, arms straight (not bent at the elbow) and held a little away from the sides with open "
     "relaxed hands and a clear gap between each arm and the body, legs straight and parallel about hip-width apart with a "
     "gap between them all the way down, knees facing forward straight above the ankles (not touching, not bent, not turned "
     "inward), feet flat and pointing forward. Keep the same face, expression, hair, outfit, accessories, "
     "body proportions, colours, line art and art style. Plain white background, the whole character in frame with a little "
     "margin, nothing else in the picture."
 )
+# The most an arm may bend at the elbow in the A-pose (degrees): a sleeve drawn bent there won't
+# line up with the same arm drawn straight in the other clothing edits.
+ELBOW_BEND = 18.0
 # Portrait shape for the A-pose (width / height): room for the arms and the feet.
 NEUTRAL_ASPECT = 0.62
 # Asked again when the redraw kept the feet together or crossed (a model's walk often survives it).
@@ -405,9 +408,10 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
     description = settings.get("character_description", "")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
     log("Redrawing the character in a neutral A-pose, full body (Qwen-Image-Edit).")
-    best, best_score = None, (-1, -1.0)
+    best, best_score = None, (-1, -1.0)  # (checks passed, how near each came)
     feet_together = arms_close = False
     guide = pil_to_b64(skeleton.pose_picture(skeleton.a_pose_points(canvas.size), canvas.size)) if getattr(backend, "takes_reference", False) else None
+    detect = getattr(backend, "pose_keypoints", None) if guide is not None else None
     for _ in range(NEUTRAL_TRIES):
         # The legs are straightened first, so the 2.5D rig only turns them a little from there; the
         # arms hang clear of the body, so each sleeve is cut whole from the coat it hangs beside.
@@ -426,11 +430,17 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
             posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
         gap, apart = feet_gap(posed), arms_apart(posed)
         feet_ok, arms_ok = gap >= FEET_GAP, apart >= ARMS_APART
-        score = (feet_ok + arms_ok, min(gap / FEET_GAP, 1.0) + min(apart / ARMS_APART, 1.0))
+        # The elbows, where a pose detector can find them: Qwen likes to bend a blazer's sleeves.
+        bend = skeleton.elbow_bend(skeleton.keypoint_points(detect(pil_to_b64(posed)))) if detect is not None else 0.0
+        elbows_ok = bend <= ELBOW_BEND
+        score = (feet_ok + arms_ok + elbows_ok, min(gap / FEET_GAP, 1.0) + min(apart / ARMS_APART, 1.0) + min(ELBOW_BEND / max(bend, 1.0), 1.0))
         if score > best_score:
             best, best_score = posed, score
-        if feet_ok and arms_ok:
+        if feet_ok and arms_ok and elbows_ok:
             break
+        if feet_ok and arms_ok:
+            log(f"The redraw bent an arm {bend:.0f} degrees at the elbow; asking again.")
+            continue
         feet_together |= not feet_ok
         arms_close |= not arms_ok
         log(f"The redraw kept the {'feet together' if not feet_ok else 'arms against the body'}{' and the arms against the body' if not (feet_ok or arms_ok) else ''}; asking again.")
@@ -442,12 +452,25 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
 SLOT_EDITS = (outfits.MID, outfits.OUTER_HALF, outfits.TOP_HALF, outfits.BOTTOM_HALF)
 
 
+SLEEVE_MAP = "sleeve_map"
+# Qwen paints a garment's sleeves well on their own (asked for the sleeves and the rest of the
+# jacket in two colours, it paints the whole jacket one colour and the skirt the other).
+SLEEVE_MAP_INSTRUCTION = (
+    "Paint only the two sleeves of her outermost garment (the jacket, coat, blazer or cardigan worn over everything else) "
+    "flat solid pure magenta (#FF00FF), each whole from the shoulder seam down to the cuff, with no shading or lines. "
+    "Leave the front of that garment, the lapels, her shirt, skirt, hands, face, hair, legs and the white background "
+    "exactly as they are. If she wears no such outer garment, change nothing at all."
+)
+
+
 def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, log, check_cancel, progress) -> tuple[dict, list[str]]:
     """
     The edits for the clothing slots: the picture without its outermost layer and with it slipped
     halfway off (any character), and, when the inner wear was made (so the clothing check passed),
     the top opened and the skirt lifted. Half off is drawn: cloth that slips or opens changes its
-    shape, which fading part of the garment out can't show. Returns ({key: picture}, notes).
+    shape, which fading part of the garment out can't show. Also the sleeve map (SLEEVE_MAP): the
+    outer garment's sleeves painted flat, which says where each sleeve is cut from the garment.
+    Returns ({key: picture}, notes).
     """
     description = settings.get("character_description", "")
     if settings.get("outfit_from_prompt"):
@@ -474,6 +497,7 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
     mid = run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
     if mid is not None:
         run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description), "the outer layer half off", 0.37)
+        run(SLEEVE_MAP, picture, SLEEVE_MAP_INSTRUCTION, "the sleeve map", 0.375)
     if outfits.INNER in made:
         base = mid if mid is not None else picture
         run(outfits.TOP_HALF, base, outfits.top_half_instruction(inner_wear, description), "the top opened", 0.38)
@@ -648,6 +672,13 @@ def build_kit(
     picture = prepare_picture(original, True if posed else settings.get("remove_background"), log, backend, split.resolution)
     picture.save(folder / "input.png")
     check_cancel()
+    # The joints from a pose detector (DWPose) where the WebUI has one, in the picture's pixels: the
+    # puppet's skeleton sits on the drawn limbs.
+    people = None
+    detect = getattr(backend, "pose_keypoints", None)
+    if posed and detect is not None:
+        progress("finding the joints", 0.045)
+        people = detect(pil_to_b64(picture))
 
     # 3. Eyes closed / mouth open.
     lora_installed = bool(character_lora and character_lora.get("installed_name"))
@@ -720,6 +751,7 @@ def build_kit(
     face_box = layers._alpha_union(parts, canvas_size, ("face",)).getbbox()
     variants = {which: layers.align_edit(base_canvas, to_canvas(image, box, canvas_size), face_box) for which, image in variants.items()}
     outfit_edits = {which: layers.align_edit(base_canvas, to_canvas(image, box, canvas_size), face_box) for which, image in outfit_edits.items()}
+    sleeve_map = outfit_edits.pop(SLEEVE_MAP, None)
     overlays = layers.edit_overlays(
         parts,
         base_canvas,
@@ -755,6 +787,12 @@ def build_kit(
             notes.append(f"The {which.replace('_', ' ')} edit didn't change the {'eyes' if which == EYES_CLOSED else 'mouth'} enough to make a layer from it.")
     parts = layers.crop_parts(parts, box)
     depth_maps = {tag: depth.crop(box) for tag, depth in depth_maps.items()}
+    if sleeve_map is not None:
+        sleeve_map = sleeve_map.convert("RGB").crop(box)
+        if skeleton.sleeve_map_masks(sleeve_map) is None:
+            sleeve_map = None  # no outer garment painted: the sleeves are cut along the drawing's lines
+        else:
+            sleeve_map.save(folder / puppet.SLEEVE_FILE)
     overlays = [dataclasses.replace(o, left=o.left - box[0], top=o.top - box[1]) for o in overlays]
     size = (box[2] - box[0], box[3] - box[1])
 
@@ -783,22 +821,25 @@ def build_kit(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
     )
 
-    # The joints from a pose detector (DWPose) where the WebUI has one, in the kit's pixels: the
-    # skeleton then sits on the drawn limbs instead of anime proportions.
-    people = None
-    detect = getattr(backend, "pose_keypoints", None)
-    if posed and detect is not None:
-        check_cancel()
-        progress("finding the joints", 0.92)
-        people = detect(pil_to_b64(picture))
-        if people:
-            sx, sy = size[0] / picture.width, size[1] / picture.height
-            for person in people:
-                flat = person.get("pose_keypoints_2d") or []
-                person["pose_keypoints_2d"] = [round(v * (sx if i % 3 == 0 else sy if i % 3 == 1 else 1), 2) for i, v in enumerate(flat)]
-            (folder / puppet.POSE_FILE).write_text(json.dumps({"people": people}, indent=1) + "\n", encoding="utf-8")
+    # The joints in the kit's pixels: the skeleton sits on the drawn limbs instead of anime proportions.
+    if people:
+        sx, sy = size[0] / picture.width, size[1] / picture.height
+        for person in people:
+            flat = person.get("pose_keypoints_2d") or []
+            person["pose_keypoints_2d"] = [round(v * (sx if i % 3 == 0 else sy if i % 3 == 1 else 1), 2) for i, v in enumerate(flat)]
+        (folder / puppet.POSE_FILE).write_text(json.dumps({"people": people}, indent=1) + "\n", encoding="utf-8")
     puppet.build_puppet(
-        tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed, depth_maps=depth_maps, people=people
+        tree,
+        manifest,
+        size,
+        folder / "puppet" / name,
+        name,
+        parts,
+        enhance=lambda images: upscale_sheet(backend, images),
+        neutral_pose=posed,
+        depth_maps=depth_maps,
+        people=people,
+        sleeve_map=sleeve_map,
     )
 
     switches = ", ".join(o.name for o in overlays) or "none"

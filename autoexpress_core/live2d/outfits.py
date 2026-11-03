@@ -541,6 +541,9 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
     if mid is not None:
         coat = ImageChops.multiply(_changed(picture, mid), clothed)
         coat = _drop_small(coat, 0.004)
+        # Closed and grown a little: the test misses the coat's edges and seams, which then stayed
+        # behind in the top as coat-coloured patches with the coat off.
+        coat = ImageChops.multiply(coat.filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.MinFilter(5)), clothed)
         if waist is not None:
             # A coat covers the shoulders and chest: what the edit changed only further down (a shoe
             # or a stocking redrawn a little differently) stays with its own garment.
@@ -580,6 +583,10 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
                 skirt_like = _like(mid, layers._on_canvas(bottom, size))
                 hem = below(below(under, waist + max(4, size[1] // 60), True), waist, False)
                 top_piece = ImageChops.lighter(below(under, waist, True), ImageChops.subtract(hem, skirt_like))
+                # Arms hang below the waist: the shirt's sleeves down there, beside the skirt, are
+                # the top's too (left out, the arms showed bare skin from the elbow down).
+                beside = ImageChops.subtract(below(under, waist, False), skirt_shape.filter(ImageFilter.MaxFilter(9)))
+                top_piece = ImageChops.lighter(top_piece, ImageChops.subtract(beside, skirt_like))
             for tag, piece in (("topwear", top_piece), ("bottomwear", below(under, waist, False) if has_bottom else None)):
                 if piece is None or piece.getbbox() is None:
                     continue
