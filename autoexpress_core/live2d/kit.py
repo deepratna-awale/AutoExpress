@@ -308,7 +308,9 @@ def change_outfit(backend, picture: Image.Image, settings: dict, name: str, log)
 NEUTRAL_POSE = (
     "Redraw this exact character standing in a neutral A-pose, seen straight from the front, full body from the top of the "
     "head to the feet: standing straight and relaxed, arms straight down and held a little away from the sides with open "
-    "relaxed hands, legs straight and slightly apart, feet flat. Keep the same face, expression, hair, outfit, accessories, "
+    "relaxed hands and a clear gap between each arm and the body, legs straight and parallel about hip-width apart with a "
+    "gap between them all the way down, knees facing forward straight above the ankles (not touching, not bent, not turned "
+    "inward), feet flat and pointing forward. Keep the same face, expression, hair, outfit, accessories, "
     "body proportions, colours, line art and art style. Plain white background, the whole character in frame with a little "
     "margin, nothing else in the picture."
 )
@@ -341,19 +343,21 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
     return posed, ""
 
 
-SLOT_EDITS = (outfits.MID,)
+SLOT_EDITS = (outfits.MID, outfits.OUTER_HALF, outfits.TOP_HALF, outfits.BOTTOM_HALF)
 
 
 def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, log, check_cancel, progress) -> tuple[dict, list[str]]:
     """
-    The edit for the clothing slots: the picture without its outermost layer, so the coat comes
-    off on its own. The half-off states aren't drawn: they fade part of each garment out and show
-    the layers under it (the same inner wear and body as when it's off). Returns ({key: picture}, notes).
+    The edits for the clothing slots: the picture without its outermost layer and with it slipped
+    halfway off (any character), and, when the inner wear was made (so the clothing check passed),
+    the top opened and the skirt lifted. Half off is drawn: cloth that slips or opens changes its
+    shape, which fading part of the garment out can't show. Returns ({key: picture}, notes).
     """
     description = settings.get("character_description", "")
     if settings.get("outfit_from_prompt"):
         description = (description + f". Her outfit: {settings['outfit_from_prompt']}").strip(". ")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
+    inner_wear = settings.get("inner_wear", "")
     edits: dict[str, Image.Image] = {}
     notes: list[str] = []
 
@@ -371,7 +375,13 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
         edits[key] = result
         return result
 
-    run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
+    mid = run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
+    if mid is not None:
+        run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description), "the outer layer half off", 0.37)
+    if outfits.INNER in made:
+        base = mid if mid is not None else picture
+        run(outfits.TOP_HALF, base, outfits.top_half_instruction(inner_wear, description), "the top opened", 0.38)
+        run(outfits.BOTTOM_HALF, base, outfits.bottom_half_instruction(inner_wear, description), "the skirt lifted", 0.39)
     return edits, notes
 
 

@@ -396,10 +396,9 @@ def test_build_kit_writes_the_whole_kit(tmp_path):
     assert ("ready", DECOMPOSE) in backend.calls
     edits = [call[1] for call in backend.calls if call[0] == "edit"]
     # Eyes closed and mouth open (Qwen: no character LoRA), angry brows, a grin and tears for the
-    # strongest emotions, then the coat off for the clothing slots (half-off states fade the
-    # garment instead of being drawn).
-    assert len(edits) == 6 and edits[2].startswith("Make the eyebrows furious") and "grin" in edits[3] and "teary" in edits[4]
-    assert edits[5].startswith("Take off only her outermost")
+    # strongest emotions, then the coat off and slipped half off for the clothing slots.
+    assert len(edits) == 7 and edits[2].startswith("Make the eyebrows furious") and "grin" in edits[3] and "teary" in edits[4]
+    assert edits[5].startswith("Take off only her outermost") and "halfway off" in edits[6]
     folder = result.folder
     for name in ("hina.psd", "hina_seethrough.psd", "preview.png", "sheet.jpg", "README.txt", "manifest.json", "input.png", "eyes_closed.png", "mouth_open.png",
                  "runtime/sillytavern_settings.json", "runtime/expressions/joy.exp3.json", "runtime/motions/idle.motion3.json"):
@@ -868,7 +867,7 @@ def test_defringe_drops_the_pale_halo_but_keeps_the_outline():
     assert fixed.getpixel((20, 20))[:3] == (90, 60, 40)
 
 
-def test_slot_parts_split_the_coat_from_the_top_and_fade_half_off_states():
+def test_slot_parts_split_the_coat_from_the_top_and_cut_drawn_half_off_art():
     size = (400, 400)
     white = (255, 255, 255)
 
@@ -903,7 +902,11 @@ def test_slot_parts_split_the_coat_from_the_top_and_fade_half_off_states():
     inner_draw = ImageDraw.Draw(inner)
     inner_draw.rectangle((160, 220, 240, 300), fill=(245, 215, 195))
     inner_draw.rectangle((180, 235, 220, 255), fill=(20, 20, 20))
-    edits = {outfits.MID: dressed(coat=False)}
+    edits = {
+        outfits.MID: dressed(coat=False),
+        outfits.OUTER_HALF: dressed(coat_half=True),
+        outfits.TOP_HALF: dressed(coat=False, top_open=True),
+    }
     result = outfits.slot_parts(parts, size, picture, edits, nude=None, inner=inner)
     tags = {p.tag: p for p in result}
     assert {"outer wear", "outer wear half", "topwear half", "topwear", "bottomwear"} <= set(tags)
@@ -912,14 +915,13 @@ def test_slot_parts_split_the_coat_from_the_top_and_fade_half_off_states():
     shirt = layers._on_canvas(tags["topwear"], size)
     assert shirt.getpixel((200, 250))[3] > 200
     assert max(abs(a - b) for a, b in zip(shirt.getpixel((152, 250))[:3], (245, 215, 195))) < 30  # under the coat: what the edit drew
-    # Half off is the same garment with part of it faded out, so the layers under it show.
+    # Half off is drawn: each state is cut from its own edit.
     opened = layers._on_canvas(tags["topwear half"], size)
-    assert opened.getpixel((168, 260))[3] > 200 and opened.getpixel((200, 245))[3] < 30  # opened at the front
-    assert opened.getpixel((168, 260))[:3] == shirt.getpixel((168, 260))[:3]  # the same art, not redrawn
+    assert opened.getpixel((168, 260))[3] > 200 and opened.getpixel((200, 245))[3] < 30  # the opening shows the inner wear
     slipped = layers._on_canvas(tags["outer wear half"], size)
     assert slipped.getpixel((150, 210))[3] < 30 and slipped.getpixel((150, 340))[3] > 200  # off the shoulders, hanging lower down
-    lifted = layers._on_canvas(tags["bottomwear half"], size)
-    assert lifted.getpixel((200, 375))[3] < 30 and lifted.getpixel((150, 305))[3] > 200
+    # No edit for the skirt lifted: no half state for it.
+    assert "bottomwear half" not in tags
 
 
 def test_trim_neck_takes_the_chin_out_of_the_neck_layer():
@@ -1079,7 +1081,7 @@ def test_split_limbs_keeps_a_skirt_whole_and_paints_behind_a_hand(tmp_path):
         {"Id": "skirt", "Role": "clothing", "Garment": "bottomwear", "Texture": "textures/skirt.png", "X": 0, "Y": 0, "Width": 400, "Height": 600},
         {"Id": "jacket", "Role": "clothing", "Garment": "topwear", "Texture": "textures/jacket.png", "X": 0, "Y": 0, "Width": 400, "Height": 600},
     ]
-    # The half-off skirt is cut short (it fades where it comes off), but it's still the skirt.
+    # The half-off skirt is cut short (lifted at the front), but it's still the skirt.
     half = Image.new("RGBA", size, (0, 0, 0, 0))
     ImageDraw.Draw(half).rectangle((140, 300, 260, 380), fill=(150, 30, 40, 255))
     half.save(tmp_path / "textures" / "skirt_half.png")
@@ -1165,6 +1167,8 @@ def test_depth_maps_give_every_mesh_point_a_depth(tmp_path):
     assert rig["Skeleton"]["Bones"][0]["HeadZ"] < (depth["Body"] - 60) * depth["Scale"]
     assert [len(e["Z"]) for e in entries] == [12, 16, 4]
     assert max(entries[0]["Z"]) < min(entries[1]["Z"])  # the face is in front of the back hair
+    # but the head turns nearly as one: its layers keep only a little of their spread.
+    assert max(entries[1]["Z"]) <= 60 + (220 - 60) * puppet.HEAD_DEPTH_SPREAD + 2
     # The head turns about a point between the face and the back of the head.
     assert 60 < depth["Head"] < 220 and depth["Scale"] > 0
 
@@ -1216,3 +1220,59 @@ def test_a_tops_sides_are_drawn_on_behind_the_arm(tmp_path):
     removed[40:60, 20:45] = True
     extra = puppet._hidden_sides(kept, removed)
     assert extra[50, 30:45].all() and not extra[50, 20:29].any()
+
+
+def test_split_arms_cuts_a_sleeve_along_its_outline_and_leaves_the_jacket_front():
+    size = (300, 400)
+    picture = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(picture)
+    draw.rectangle((40, 60, 260, 300), fill=(190, 160, 130, 255))  # the jacket
+    draw.line((95, 60, 95, 300), fill=(40, 30, 20, 255), width=3)  # the right sleeve's inner outline
+    bones = {
+        "Bones": [
+            {"Name": "Spine", "Head": [150, 300], "Tail": [150, 100], "Radius": 60, "Group": "torso"},
+            {"Name": "UpperArmR", "Head": [75, 70], "Tail": [72, 180], "Radius": 25, "Group": "arm_R"},
+            {"Name": "ForearmR", "Head": [72, 180], "Tail": [70, 280], "Radius": 22, "Group": "arm_R"},
+            {"Name": "HandR", "Head": [70, 280], "Tail": [70, 320], "Radius": 15, "Group": "arm_R"},
+        ]
+    }
+    plain = Image.new("L", size, 0)
+    ImageDraw.Draw(plain).rectangle((30, 60, 125, 330), fill=255)  # nearest bone: well into the jacket's front
+    hand = Image.new("L", size, 0)
+    ImageDraw.Draw(hand).rectangle((100, 300, 115, 330), fill=255)
+    masks = skeleton.split_arms({"arm_R": plain}, bones, picture, {"R": hand})
+    arm = masks["arm_R"]
+    assert arm.getpixel((70, 150)) == 255 and arm.getpixel((115, 150)) == 0  # the sleeve, not the front
+    assert arm.getpixel((105, 310)) == 255  # the hand stays with the arm
+
+
+def test_fill_holes_paints_in_small_holes_but_keeps_openings():
+    image = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((10, 10, 190, 190), fill=(180, 150, 120, 255))
+    draw.rectangle((40, 40, 44, 50), fill=(0, 0, 0, 0))  # a slit
+    draw.rectangle((80, 80, 160, 160), fill=(0, 0, 0, 0))  # a real opening
+    filled = puppet._fill_holes(image)
+    assert filled.getpixel((42, 45))[3] == 255 and abs(filled.getpixel((42, 45))[0] - 180) < 20
+    assert filled.getpixel((120, 120))[3] == 0
+
+
+def test_stockings_carry_on_into_the_shoes(tmp_path):
+    (tmp_path / "textures").mkdir()
+    size = (200, 400)
+    legs = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(legs).rectangle((80, 100, 120, 300), fill=(60, 40, 35, 255))
+    legs.save(tmp_path / "textures" / "legs.png")
+    shoes = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(shoes).rectangle((70, 310, 130, 360), fill=(170, 120, 60, 255))
+    shoes.save(tmp_path / "textures" / "shoes.png")
+    entries = [
+        {"Id": "legs", "Role": "clothing", "Garment": "legwear", "Texture": "textures/legs.png", "X": 0, "Y": 0, "Width": 200, "Height": 400},
+        {"Id": "shoes", "Role": "clothing", "Garment": "footwear", "Texture": "textures/shoes.png", "X": 0, "Y": 0, "Width": 200, "Height": 400},
+    ]
+    puppet._into_shoes(tmp_path, entries)
+    leg = entries[0]
+    image = Image.open(tmp_path / leg["Texture"]).convert("RGBA")
+    at = lambda x, y: image.getpixel((x - leg["X"], y - leg["Y"]))
+    assert at(100, 305)[3] == 255 and at(100, 330)[3] == 255  # over the gap and on behind the shoe
+    assert leg["Y"] + leg["Height"] <= 361  # never out past the shoe

@@ -30,6 +30,9 @@ from . import layers
 INNER, NUDE = "inner_wear", "nude_body"
 # The extra edits for the clothing slots (Koikatsu style: every garment on, half off, or off).
 MID = "no_outer_wear"  # the picture without the coat, jacket or other outermost layer
+OUTER_HALF = "outer_wear_half"  # the coat slipped halfway off the shoulders
+TOP_HALF = "top_half"  # the shirt or top opened at the front (from MID)
+BOTTOM_HALF = "bottom_half"  # the skirt lifted, or the trousers pulled down a little (from MID)
 
 # Words that read as a child or a young teenager. A character described with any of them gets no
 # body or inner wear layers, whatever else the settings say.
@@ -164,6 +167,32 @@ def mid_instruction(description: str = "") -> str:
     )
 
 
+def outer_half_instruction(description: str = "") -> str:
+    """The Qwen edit with the outermost layer slipped halfway off."""
+    return (
+        "Her outermost layer of clothing (the coat, jacket, blazer, cardigan or haori) has slipped halfway off: it hangs "
+        "down off both shoulders to her elbows, showing her shoulders and the clothes under it. Change nothing else. " + KEEP + _describe(description)
+    )
+
+
+def top_half_instruction(inner_wear: str = "", description: str = "") -> str:
+    """The Qwen edit with the top opened at the front (from the picture without the outer layer)."""
+    wear = " ".join((inner_wear or "").split())[:120] or "her bra"
+    return (
+        f"Open her top at the front: unbuttoned or loosened and pulled open, showing {wear} underneath. "
+        "The top stays on her shoulders. Change nothing else. " + KEEP + _describe(description)
+    )
+
+
+def bottom_half_instruction(inner_wear: str = "", description: str = "") -> str:
+    """The Qwen edit with the skirt lifted, or the trousers pulled down a little."""
+    wear = " ".join((inner_wear or "").split())[:120] or "her panties"
+    return (
+        f"Her skirt is lifted up at the front, or her shorts or trousers pulled down a little, showing {wear}. "
+        "Change nothing else. " + KEEP + _describe(description)
+    )
+
+
 def male_words(description: str) -> bool:
     return bool(re.search(r"\b(he|him|his|man|male|boy|guy|husband|father|king|prince)\b", (description or "").lower()))
 
@@ -178,7 +207,14 @@ def adapt(instruction: str, description: str) -> str:
         .replace("Dress her", "Dress him")
         .replace("Change her clothes", "Change his clothes")
         .replace("only her outermost", "only his outermost")
+        .replace("Her outermost", "His outermost")
         .replace("her shoulders", "his shoulders")
+        .replace("her elbows", "his elbows")
+        .replace("Open her top", "Open his top")
+        .replace("on her shoulders", "on his shoulders")
+        .replace("Her skirt is lifted up at the front, or her", "His")
+        .replace("her bra", "his chest")
+        .replace("her panties", "his briefs")
         .replace("her other clothes", "his other clothes")
         .replace("her build", "his build")
         .replace("her outfit", "his outfit")
@@ -423,64 +459,16 @@ def _share(mask: Image.Image, of: Image.Image) -> float:
     return ImageStat.Stat(mask).sum[0] / total if total else 0.0
 
 
-def half_off_mask(kind: str, garment: Image.Image, face, waist: int | None) -> Image.Image:
-    """
-    How much of a garment stays in its half-off state (mode L, the garment's canvas): 255 kept,
-    0 gone, with soft edges. kind is "outer wear" (slipped off the shoulders down to the elbows),
-    "topwear" (opened at the front in a V from the collar to the waist) or "bottomwear" (lifted at
-    the front from the hem). face is the face's box on the canvas (sizes the cuts), waist the
-    canvas y where the top meets the bottom.
-    """
-    size = garment.size
-    box = garment.getbbox()
-    mask = Image.new("L", size, 255)
-    if box is None or face is None:
-        return mask
-    face_w, face_h = face[2] - face[0], face[3] - face[1]
-    cx = (face[0] + face[2]) / 2
-    chin = face[3]
-    draw = ImageDraw.Draw(mask)
-    if kind == "outer wear":
-        # Off the shoulders: nothing above the chest, a soft edge where it hangs at the elbows.
-        line = chin + face_h * 1.25
-        draw.rectangle((0, 0, size[0], int(line)), fill=0)
-        feather = face_h * 0.18
-    elif kind == "topwear":
-        bottom = waist if waist is not None else box[3]
-        top = chin + face_h * 0.25
-        draw.polygon([(cx - face_w * 0.12, top), (cx + face_w * 0.12, top), (cx + face_w * 0.55, bottom), (cx - face_w * 0.55, bottom)], fill=0)
-        feather = face_h * 0.06
-    else:
-        height = box[3] - box[1]
-        width = box[2] - box[0]
-        mid = (box[0] + box[2]) / 2
-        draw.ellipse((mid - width * 0.32, box[3] - height * 0.5, mid + width * 0.32, box[3] + height * 0.5), fill=0)
-        feather = face_h * 0.06
-    return mask.filter(ImageFilter.GaussianBlur(max(1.0, feather)))
-
-
-def _half_part(part, tag: str, size, face, waist, depth: float):
-    """The half-off layer for a garment Part: the garment with half_off_mask applied, or None."""
-    canvas = layers._on_canvas(part, size)
-    kind = layers.parse_tag(part.tag)[0]
-    alpha = ImageChops.multiply(canvas.getchannel("A"), half_off_mask(kind, canvas, face, waist))
-    if ImageStat.Stat(alpha).sum[0] >= 0.97 * ImageStat.Stat(canvas.getchannel("A")).sum[0]:
-        return None  # nothing came off: no half state
-    canvas.putalpha(alpha)
-    return _part(tag, canvas, depth)
-
-
 def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image.Image | None = None, inner: Image.Image | None = None) -> list:
     """
     The split's clothing rearranged into slots, the way Koikatsu dresses a character: the outermost
-    layer (coat, jacket, haori) on its own layer apart from the top under it (from the MID edit,
-    canvas size, RGBA), and a half-off state for the coat (slipped off the shoulders), the top
-    (opened at the front) and the bottom (skirt lifted). The half-off states are the garment with
-    part of it faded out (half_off_mask), so what shows through is the very inner wear and body
-    the garment covers when it's off.
+    layer (coat, jacket, haori) on its own layer apart from the top under it, and a half-off art
+    for the coat (slipped off the shoulders), the top (opened at the front) and the bottom (skirt
+    lifted), each cut from its drawn edit (MID, OUTER_HALF, TOP_HALF, BOTTOM_HALF; canvas size,
+    RGBA). A half-off state is drawn, not faded: cloth that slips or opens changes its shape.
 
-    picture is the original on the canvas; nude the body edit there, when made (the opened top and
-    lifted skirt need inner wear under them, so they come only with inner).
+    picture is the original on the canvas; nude and inner the body and inner wear edits there, when
+    made (the opened top and lifted skirt need what they uncover, so they come only with inner).
     Returns the new list of parts (the split's, changed, plus the new layers).
     """
     body_tags = ("topwear", "bottomwear", "legwear", "footwear", "handwear", "neckwear")
@@ -544,13 +532,20 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
                 canvas = layers._on_canvas(current, size)
                 canvas.alpha_composite(fill)
                 result[result.index(current)] = _part(tag, canvas, current.depth)
-            coat_part = extra[-1] if extra and extra[-1] is not None and extra[-1].tag == "outer wear" else None
-            if coat_part is not None:
-                extra.append(_half_part(coat_part, "outer wear half", size, face, waist, top_depth - 0.019))
+            half = edits.get(OUTER_HALF)
+            if half is not None:
+                reach = clothed.filter(ImageFilter.MaxFilter(31))
+                slipped = ImageChops.multiply(ImageChops.multiply(_changed(half, mid), _key_from_white(half).point(lambda v: 255 if v > 128 else 0)), reach)
+                extra.append(_part("outer wear half", _layer(half, _drop_small(slipped, 0.004)), top_depth - 0.019))
 
     if inner is not None:
-        for tag in ("topwear", "bottomwear"):
+        for key, tag in ((TOP_HALF, "topwear"), (BOTTOM_HALF, "bottomwear")):
+            half = edits.get(key)
             garment = next((p for p in result if layers.parse_tag(p.tag)[0] == tag), None)
-            if garment is not None:
-                extra.append(_half_part(garment, f"{tag} half", size, face, waist, garment.depth - 0.001))
+            if half is None or garment is None:
+                continue
+            region = layers._on_canvas(garment, size, "A").point(lambda v: 255 if v > 64 else 0).filter(ImageFilter.MaxFilter(41 if tag == "bottomwear" else 15))
+            # Where the half-off art is clothing: different from the inner wear edit under it.
+            cloth = ImageChops.multiply(ImageChops.multiply(_changed(half, inner), region), _key_from_white(half).point(lambda v: 255 if v > 128 else 0))
+            extra.append(_part(f"{tag} half", _layer(half, _drop_small(cloth, 0.004)), garment.depth - 0.001))
     return result + [p for p in extra if p is not None]

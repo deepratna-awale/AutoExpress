@@ -29,7 +29,7 @@ import json
 import pathlib
 import shutil
 
-from PIL import Image, ImageChops, ImageFilter, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 
 from . import layers, model_files, skeleton
 
@@ -173,6 +173,8 @@ _BODY_ROLES = {
     "Topwear": "clothing", "Bottomwear": "clothing", "Legwear": "clothing", "Footwear": "clothing", "Neckwear": "clothing",
     "Outer wear": "clothing", "Outer wear half": "clothing", "Topwear half": "clothing", "Bottomwear half": "clothing",
 }
+# How much of the head layers' depth spread around the face is kept (add_depth).
+HEAD_DEPTH_SPREAD = 0.25
 HEAD_ROLES = ("face", "brow", "brow_angry", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "mouth", "mouth_open", "mouth_grin", "ear", "front_hair", "hair_under", "headwear", "back_hair")
 # The eyes and mouth: small on the canvas, drawn large; their textures get upscaled.
 FEATURE_ROLES = ("eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "brow", "brow_angry", "mouth", "mouth_open", "mouth_grin")
@@ -352,7 +354,8 @@ def build_puppet(
         rig["Skeleton"] = bones
         rig.pop("Arms", None)
         parameters += skeleton.parameters(bones)
-        masks = skeleton.split_legs(skeleton.limb_masks(bones, size, arms=arm_alpha), bones, body_picture(folder, entries, size))
+        picture = body_picture(folder, entries, size)
+        masks = skeleton.split_legs(skeleton.split_arms(skeleton.limb_masks(bones, size, arms=arm_alpha), bones, picture, arm_alpha), bones, picture)
         entries = split_limbs(folder, entries, masks, rig, hands=arm_alpha)
         for entry in entries:
             if entry["Role"] not in HEAD_ROLES:
@@ -463,6 +466,14 @@ def add_depth(entries: list[dict], depth_maps: dict, rig: dict) -> dict:
     # From the face to the back of the head is about a face's width.
     span = max(20.0, (back - face) if back is not None else 60.0)
     scale = face_w * 1.1 / span
+    # The head turns nearly as one piece. Its layers' estimated depths spread far too wide (the
+    # eyes half a face in front of the cheeks, the fringe more), and the top and back of the skull
+    # that would hide the back hair aren't drawn: turned by their full depths, the fringe slides
+    # off the face and the back hair swings out past the head as a lump. Around the face's depth
+    # they keep only a little of their spread, so the back hair trails the face instead.
+    for entry in entries:
+        if entry["Role"] in HEAD_ROLES and entry.get("Z"):
+            entry["Z"] = [round(face + HEAD_DEPTH_SPREAD * (z - face)) for z in entry["Z"]]
     body_z = median(("clothing", "nude_body")) or face
     body_w = rig["Body"]["Box"][2] - rig["Body"]["Box"][0]
     body_centre = body_z + body_w * 0.25 / scale
@@ -684,6 +695,121 @@ def _push_pull(rgb, known):
     return colour
 
 
+def _fill_holes(image: Image.Image, most: float = 0.01) -> Image.Image:
+    """
+    image (RGBA) with the small holes inside it painted in from around them: the split leaves
+    pinholes and slits in a garment where something lay over it (a hand at the jacket's hem),
+    which show the background once that moves away. A hole bigger than most of the layer's area
+    is a real opening and stays.
+    """
+    import numpy as np
+
+    alpha = image.getchannel("A")
+    solid = alpha.point(lambda v: 255 if v > 128 else 0)
+    # Everything not reachable from the border through clear pixels is enclosed.
+    padded = Image.new("L", (solid.width + 2, solid.height + 2), 0)
+    padded.paste(solid, (1, 1))
+    ImageDraw.floodfill(padded, (0, 0), 128)
+    inside = np.asarray(padded)[1:-1, 1:-1] == 0
+    if not inside.any():
+        return image
+    area = float((np.asarray(solid) > 0).sum()) or 1.0
+    holes = np.zeros_like(inside)
+    marks = Image.fromarray(np.where(inside, 0, 255).astype(np.uint8), "L")
+    ys, xs = np.nonzero(inside)
+    for y, x in zip(ys.tolist(), xs.tolist()):
+        if marks.getpixel((x, y)) != 0:
+            continue
+        ImageDraw.floodfill(marks, (x, y), 100)
+        blob = np.asarray(marks) == 100
+        if blob.sum() <= most * area:
+            holes |= blob
+        marks.paste(200, mask=Image.fromarray((blob * 255).astype(np.uint8), "L"))
+    if not holes.any():
+        return image
+    rgb = np.asarray(image.convert("RGB")).astype(np.float32)
+    filled = _push_pull(rgb, np.asarray(alpha) > 128)
+    # Smoothed, so the fill shows no blocks from the pyramid.
+    filled = np.asarray(Image.fromarray(filled.clip(0, 255).astype(np.uint8), "RGB").filter(ImageFilter.GaussianBlur(3))).astype(np.float32)
+    out = rgb.copy()
+    out[holes] = filled[holes]
+    a = np.asarray(alpha).copy()
+    a[holes] = 255
+    result = Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    result.putalpha(Image.fromarray(a, "L"))
+    return result
+
+
+def _into_shoes(folder: pathlib.Path, entries: list[dict]) -> None:
+    """
+    The legwear (stockings, trousers) carried on down into the shoes: the split cuts it off where
+    the shoe's top is, often a little above it, so a sliver of background or skin shows between
+    the leg and the shoe, and more when the foot moves. Below its end, over the gap and behind
+    the shoe, it's painted on from its own colours (the shoe is drawn over it). Rewrites the
+    legwear textures in place.
+    """
+    import numpy as np
+
+    def canvas(entry):
+        image = Image.open(folder / entry["Texture"]).convert("RGBA")
+        return image, (entry["X"], entry["Y"])
+
+    shoes = [e for e in entries if e.get("Garment") == "footwear" and e.get("State") != "half"]
+    legs = [e for e in entries if e.get("Garment") == "legwear" and e.get("State") != "half"]
+    if not shoes or not legs:
+        return
+    left = min(e["X"] for e in shoes + legs)
+    top = min(e["Y"] for e in shoes + legs)
+    right = max(e["X"] + e["Width"] for e in shoes + legs)
+    bottom = max(e["Y"] + e["Height"] for e in shoes + legs)
+    size = (right - left, bottom - top)
+    shoe = Image.new("L", size, 0)
+    for entry in shoes:
+        image, (x, y) = canvas(entry)
+        shoe.paste(image.getchannel("A"), (x - left, y - top), image.getchannel("A"))
+    shoe_a = np.asarray(shoe) > 128
+    if not shoe_a.any():
+        return
+    shoe_top = np.where(shoe_a.any(axis=0), shoe_a.argmax(axis=0), -1)
+    for entry in legs:
+        image, (x, y) = canvas(entry)
+        full = Image.new("RGBA", size, (0, 0, 0, 0))
+        full.paste(image, (x - left, y - top))
+        a = np.asarray(full.getchannel("A")) > 128
+        if not a.any():
+            continue
+        has = a.any(axis=0)
+        lowest = np.where(has, a.shape[0] - 1 - a[::-1].argmax(axis=0), -1)
+        add = np.zeros_like(a)
+        reach = max(6, int(size[1] * 0.04))
+        for column in np.nonzero(has & (shoe_top >= 0))[0]:
+            end, start = lowest[column], shoe_top[column]
+            if end < 0 or start - end > reach:
+                continue  # the leg doesn't end at the shoe here
+            # Over the gap and on down behind the shoe.
+            below = np.nonzero(shoe_a[:, column])[0]
+            add[end + 1 : below.max() + 1, column] = True
+        add &= ~a
+        # Only behind the shoe or in the gap just above it, never out past it.
+        grown = np.asarray(shoe.filter(ImageFilter.MaxFilter(2 * reach + 1))) > 0
+        add &= grown
+        if not add.any():
+            continue
+        rgb = np.asarray(full.convert("RGB")).astype(np.float32)
+        filled = _push_pull(rgb, a)
+        filled = np.asarray(Image.fromarray(filled.clip(0, 255).astype(np.uint8), "RGB").filter(ImageFilter.GaussianBlur(2))).astype(np.float32)
+        out = rgb.copy()
+        out[add] = filled[add]
+        alpha = np.asarray(full.getchannel("A")).copy()
+        alpha[add] = 255
+        result = Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+        result.putalpha(Image.fromarray(alpha, "L"))
+        bbox = result.getbbox()
+        result = result.crop(bbox)
+        result.save(folder / entry["Texture"])
+        entry.update({"X": left + bbox[0], "Y": top + bbox[1], "Width": result.width, "Height": result.height})
+
+
 def _fit_under_skirts(folder: pathlib.Path, entries: list[dict], skirts: dict, grown: dict) -> Image.Image | None:
     """
     The body, inner wear and legwear under a skirt are cut to the skirt's outline over its rows: the
@@ -766,6 +892,7 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
             image = Image.open(folder / entry["Texture"]).convert("RGBA")
             box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
             skirts[entry.get("Switch") or entry["Id"]] = _skirt(image.getchannel("A"), box, masks)
+    _into_shoes(folder, entries)
     under_skirt = _fit_under_skirts(folder, entries, skirts, grown)
     for entry in entries:
         if entry["Role"] in HEAD_ROLES:
@@ -773,6 +900,8 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
             continue
         path = folder / entry["Texture"]
         image = Image.open(path).convert("RGBA")
+        if entry.get("Garment"):
+            image = _fill_holes(image)
         box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
         alpha = image.getchannel("A")
         total = ImageStat.Stat(alpha).sum[0] or 1
