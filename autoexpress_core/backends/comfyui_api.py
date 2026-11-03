@@ -24,6 +24,7 @@ import io
 import json
 import pathlib
 import random
+import re
 import threading
 import time
 import uuid
@@ -787,6 +788,58 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e, "segmentation")
         except (KeyError, ValueError, TypeError, OSError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "segmentation")
+        finally:
+            self._prompt_id = None
+
+    # Vision language models ComfyUI's TextGenerate node runs (Qwen2.5-VL, Qwen-Image's text encoder, can't
+    # generate), best first, with the CLIPLoader type their templates use.
+    VISION_MODEL_HINTS = (("qwen3vl", "ideogram4"), ("qwen3.5", "stable_diffusion"), ("gemma4", "stable_diffusion"), ("gemma-4", "stable_diffusion"), ("gemma3", "stable_diffusion"))
+
+    def vision_model(self) -> tuple[str, str] | None:
+        """(text encoder file, CLIPLoader type) of a vision language model ComfyUI can run, or None."""
+        try:
+            if not self.object_info("TextGenerate"):
+                return None
+            names = self.options("CLIPLoader", "clip_name")
+            types = self.options("CLIPLoader", "type")
+        except BackendError:
+            return None
+        def size(name: str) -> float:
+            found = re.search(r"(\d+(?:\.\d+)?)b(?![a-z])", name.lower())
+            return float(found.group(1)) if found else 0.0
+
+        for hint, kind in self.VISION_MODEL_HINTS:
+            matches = [n for n in names if hint in n.lower() or hint in n.lower().replace("_", "")]
+            if matches:
+                # The biggest one there (8B over 4B): it names unusual clothes better.
+                return max(matches, key=size), kind if kind in types else "stable_diffusion"
+        return None
+
+    def describe(self, image: str, prompt: str, max_length: int = 300) -> str | None:
+        """
+        A vision language model's answer to prompt about a base64 picture (ComfyUI's TextGenerate,
+        greedy), or None without such a model or on failure.
+        """
+        model = self.vision_model()
+        if model is None:
+            return None
+        self._interrupted.clear()
+        try:
+            workflow = {
+                "image": {"class_type": "LoadImage", "inputs": {"image": self.upload_image(image)}},
+                "vlm": {"class_type": "CLIPLoader", "inputs": {"clip_name": model[0], "type": model[1], "device": "default"}},
+                "answer": {"class_type": "TextGenerate", "inputs": {"clip": ["vlm", 0], "prompt": prompt, "image": ["image", 0], "max_length": max_length, "sampling_mode": "off"}},
+                "output": {"class_type": "PreviewAny", "inputs": {"source": ["answer", 0]}},
+            }
+            self._prompt_id = self.queue_prompt(workflow)
+            entry = self.wait_for(self._prompt_id)
+            text = entry.get("outputs", {}).get("output", {}).get("text", [""])
+            text = text[0] if isinstance(text, list) and text else text
+            return str(text).strip() or None
+        except BackendError as e:
+            return self._fail(e, "description")
+        except (KeyError, ValueError, TypeError, AttributeError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "description")
         finally:
             self._prompt_id = None
 

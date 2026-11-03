@@ -158,19 +158,21 @@ def inner_instruction(inner_wear: str = "", description: str = "") -> str:
     return f"Dress her in {wear}, and nothing else. " + KEEP + _describe(description)
 
 
-def mid_instruction(description: str = "") -> str:
-    """The Qwen edit that takes the outermost layer off (the coat, jacket, haori...)."""
+def mid_instruction(description: str = "", garment: str = "") -> str:
+    """The Qwen edit that takes the outermost layer off (the coat, jacket, haori...; garment when known)."""
+    named = f"her {garment}" if garment else "the coat, jacket, blazer, cardigan, cape, robe or haori"
     return (
-        "Take off only her outermost layer of clothing: the coat, jacket, blazer, cardigan, cape, robe or haori worn "
+        f"Take off only her outermost layer of clothing: {named} worn "
         "open over her other clothes. Keep every garment under it (top, dress, skirt, trousers, belt, legwear) exactly "
         "as it is, drawn complete where the outer layer covered it. If she wears no outer layer, change nothing. " + KEEP + _describe(description)
     )
 
 
-def outer_half_instruction(description: str = "") -> str:
+def outer_half_instruction(description: str = "", garment: str = "") -> str:
     """The Qwen edit with the outermost layer slipped halfway off."""
+    named = f"her {garment}" if garment else "the coat, jacket, blazer, cardigan or haori"
     return (
-        "Her outermost layer of clothing (the coat, jacket, blazer, cardigan or haori) has slipped halfway off: it hangs "
+        f"Her outermost layer of clothing ({named}) has slipped halfway off: it hangs "
         "down off both shoulders to her elbows, showing her shoulders and the clothes under it. Change nothing else. " + KEEP + _describe(description)
     )
 
@@ -208,6 +210,8 @@ def adapt(instruction: str, description: str) -> str:
         .replace("Change her clothes", "Change his clothes")
         .replace("only her outermost", "only his outermost")
         .replace("Her outermost", "His outermost")
+        .replace("clothing: her ", "clothing: his ")
+        .replace("clothing (her ", "clothing (his ")
         .replace("her shoulders", "his shoulders")
         .replace("her elbows", "his elbows")
         .replace("Open her top", "Open his top")

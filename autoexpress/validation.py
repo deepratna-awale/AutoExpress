@@ -327,7 +327,7 @@ def validate_live2d(data, max_pixels: int) -> dict:
         settings["expression_art"] = raw.get("expression_art") is not False
     if "use_prompt_data" in raw:
         settings["use_prompt_data"] = raw.get("use_prompt_data") is not False
-    for key in ("character_description", "inner_wear", "outfit_prompt"):
+    for key in ("character_description", "inner_wear", "outfit_prompt", "outer_garment"):
         value = raw.get(key)
         if value is None:
             continue

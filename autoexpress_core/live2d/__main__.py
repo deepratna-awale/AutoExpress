@@ -50,6 +50,8 @@ def _kit(args) -> int:
             image.load()
             images.append(image.copy())
     settings = {"resolution": args.resolution, "low_vram": args.low_vram, "variants": args.variants, "use_prompt_data": not args.no_prompt_data, "clothing_slots": not args.no_clothing_slots, "expression_art": not args.no_expression_art, "neutral_pose": not args.no_neutral_pose}
+    if args.outer_garment:
+        settings["outer_garment"] = args.outer_garment
     if args.outfit:
         settings["outfit_prompt"] = args.outfit
         settings.setdefault("adult_confirmed", args.adult)
@@ -109,6 +111,7 @@ def main(argv=None) -> int:
     kit.add_argument("--adult", action="store_true", help="confirm the character is an adult (needed with --outfits)")
     kit.add_argument("--description", default="", help="the character's description, for the body and inner wear edits")
     kit.add_argument("--inner-wear", default="", help="what the inner wear looks like (default: from the picture's prompt, else matching lace lingerie)")
+    kit.add_argument("--outer-garment", default="", help='the outermost garment the coat layer is cut from, e.g. "dark green haori", or "none" (default: from the description, card or prompt data, else a vision model on ComfyUI)')
     kit.add_argument("--outfit", default="", help="dress the character in this outfit (Qwen-Image-Edit) before the split")
     kit.add_argument("--no-prompt-data", action="store_true", help="don't read the clothing from the picture's prompt metadata")
     kit.add_argument("--no-clothing-slots", action="store_true", help="don't put the coat on its own layer (saves an edit)")
