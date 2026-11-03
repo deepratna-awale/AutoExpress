@@ -756,7 +756,8 @@ def test_build_kit_finds_the_coat_and_sleeves_with_a_segmentation_model(tmp_path
     result = kit.build_kit(backend, [character()], tmp_path, "mira", settings, log=lambda _: None)
     edits = [call[1] for call in backend.calls if call[0] == "edit"]
     assert edits and not any("magenta" in e for e in edits)  # no drawn sleeve map: the sleeves are found by name
-    assert [c[1] for c in backend.calls if c[0] == "segment"] == [kit.OUTER_PROMPT, *kit.SLEEVE_PROMPTS]
+    # Then the character in the coat-off edit and the coat in the half-off edit (see slot_parts).
+    assert [c[1] for c in backend.calls if c[0] == "segment"] == [kit.OUTER_PROMPT, *kit.SLEEVE_PROMPTS, kit.FIGURE_PROMPT, kit.OUTER_PROMPT]
     assert (result.folder / kit.OUTER_FILE).exists() and (result.folder / f"{kit.SLEEVE_MAP}.png").exists()
 
 
@@ -769,7 +770,7 @@ class SeeingBackend(SegmentingBackend):
 def test_build_kit_names_the_outer_garment_with_a_vision_model(tmp_path):
     backend = SeeingBackend()
     result = kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024}, log=lambda _: None)
-    assert [c[1] for c in backend.calls if c[0] == "segment"] == ["dark green haori", "right sleeve of dark green haori", "left sleeve of dark green haori"]
+    assert [c[1] for c in backend.calls if c[0] == "segment"] == ["dark green haori", "right sleeve of dark green haori", "left sleeve of dark green haori", kit.FIGURE_PROMPT, "dark green haori"]
     edits = [c[1] for c in backend.calls if c[0] == "edit"]
     assert any("her dark green haori" in e for e in edits)
     seen = result.manifest["outfits"]["outer_garment"]

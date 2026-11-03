@@ -640,7 +640,12 @@ def _fill_behind(image: Image.Image, alpha: Image.Image, torso: Image.Image, sid
     if not hole.any():
         return image, torso
     rgb = np.asarray(image.convert("RGB")).astype(np.float32)
-    filled = _push_pull(rgb, kept)
+    # Spread from the cloth's lit colours only: next to the hole the drawing is in the limb's shadow
+    # (under a sleeve the jacket's side is dark) and its outline is dark too, and spread from those
+    # the side showed as a dark smudge in the armpit once the arm rose.
+    luma = rgb.mean(axis=2)
+    lit = kept & (luma >= 0.6 * float(np.median(luma[kept])))
+    filled = _push_pull(rgb, lit if lit.sum() >= 0.2 * kept.sum() else kept)
     # Smoothed, so the fill shows no blocks from the pyramid.
     smooth = np.asarray(Image.fromarray(filled.clip(0, 255).astype(np.uint8), "RGB").filter(ImageFilter.GaussianBlur(4))).astype(np.float32)
     out = rgb.copy()

@@ -483,7 +483,8 @@ def outer_mask(backend, picture: Image.Image, garment: str = "") -> Image.Image 
     return mask
 
 
-SLEEVE_PROMPTS = ("right sleeve of jacket", "left sleeve of jacket")  # "jacket" becomes the garment's name when known
+SLEEVE_PROMPTS = ("right sleeve of jacket", "left sleeve of jacket")
+FIGURE_PROMPT = "person"  # the character in the coat-off edit, without the background between arms and body  # "jacket" becomes the garment's name when known
 SEGMENT_TRIES = 3
 
 
@@ -970,6 +971,12 @@ def build_kit(
     if slot_edits:
         white = Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas)
         made = {p.tag for p in extra}
+        # The character's outline in the coat-off edit, from the segmentation model (see slot_parts).
+        figure = outer_mask(backend, slot_edits[outfits.MID], FIGURE_PROMPT) if outer_canvas is not None and outfits.MID in slot_edits else None
+        slipped = None
+        if outer_canvas is not None and outfits.OUTER_HALF in slot_edits:
+            garment = settings.get("outer_garment_found", "")
+            slipped = outer_mask(backend, slot_edits[outfits.OUTER_HALF], "" if garment == NO_GARMENT else garment)
         parts = outfits.slot_parts(
             parts,
             canvas_size,
@@ -978,6 +985,8 @@ def build_kit(
             nude=outfit_edits[outfits.NUDE] if "nude body" in made else None,
             inner=outfit_edits[outfits.INNER] if made & {"inner wear", "inner top", "inner bottom"} else None,
             outer=outer_canvas,
+            figure=figure,
+            slipped_coat=slipped,
         )
         outfit_state["slots"] = sorted({p.tag for p in parts} & {"outer wear", "outer wear half", "topwear half", "bottomwear half"})
     parts = layers.drop_specks(parts + extra) + ([underlay] if underlay else [])
