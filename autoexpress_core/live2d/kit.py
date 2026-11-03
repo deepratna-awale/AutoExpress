@@ -453,6 +453,82 @@ SLOT_EDITS = (outfits.MID, outfits.OUTER_HALF, outfits.TOP_HALF, outfits.BOTTOM_
 
 
 SLEEVE_MAP = "sleeve_map"
+# What a segmentation model (SAM 3) is asked to find for the coat; its mask sets the coat's outline.
+OUTER_PROMPT = "jacket, coat, blazer, cardigan"
+OUTER_FILE = "outer_mask.png"
+
+
+def outer_mask(backend, picture: Image.Image) -> Image.Image | None:
+    """The coat in picture (RGBA) from the backend's segmentation model (SAM 3), mode L, or None."""
+    segment = getattr(backend, "segment", None)
+    if segment is None:
+        return None
+    on_white = Image.new("RGB", picture.size, (255, 255, 255))
+    rgba = picture.convert("RGBA")
+    on_white.paste(rgba, mask=rgba.getchannel("A"))
+    b64 = pil_to_b64(on_white)
+    mask = next((m for m in (segment(b64, OUTER_PROMPT) for _ in range(SEGMENT_TRIES)) if m is not None), None)
+    if mask is None or mask.getbbox() is None:
+        return None
+    return mask
+
+
+SLEEVE_PROMPTS = ("right sleeve of jacket", "left sleeve of jacket")
+SEGMENT_TRIES = 3
+
+
+def has_segmentation(backend) -> bool:
+    """Whether the backend has a segmentation model (SAM 3) to find the coat and its sleeves."""
+    find = getattr(backend, "segment_model", None)
+    return bool(find and find())
+
+
+def sam_sleeve_map(backend, picture: Image.Image, outer: Image.Image) -> Image.Image | None:
+    """
+    The sleeve map (see skeleton.sleeve_map_masks) from the segmentation model: each sleeve of the
+    coat found by name (SAM 3 cuts a whole sleeve from "right sleeve of jacket"; a point on the arm
+    instead makes it take that half of the jacket), the rest of the coat cyan. None when it finds no
+    sleeve.
+    """
+    import numpy as np
+
+    on_white = Image.new("RGB", picture.size, (255, 255, 255))
+    rgba = picture.convert("RGBA")
+    on_white.paste(rgba, mask=rgba.getchannel("A"))
+    b64 = pil_to_b64(on_white)
+    sleeves = np.zeros((picture.height, picture.width), bool)
+    for prompt in SLEEVE_PROMPTS:
+        # A remote ComfyUI drops the odd request; a map with one sleeve missing tears that arm.
+        mask = next((m for m in (backend.segment(b64, prompt) for _ in range(SEGMENT_TRIES)) if m is not None), None)
+        if mask is None:
+            return None
+        sleeves |= np.asarray(mask.convert("L")) > 127
+    if sleeves.sum() < 0.002 * sleeves.size:
+        return None
+    coat = (np.asarray(outer.convert("L")) > 127) | sleeves
+    out = np.full((picture.height, picture.width, 3), 255, np.uint8)
+    out[coat & ~sleeves] = (0, 255, 255)
+    out[sleeves] = (255, 0, 255)
+    return Image.fromarray(out, "RGB")
+
+
+def sleeves_on_coat(sleeve_map: Image.Image, outer: Image.Image) -> Image.Image:
+    """
+    sleeve_map (Qwen's paint) trimmed to the coat's outline from the segmentation model, with the
+    rest of the coat painted cyan: the sleeves end exactly at the coat's edge, and the coat's body is
+    known too (see skeleton.sleeve_map_masks).
+    """
+    import numpy as np
+
+    rgb = np.asarray(sleeve_map.convert("RGB")).astype(np.int16)
+    painted = (rgb[..., 0] > 180) & (rgb[..., 2] > 180) & (rgb[..., 1] < 110)
+    coat = np.asarray(outer.convert("L").resize(sleeve_map.size, Image.Resampling.BILINEAR)) > 127
+    grown = np.asarray(Image.fromarray((coat * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))) > 0
+    sleeves = painted & grown
+    out = np.full(rgb.shape, 255, np.uint8)
+    out[coat & ~sleeves] = (0, 255, 255)
+    out[sleeves] = (255, 0, 255)
+    return Image.fromarray(out, "RGB")
 # Qwen paints a garment's sleeves well on their own (asked for the sleeves and the rest of the
 # jacket in two colours, it paints the whole jacket one colour and the skirt the other).
 SLEEVE_MAP_INSTRUCTION = (
@@ -497,7 +573,9 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
     mid = run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
     if mid is not None:
         run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description), "the outer layer half off", 0.37)
-        run(SLEEVE_MAP, picture, SLEEVE_MAP_INSTRUCTION, "the sleeve map", 0.375)
+        if not has_segmentation(backend):
+            # Without a segmentation model Qwen paints the sleeves for the map.
+            run(SLEEVE_MAP, picture, SLEEVE_MAP_INSTRUCTION, "the sleeve map", 0.375)
     if outfits.INNER in made:
         base = mid if mid is not None else picture
         run(outfits.TOP_HALF, base, outfits.top_half_instruction(inner_wear, description), "the top opened", 0.38)
@@ -725,6 +803,19 @@ def build_kit(
         notes.extend(slot_notes)
     for which, image in outfit_edits.items():
         image.save(folder / f"{which}.png")
+    # The coat's outline and its sleeves from a segmentation model (SAM 3) where the WebUI has one.
+    outer = sam_map = None
+    if outfits.MID in outfit_edits:
+        check_cancel()
+        progress("finding the coat", 0.395)
+        outer = outer_mask(backend, picture)
+        if outer is not None:
+            outer.save(folder / OUTER_FILE)
+            progress("finding the sleeves", 0.397)
+            sam_map = sam_sleeve_map(backend, picture, outer)
+            if sam_map is not None:
+                sam_map.save(folder / f"{SLEEVE_MAP}.png")
+                outfit_edits[SLEEVE_MAP] = sam_map
 
     # 4. Split.
     check_cancel()
@@ -750,8 +841,15 @@ def build_kit(
     # Qwen hands its edits back a little zoomed and shifted: line each one up with the picture first.
     face_box = layers._alpha_union(parts, canvas_size, ("face",)).getbbox()
     variants = {which: layers.align_edit(base_canvas, to_canvas(image, box, canvas_size), face_box) for which, image in variants.items()}
+    # The segmentation model's masks are of the picture itself (not an edit): they go on the canvas as they are.
+    exact = outfit_edits.pop(SLEEVE_MAP, None) if sam_map is not None else None
     outfit_edits = {which: layers.align_edit(base_canvas, to_canvas(image, box, canvas_size), face_box) for which, image in outfit_edits.items()}
     sleeve_map = outfit_edits.pop(SLEEVE_MAP, None)
+    outer_canvas = to_canvas(outer.convert("RGB"), box, canvas_size).convert("L") if outer is not None else None
+    if exact is not None:
+        sleeve_map = to_canvas(exact, box, canvas_size).convert("RGB")
+    elif sleeve_map is not None and outer_canvas is not None:
+        sleeve_map = sleeves_on_coat(sleeve_map, outer_canvas)
     overlays = layers.edit_overlays(
         parts,
         base_canvas,
@@ -779,6 +877,7 @@ def build_kit(
             slot_edits,
             nude=outfit_edits[outfits.NUDE] if "nude body" in made else None,
             inner=outfit_edits[outfits.INNER] if made & {"inner wear", "inner top", "inner bottom"} else None,
+            outer=outer_canvas,
         )
         outfit_state["slots"] = sorted({p.tag for p in parts} & {"outer wear", "outer wear half", "topwear half", "bottomwear half"})
     parts = layers.drop_specks(parts + extra) + ([underlay] if underlay else [])
