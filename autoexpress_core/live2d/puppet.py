@@ -795,9 +795,10 @@ def _into_shoes(folder: pathlib.Path, entries: list[dict]) -> None:
             end, start = lowest[column], shoe_top[column]
             if end < 0 or start - end > reach:
                 continue  # the leg doesn't end at the shoe here
-            # Over the gap and on down behind the shoe.
+            # Over the gap and on down behind the shoe, never into the background a heel's arch shows.
             below = np.nonzero(shoe_a[:, column])[0]
-            add[end + 1 : below.max() + 1, column] = True
+            add[end + 1 : start, column] = True
+            add[start : below.max() + 1, column] = shoe_a[start : below.max() + 1, column]
         add &= ~a
         # Only behind the shoe or in the gap just above it, never out past it.
         grown = np.asarray(shoe.filter(ImageFilter.MaxFilter(2 * reach + 1))) > 0

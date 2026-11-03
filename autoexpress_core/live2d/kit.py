@@ -328,7 +328,7 @@ ARMS_OUT = (
     "background between each arm (sleeve included) and her body and clothes all the way from the armpit to the hand; "
     "the sleeves do not touch the jacket, the waist or the hips."
 )
-NEUTRAL_TRIES = 4
+NEUTRAL_TRIES = 3
 
 
 def feet_gap(picture: Image.Image) -> float:

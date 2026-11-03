@@ -468,28 +468,37 @@ def _like(image: Image.Image, layer: Image.Image, tolerance: int = 60) -> Image.
     return layers._difference(image, Image.new("RGB", image.size, colour)).point(lambda v: 255 if v < tolerance else 0)
 
 
-def _bottom_cloth(parts: list, size, picture: Image.Image, waist: int | None, tolerance: int = 60) -> Image.Image:
+def _skirt_under(skirt: Image.Image, coat: Image.Image, more: Image.Image) -> Image.Image:
     """
-    Where the picture shows the skirt or trousers below the waist (mode L, 0/255), by their colour.
-    The edit that takes the coat off redraws the skirt too (a waistband, seams that weren't there):
-    that change is not the coat, and taking it as coat would swap in the redrawn skirt whenever the
-    coat comes off.
+    skirt (RGBA, canvas size) with what lies under coat (mode L) painted as plain cloth from the
+    skirt's colours outside it; more (mode L) is skirt the coat hid that the split left bare.
     """
-    empty = Image.new("L", size, 0)
-    bottom = layers._alpha_union(parts, size, ("bottomwear",)).point(lambda v: 255 if v > 128 else 0)
-    if waist is None or bottom.getbbox() is None:
-        return empty
-    over = layers._alpha_union(parts, size, ("topwear", "handwear")).point(lambda v: 255 if v > 128 else 0)
-    shown = ImageChops.subtract(bottom, over)
-    if ImageStat.Stat(shown).sum[0] < 255 * 200:
-        shown = bottom
-    colour = tuple(int(v) for v in ImageStat.Stat(picture.convert("RGB"), shown).median)
-    near = layers._difference(picture, Image.new("RGB", size, colour)).point(lambda v: 255 if v < tolerance else 0)
-    # Closed, so the skirt's own seams and shading lines go with it.
-    near = near.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(5))
-    below = Image.new("L", size, 0)
-    below.paste(255, (0, waist, size[0], size[1]))
-    return ImageChops.multiply(ImageChops.multiply(near, below), bottom.filter(ImageFilter.MaxFilter(9)))
+    import numpy as np
+
+    from .puppet import _push_pull
+
+    solid = np.asarray(skirt.getchannel("A")) > 128
+    hidden = np.asarray(coat) > 128
+    region = solid | (np.asarray(more) > 128)
+    known = solid & ~hidden
+    unknown = region & ~known
+    if not unknown.any() or known.sum() < 100:
+        return skirt
+    rgb = np.asarray(skirt.convert("RGB")).astype(np.float32)
+    # From the lit cloth only: the shadows (the coat's own among them) would spread in as dark blots.
+    luma = rgb.mean(axis=2)
+    lit = known & (luma >= np.median(luma[known]) - 10)
+    filled = _push_pull(rgb, lit if lit.sum() >= 100 else known)
+    filled = np.asarray(Image.fromarray(filled.clip(0, 255).astype(np.uint8), "RGB").filter(ImageFilter.GaussianBlur(8))).astype(np.float32)
+    # Feathered into the drawn skirt, so no seam shows where the plain cloth starts.
+    soft = np.asarray(Image.fromarray((unknown * 255).astype(np.uint8), "L").filter(ImageFilter.GaussianBlur(6))).astype(np.float32) / 255.0
+    soft = np.maximum(soft, unknown)[..., None]
+    out = rgb * (1 - soft) + filled * soft
+    alpha = np.asarray(skirt.getchannel("A")).copy()
+    alpha[region] = 255
+    result = Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    result.putalpha(Image.fromarray(alpha, "L"))
+    return result
 
 
 def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image.Image | None = None, inner: Image.Image | None = None) -> list:
@@ -526,7 +535,6 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
     mid = edits.get(MID)
     if mid is not None:
         coat = ImageChops.multiply(_changed(picture, mid), clothed)
-        coat = ImageChops.subtract(coat, _bottom_cloth(parts, size, picture, waist))
         coat = _drop_small(coat, 0.004)
         if waist is not None:
             # A coat covers the shoulders and chest: what the edit changed only further down (a shoe
@@ -543,6 +551,7 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
                 close = max(5, ((face[2] - face[0]) // 10 if face else 15) // 2 * 2 + 1)
                 cloth = _changed(mid, under_base, 18).filter(ImageFilter.MaxFilter(close)).filter(ImageFilter.MinFilter(close))
                 under = ImageChops.multiply(coat, cloth)
+            skirt_shape = layers._alpha_union(result, size, ("bottomwear",)).point(lambda v: 255 if v > 128 else 0)
             changed = []
             for part in result:
                 if layers.parse_tag(part.tag)[0] not in body_tags:
@@ -555,21 +564,24 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
                     changed.append(kept)
             result = changed
             has_bottom = any(layers.parse_tag(p.tag)[0] == "bottomwear" for p in result)
-            for tag, piece in (("topwear", below(under, waist, True) if has_bottom else under), ("bottomwear", below(under, waist, False) if has_bottom else None)):
+            top_piece = under
+            if has_bottom:
+                # The top reaches a little past the waist where the edit shows no skirt there (a
+                # shirt's hem the coat hid), so no gap opens between top and skirt with the coat off.
+                bottom = next(p for p in result if layers.parse_tag(p.tag)[0] == "bottomwear")
+                skirt_like = _like(mid, layers._on_canvas(bottom, size))
+                hem = below(below(under, waist + max(4, size[1] // 60), True), waist, False)
+                top_piece = ImageChops.lighter(below(under, waist, True), ImageChops.subtract(hem, skirt_like))
+            for tag, piece in (("topwear", top_piece), ("bottomwear", below(under, waist, False) if has_bottom else None)):
                 if piece is None or piece.getbbox() is None:
                     continue
                 current = next((p for p in result if layers.parse_tag(p.tag)[0] == tag), None)
                 if tag == "bottomwear" and current is not None:
-                    # The skirt keeps its own drawing under the coat's hem (the edit redraws it with a
-                    # waistband and seams of its own): the edit fills only what the split left bare,
-                    # and only with skirt (the arms hanging beside it in the edit are not skirt).
-                    canvas = layers._on_canvas(current, size)
-                    piece = ImageChops.multiply(piece, _like(mid, canvas))
-                    fill = _layer(mid, piece)
-                    if fill is not None:
-                        fill.alpha_composite(canvas)
-                        canvas = fill
-                    result[result.index(current)] = _part(tag, canvas, current.depth)
+                    # Under the coat's hem the skirt is plain cloth spread from its own visible
+                    # colours: the edit redraws the skirt with a waistband and seams the drawing
+                    # doesn't have, and the split's paint there is flat or carries the coat's shadow
+                    # (that shadow stays in the coat layer and comes off with it).
+                    result[result.index(current)] = _part(tag, _skirt_under(layers._on_canvas(current, size), coat, ImageChops.lighter(ImageChops.multiply(piece, skirt_shape), ImageChops.multiply(piece, _like(mid, layers._on_canvas(current, size))))), current.depth)
                     continue
                 fill = _layer(mid, piece)
                 if current is None:
@@ -582,7 +594,14 @@ def slot_parts(parts: list, size, picture: Image.Image, edits: dict, nude: Image
             if half is not None:
                 reach = clothed.filter(ImageFilter.MaxFilter(31))
                 slipped = ImageChops.multiply(ImageChops.multiply(_changed(half, mid), _key_from_white(half).point(lambda v: 255 if v > 128 else 0)), reach)
-                extra.append(_part("outer wear half", _layer(half, _drop_small(slipped, 0.004)), top_depth - 0.019))
+                # The edit often bares the shoulders under the slipped coat too: that skin isn't
+                # coat. It is told by the body edit's skin at the same place (a pale coat can be
+                # skin-coloured overall, so a single skin colour would take the coat too).
+                if nude is not None:
+                    bare = layers._difference(half, nude.convert("RGB")).point(lambda v: 255 if v < 24 else 0)
+                    slipped = ImageChops.subtract(slipped, bare.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(5)))
+                slipped = _drop_small(slipped, 0.004)
+                extra.append(_part("outer wear half", _layer(half, slipped), top_depth - 0.019))
 
     if inner is not None:
         for key, tag in ((TOP_HALF, "topwear"), (BOTTOM_HALF, "bottomwear")):
