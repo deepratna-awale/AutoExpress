@@ -316,6 +316,35 @@ NEUTRAL_POSE = (
 )
 # Portrait shape for the A-pose (width / height): room for the arms and the feet.
 NEUTRAL_ASPECT = 0.62
+# Asked again when the redraw kept the feet together or crossed (a model's walk often survives it).
+FEET_APART = (
+    " Her feet are planted apart, about shoulder-width, with a clear gap of background between her legs from the knees "
+    "all the way down to the feet; the legs and ankles do not cross or touch."
+)
+# The narrowest gap between the feet (share of the figure's height) that reads as standing apart.
+FEET_GAP = 0.04
+NEUTRAL_TRIES = 3
+
+
+def feet_gap(picture: Image.Image) -> float:
+    """
+    How far apart the feet stand in a full-body picture on white: the widest gap of background
+    between them across the bottom of the figure (ankles and feet), as a share of the figure's
+    height. Near 0 when the legs touch or cross there.
+    """
+    import numpy as np
+
+    rgb = np.asarray(picture.convert("RGB")).astype(np.int16)
+    figure = rgb.min(axis=2) < 230
+    rows = np.nonzero(figure.any(axis=1))[0]
+    if len(rows) < 20:
+        return 0.0
+    top, height = rows[0], rows[-1] - rows[0]
+    gaps = []
+    for share in (0.86, 0.89, 0.92, 0.95):
+        xs = np.nonzero(figure[int(top + share * height)])[0]
+        gaps.append(float(np.diff(xs).max()) / height if len(xs) > 1 else 0.0)
+    return min(gaps)
 
 
 def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Image.Image | None, str]:
@@ -334,13 +363,25 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
     description = settings.get("character_description", "")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
     log("Redrawing the character in a neutral A-pose, full body (Qwen-Image-Edit).")
-    posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(NEUTRAL_POSE, description) + outfits._describe(description), edit)
-    if posed is None:
+    best, best_gap = None, -1.0
+    for attempt in range(NEUTRAL_TRIES):
+        # The legs are straightened first, so the 2.5D rig only turns them a little from there.
+        instruction = NEUTRAL_POSE + (FEET_APART if attempt else "")
+        posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(instruction, description) + outfits._describe(description), edit)
+        if posed is None:
+            break
+        posed = posed.convert("RGB")
+        if posed.size != canvas.size:
+            posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
+        gap = feet_gap(posed)
+        if gap > best_gap:
+            best, best_gap = posed, gap
+        if gap >= FEET_GAP:
+            break
+        log("The redraw kept the feet together; asking again with the legs apart.")
+    if best is None:
         return None, f"Couldn't redraw the neutral pose: {getattr(backend, 'last_error', None) or 'the WebUI failed'}. The puppet keeps the picture's pose."
-    posed = posed.convert("RGB")
-    if posed.size != canvas.size:
-        posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
-    return posed, ""
+    return best, ""
 
 
 SLOT_EDITS = (outfits.MID, outfits.OUTER_HALF, outfits.TOP_HALF, outfits.BOTTOM_HALF)

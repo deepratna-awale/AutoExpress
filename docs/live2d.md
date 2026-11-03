@@ -213,11 +213,13 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 
 **Skeleton.** By default the kit first redraws the character standing in a neutral A-pose, full
 body, with Qwen-Image-Edit (`--no-neutral-pose` or the **Neutral pose** switch off keeps the
-picture's pose). The puppet then gets a skeleton (hips, spine, chest, neck, head, and each arm and
+picture's pose). The legs come out straight and apart, the knees over the ankles: when the redraw
+keeps the feet together or crossed (a model's walk often survives it), the kit asks again, up to
+three times. The puppet then gets a skeleton (hips, spine, chest, neck, head, and each arm and
 leg), stored under `Rig.Skeleton` (`Bones` with `Name`, `Parent`, `Head`, `Tail`, `Radius` and
 limits), fitted to the drawing: the hands from the split's arm layers, the legs from the body's
 outline. Each layer is cut into a torso piece and arm and leg pieces with matching edges (`"Piece"`
-in the layer entry): whole sleeves go with the arms, a skirt stays whole while the legs move under
+in the layer entry): whole sleeves go with the arms, cut from the jacket along the outline drawn between them, a skirt stays whole while the legs move under
 it, the body behind a hand is painted in, a top's sides run on behind the arms, and touching legs
 are split along the line drawn between them. Each vertex follows its nearest bones, and the
 weights blend across the seams: around the shoulder and the hip the body and the limb share the
