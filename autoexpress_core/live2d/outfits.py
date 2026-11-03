@@ -569,6 +569,8 @@ def slot_parts(
     nude: Image.Image | None = None,
     inner: Image.Image | None = None,
     outer: Image.Image | None = None,
+    figure: Image.Image | None = None,
+    slipped_coat: Image.Image | None = None,
 ) -> list:
     """
     The split's clothing rearranged into slots, the way Koikatsu dresses a character: the outermost
@@ -580,8 +582,11 @@ def slot_parts(
     picture is the original on the canvas; nude and inner the body and inner wear edits there, when
     made (the opened top and lifted skirt need what they uncover, so they come only with inner).
     outer (mode L, canvas size), when given, is a segmentation model's mask of the coat, which
-    then sets its outline instead of comparing the picture with the coat-off edit. Returns the new
-    list of parts (the split's, changed, plus the new layers).
+    then sets its outline instead of comparing the picture with the coat-off edit. figure (mode L,
+    canvas size), when given, is a segmentation model's mask of the character in the coat-off edit:
+    it tells the white background in the gaps between the arms and the body from a white shirt.
+    slipped_coat (mode L, canvas size), when given, is its mask of the coat in the half-off edit.
+    Returns the new list of parts (the split's, changed, plus the new layers).
     """
     body_tags = ("topwear", "bottomwear", "legwear", "footwear", "handwear", "neckwear")
     clothed = layers._alpha_union(parts, size, body_tags + ("neck",)).point(lambda v: 255 if v > 64 else 0)
@@ -638,6 +643,11 @@ def slot_parts(
             # Never the edit's white background: a shirt's sleeve is narrower than the coat's, and the
             # white beside it would hang round the arm as a pale halo once the coat is off.
             under = ImageChops.multiply(under, _key_from_white(mid).point(lambda v: 255 if v > 128 else 0))
+            if figure is not None and figure.getbbox() is not None:
+                # The gaps between an arm and the body are closed in by the arm, so the white key
+                # takes them for the character; on a white shirt they hung beside the body as white
+                # bars once the arms rose. The segmentation model's outline of her leaves them out.
+                under = ImageChops.multiply(under, figure.point(lambda v: 255 if v > 127 else 0))
             skirt_shape = layers._alpha_union(result, size, ("bottomwear",)).point(lambda v: 255 if v > 128 else 0)
             changed = []
             for part in result:
@@ -693,6 +703,10 @@ def slot_parts(
                 if nude is not None:
                     bare = layers._difference(half, nude.convert("RGB")).point(lambda v: 255 if v < 24 else 0)
                     slipped = ImageChops.subtract(slipped, bare.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(5)))
+                if slipped_coat is not None and slipped_coat.getbbox() is not None:
+                    # Only the coat: the edit also redraws the shirt's sleeves under it, or bares the
+                    # shoulders, and that came along as a pale smear on the upper arms.
+                    slipped = ImageChops.multiply(slipped, slipped_coat.point(lambda v: 255 if v > 127 else 0).filter(ImageFilter.MaxFilter(5)))
                 slipped = _drop_small(slipped, 0.004)
                 extra.append(_part("outer wear half", _layer(half, slipped), top_depth - 0.019))
 
