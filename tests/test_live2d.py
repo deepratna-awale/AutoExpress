@@ -396,9 +396,10 @@ def test_build_kit_writes_the_whole_kit(tmp_path):
     assert ("ready", DECOMPOSE) in backend.calls
     edits = [call[1] for call in backend.calls if call[0] == "edit"]
     # Eyes closed and mouth open (Qwen: no character LoRA), angry brows, a grin and tears for the
-    # strongest emotions, then the coat off and slipped half off for the clothing slots.
-    assert len(edits) == 7 and edits[2].startswith("Make the eyebrows furious") and "grin" in edits[3] and "teary" in edits[4]
-    assert edits[5].startswith("Take off only her outermost") and "halfway off" in edits[6]
+    # strongest emotions, then the coat off and slipped half off for the clothing slots, and the
+    # sleeve map.
+    assert len(edits) == 8 and edits[2].startswith("Make the eyebrows furious") and "grin" in edits[3] and "teary" in edits[4]
+    assert edits[5].startswith("Take off only her outermost") and "halfway off" in edits[6] and "magenta" in edits[7]
     folder = result.folder
     for name in ("hina.psd", "hina_seethrough.psd", "preview.png", "sheet.jpg", "README.txt", "manifest.json", "input.png", "eyes_closed.png", "mouth_open.png",
                  "runtime/sillytavern_settings.json", "runtime/expressions/joy.exp3.json", "runtime/motions/idle.motion3.json"):
@@ -1348,6 +1349,73 @@ def test_split_arms_cuts_a_sleeve_along_its_outline_and_leaves_the_jacket_front(
     arm = masks["arm_R"]
     assert arm.getpixel((70, 150)) == 255 and arm.getpixel((115, 150)) == 0  # the sleeve, not the front
     assert arm.getpixel((105, 310)) == 255  # the hand stays with the arm
+
+
+def test_split_arms_takes_each_sleeve_whole_from_a_sleeve_map():
+    size = (300, 400)
+    picture = Image.new("RGBA", size, (190, 160, 130, 255))  # a jacket with no line to cut along
+    bones = {
+        "Bones": [
+            {"Name": "Spine", "Head": [150, 300], "Tail": [150, 100], "Radius": 60, "Group": "torso"},
+            {"Name": "UpperArmR", "Head": [75, 70], "Tail": [72, 180], "Radius": 25, "Group": "arm_R"},
+            {"Name": "ForearmR", "Head": [72, 180], "Tail": [70, 280], "Radius": 22, "Group": "arm_R"},
+            {"Name": "HandR", "Head": [70, 280], "Tail": [70, 320], "Radius": 15, "Group": "arm_R"},
+        ]
+    }
+    plain = Image.new("L", size, 0)
+    ImageDraw.Draw(plain).rectangle((40, 60, 105, 330), fill=255)  # narrower than the sleeve
+    sleeve_map = Image.new("RGB", size, (255, 255, 255))
+    draw = ImageDraw.Draw(sleeve_map)
+    draw.rectangle((30, 60, 115, 300), fill=(255, 0, 255))  # the sleeve, wider than the arm's mask
+    draw.rectangle((116, 60, 260, 300), fill=(0, 255, 255))  # the jacket's body
+    draw.rectangle((180, 320, 200, 340), fill=(255, 0, 255))  # a stray speck, nowhere near the arm
+    sleeves = skeleton.sleeve_map_masks(sleeve_map)
+    assert sleeves is not None
+    arm = skeleton.split_arms({"arm_R": plain}, bones, picture, None, sleeves)["arm_R"]
+    assert arm.getpixel((110, 150)) == 255 and arm.getpixel((35, 150)) == 255  # the whole sleeve
+    assert arm.getpixel((130, 150)) == 0 and arm.getpixel((190, 330)) == 0  # not the jacket, not the speck
+    assert skeleton.sleeve_map_masks(Image.new("RGB", size, (255, 255, 255))) is None
+
+
+def test_elbow_bend_and_keypoints():
+    straight = [(50.0, 50.0)] * 18
+    straight[2], straight[3], straight[4] = (100.0, 100.0), (90.0, 200.0), (80.0, 300.0)
+    assert skeleton.elbow_bend(straight) < 2
+    bent = list(straight)
+    bent[4] = (140.0, 280.0)
+    assert skeleton.elbow_bend(bent) > 30
+    flat = []
+    for x, y in straight:
+        flat += [x, y, 1.0]
+    flat[0:3] = [0, 0, 0]  # the nose wasn't found
+    points = skeleton.keypoint_points([{"pose_keypoints_2d": flat}], (2.0, 1.0))
+    assert points[0] is None and points[3] == (180.0, 200.0)
+    assert skeleton.pose_picture(points, (400, 400)).getbbox() is not None
+    assert skeleton.keypoint_points([]) is None
+
+
+def test_neutral_pose_asks_again_when_an_elbow_is_bent():
+    class Bending(FakeBackend):
+        takes_reference = True
+
+        def __init__(self):
+            super().__init__()
+            self.tries = 0
+
+        def instruction_edit(self, image_b64, instruction, settings, reference=None):
+            self.calls.append(("edit", instruction, reference))
+            self.tries += 1
+            return standing(True, True)
+
+        def pose_keypoints(self, image):
+            wrist = (40, 300) if self.tries == 1 else (80, 300)
+            points = [(100, 50)] * 18
+            points[2], points[3], points[4] = (100, 100), (90, 200), wrist
+            return [{"pose_keypoints_2d": [v for x, y in points for v in (x, y, 1.0)]}]
+
+    backend = Bending()
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    assert posed is not None and note == "" and backend.tries == 2
 
 
 def test_fill_holes_paints_in_small_holes_but_keeps_openings():
