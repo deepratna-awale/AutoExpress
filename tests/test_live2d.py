@@ -757,7 +757,7 @@ def test_build_kit_finds_the_coat_and_sleeves_with_a_segmentation_model(tmp_path
     edits = [call[1] for call in backend.calls if call[0] == "edit"]
     assert edits and not any("magenta" in e for e in edits)  # no drawn sleeve map: the sleeves are found by name
     # Then the character in the coat-off edit and the coat in the half-off edit (see slot_parts).
-    assert [c[1] for c in backend.calls if c[0] == "segment"] == [kit.OUTER_PROMPT, *kit.SLEEVE_PROMPTS, kit.FIGURE_PROMPT, kit.OUTER_PROMPT]
+    assert [c[1] for c in backend.calls if c[0] == "segment"] == [kit.OUTER_PROMPT, *kit.SLEEVE_PROMPTS, *kit.MOUTH_PROMPTS.values(), kit.FIGURE_PROMPT, kit.OUTER_PROMPT]
     assert (result.folder / kit.OUTER_FILE).exists() and (result.folder / f"{kit.SLEEVE_MAP}.png").exists()
 
 
@@ -770,7 +770,7 @@ class SeeingBackend(SegmentingBackend):
 def test_build_kit_names_the_outer_garment_with_a_vision_model(tmp_path):
     backend = SeeingBackend()
     result = kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024}, log=lambda _: None)
-    assert [c[1] for c in backend.calls if c[0] == "segment"] == ["dark green haori", "right sleeve of dark green haori", "left sleeve of dark green haori", kit.FIGURE_PROMPT, "dark green haori"]
+    assert [c[1] for c in backend.calls if c[0] == "segment"] == ["dark green haori", "right sleeve of dark green haori", "left sleeve of dark green haori", *kit.MOUTH_PROMPTS.values(), kit.FIGURE_PROMPT, "dark green haori"]
     edits = [c[1] for c in backend.calls if c[0] == "edit"]
     assert any("her dark green haori" in e for e in edits)
     seen = result.manifest["outfits"]["outer_garment"]
@@ -793,7 +793,7 @@ def test_outer_garment_prefers_what_the_user_typed_then_the_description_then_pro
 def test_build_kit_skips_the_coat_edits_when_the_user_says_there_is_no_outer_garment(tmp_path):
     backend = SeeingBackend()
     kit.build_kit(backend, [character()], tmp_path, "mira", {"resolution": 1024, "outer_garment": "none"}, log=lambda _: None)
-    assert not any(c[0] in ("segment", "describe") for c in backend.calls)
+    assert not any(c[0] == "describe" or (c[0] == "segment" and c[1] not in kit.MOUTH_PROMPTS.values()) for c in backend.calls)  # only the mouth is segmented
     assert not any("outermost" in c[1] for c in backend.calls if c[0] == "edit")
 
 
@@ -1578,3 +1578,53 @@ def test_stockings_carry_on_into_the_shoes(tmp_path):
     at = lambda x, y: image.getpixel((x - leg["X"], y - leg["Y"]))
     assert at(100, 305)[3] == 255 and at(100, 330)[3] == 255  # over the gap and on behind the shoe
     assert leg["Y"] + leg["Height"] <= 361  # never out past the shoe
+
+
+def test_mouth_parts_cut_the_open_mouth_into_lips_teeth_tongue_and_inside():
+    from autoexpress_core.live2d import layers as L
+
+    size = (200, 200)
+    edited = Image.new("RGB", size, (250, 225, 210))
+    draw = ImageDraw.Draw(edited)
+    draw.ellipse((60, 60, 140, 140), fill=(200, 120, 120))  # lips
+    draw.ellipse((70, 70, 130, 130), fill=(40, 10, 15))  # inside
+    draw.rectangle((75, 72, 125, 82), fill=(250, 250, 250))  # upper teeth
+    draw.rectangle((78, 118, 122, 127), fill=(245, 245, 245))  # lower teeth
+    draw.ellipse((85, 100, 115, 120), fill=(220, 120, 130))  # tongue
+    art = edited.crop((58, 58, 142, 142)).convert("RGBA")
+    open_mouth = L.Overlay("Mouth", "Mouth open", art, 58, 58, "ParamMouthOpenY")
+
+    def mask(shape, box):
+        m = Image.new("L", size, 0)
+        getattr(ImageDraw.Draw(m), shape)(box, fill=255)
+        return m
+
+    masks = {
+        "opening": mask("ellipse", (70, 70, 130, 130)),
+        "teeth upper": mask("rectangle", (75, 72, 125, 82)),
+        "teeth lower": mask("rectangle", (78, 118, 122, 127)),
+        "tongue": mask("ellipse", (85, 100, 115, 120)),
+    }
+    parts = L.mouth_parts(open_mouth, edited, masks)
+    names = [p.name for p in parts]
+    assert names == list(L.MOUTH_PARTS)
+    by = {p.name: p for p in parts}
+    # The inside is the whole opening in its dark colour, teeth and tongue painted over.
+    inside = by["Mouth inside"]
+    centre = inside.image.getpixel((100 - inside.left, 110 - inside.top))
+    assert centre[3] > 200 and max(centre[:3]) < 80
+    # The lips keep the ring and drop the opening.
+    lips = by["Mouth lips"]
+    assert lips.image.getpixel((100 - lips.left, 100 - lips.top))[3] == 0
+    assert lips.image.getpixel((100 - lips.left, 63 - lips.top))[3] > 200
+    assert by["Teeth upper"].top < by["Tongue"].top < by["Teeth lower"].top
+    # Without the opening there is nothing to cut.
+    assert L.mouth_parts(open_mouth, edited, {**masks, "opening": None}) == []
+
+
+def test_mouth_parts_have_their_own_roles():
+    for name, role in (("Mouth inside", "mouth_inside"), ("Teeth upper", "teeth_upper"), ("Teeth lower", "teeth_lower"), ("Tongue", "tongue"), ("Mouth lips", "mouth_lips")):
+        assert puppet.role_of("Mouth", name) == (role, None)
+        assert role in puppet.HEAD_ROLES and role in puppet.FEATURE_ROLES
+    ids = [p[0] for p in puppet.PARAMETERS]
+    assert {"ParamMouthWide", "ParamTongueUp", "ParamTeeth"} <= set(ids)

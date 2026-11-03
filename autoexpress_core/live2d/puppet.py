@@ -60,6 +60,11 @@ PARAMETERS = [
     ("ParamCheek", 0, 1, 0),
     ("ParamBrowAngry", 0, 1, 0),
     ("ParamMouthGrin", 0, 1, 0),
+    # Lip sync shapes with the mouth in pieces: -1 rounded (oo) to 1 stretched (ee), the tongue raised,
+    # the teeth brought to the lips (s, ee, f).
+    ("ParamMouthWide", -1, 1, 0),
+    ("ParamTongueUp", 0, 1, 0),
+    ("ParamTeeth", 0, 1, 0),
     ("ParamTear", 0, 1, 0),
     ("ParamBodyAngleX", -10, 10, 0),
     ("ParamBodyAngleY", -10, 10, 0),
@@ -173,15 +178,18 @@ _BODY_ROLES = {
     "Topwear": "clothing", "Bottomwear": "clothing", "Legwear": "clothing", "Footwear": "clothing", "Neckwear": "clothing",
     "Outer wear": "clothing", "Outer wear half": "clothing", "Topwear half": "clothing", "Bottomwear half": "clothing",
 }
+# The open mouth cut into pieces for lip sync (layers.mouth_parts).
+_MOUTH_PART_ROLES = {"Mouth inside": "mouth_inside", "Teeth upper": "teeth_upper", "Teeth lower": "teeth_lower", "Tongue": "tongue", "Mouth lips": "mouth_lips"}
+MOUTH_PART_ROLES = tuple(_MOUTH_PART_ROLES.values())
 # The pose detector's keypoints in a kit (OpenPose JSON, the kit's pixels).
 POSE_FILE = "pose.json"
 # The sleeve map in a kit (the kit's pixels): the outer garment's sleeves magenta, its body cyan.
 SLEEVE_FILE = "sleeves.png"
 # How much of the head layers' depth spread around the face is kept (add_depth).
 HEAD_DEPTH_SPREAD = 0.25
-HEAD_ROLES = ("face", "brow", "brow_angry", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "mouth", "mouth_open", "mouth_grin", "ear", "front_hair", "hair_under", "headwear", "back_hair")
+HEAD_ROLES = ("face", "brow", "brow_angry", "nose", "eyewear", "eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "mouth", "mouth_open", "mouth_grin", *MOUTH_PART_ROLES, "ear", "front_hair", "hair_under", "headwear", "back_hair")
 # The eyes and mouth: small on the canvas, drawn large; their textures get upscaled.
-FEATURE_ROLES = ("eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "brow", "brow_angry", "mouth", "mouth_open", "mouth_grin")
+FEATURE_ROLES = ("eyes", "eyelash", "iris", "eye_white", "eye_closed", "eye_tears", "brow", "brow_angry", "mouth", "mouth_open", "mouth_grin", *MOUTH_PART_ROLES)
 # The outer clothes: hidden by ParamClothesOuter when the puppet has a body layer under them.
 OUTER_ROLES = ("clothing", "arm")
 
@@ -202,6 +210,8 @@ def role_of(group: str, layer_name: str) -> tuple[str, str | None]:
         return "mouth_open", None
     if layer_name == "Mouth grin":
         return "mouth_grin", None
+    if layer_name in _MOUTH_PART_ROLES:
+        return _MOUTH_PART_ROLES[layer_name], None
     if layer_name == "Hair underlay":
         return "hair_under", None
     if group.startswith("Eye "):
@@ -1311,6 +1321,11 @@ PREVIEW = """<!doctype html>
   <label id="outfit-row" hidden>Outfit <select id="outfit"></select></label>
   <div id="slots"></div>
   <label id="accessories-row" hidden><input type="checkbox" id="accessories" checked> Accessories</label>
+  <div id="talk" hidden>
+    <label>Say <input id="say-text" value="Hello! Nice to meet you, I'm glad you came." style="width:100%;box-sizing:border-box;font:inherit"></label>
+    <button id="say">Speak</button>
+    <label>Mouth shape <select id="viseme"></select></label>
+  </div>
   <label>Blush <input type="range" id="blush" min="0" max="1" step="0.05" value="0"></label>
   <label><input type="checkbox" id="follow" checked> Follow the cursor</label>
   <button id="reset-pose">Reset pose</button>
@@ -1375,6 +1390,14 @@ const motions = document.getElementById("motion");
 for (const [group, list] of Object.entries(model.internalModel.settings.motions))
   list.forEach((_, index) => motions.append(new Option(`${{group}} ${{index}}`, `${{group}}|${{index}}`)));
 motions.onchange = () => {{ const [group, index] = motions.value.split("|"); model.motion(group, Number(index)); }};
+// Lip sync shapes, with the mouth in pieces (teeth and tongue on their own).
+if (model.doc.Layers.some((e) => e.Role === "mouth_inside")) {{
+  document.getElementById("talk").hidden = false;
+  document.getElementById("say").onclick = () => model.speak(document.getElementById("say-text").value);
+  const visemes = document.getElementById("viseme");
+  for (const name of model.constructor.visemes) visemes.append(new Option(name, name));
+  visemes.onchange = () => {{ model.viseme(visemes.value); model._speech.hold = 1500; }};
+}}
 window.puppet = model;
 </script>
 </body>

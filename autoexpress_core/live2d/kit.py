@@ -57,7 +57,8 @@ EXPRESSION_ART = (ANGRY_BROWS, GRIN, TEARS)
 KEEP = "Keep everything else exactly the same: face shape, eyebrows, hair, outfit, pose, colors, line art, art style, background and framing."
 INSTRUCTIONS = {
     EYES_CLOSED: "Close both eyes gently, like a calm blink: relaxed closed eyelids drawn as soft curved lash lines, no other change to the face. " + KEEP,
-    MOUTH_OPEN: "Open the mouth a little, as if saying \"ah\": a small relaxed open mouth showing a bit of the inside, no other change to the face. " + KEEP,
+    MOUTH_OPEN: "Open the mouth to a medium height, as if singing \"ah\", no wider than the mouth at rest: a neat row of white upper teeth along the top, "
+    "a row of white lower teeth along the bottom, the tongue resting low behind the lower teeth, dark inside. No other change to the face. " + KEEP,
     ANGRY_BROWS: "Make the eyebrows furious: sharply furrowed and slanted, the inner ends pulled hard down towards the nose in a fierce scowl. "
     "Keep the eyes open and looking the same way, and the mouth unchanged. " + KEEP.replace("eyebrows, ", ""),
     GRIN: "Give the character a wide, beaming grin: the corners of the mouth pulled up high and the lips parted just enough to show the upper teeth. "
@@ -481,6 +482,37 @@ def outer_mask(backend, picture: Image.Image, garment: str = "") -> Image.Image 
     if mask is None or mask.getbbox() is None:
         return None
     return mask
+
+
+# What the segmentation model is asked for in the mouth-open edit (layers.mouth_parts).
+MOUTH_PROMPTS = {"opening": "open mouth", "teeth upper": "upper teeth", "teeth lower": "lower teeth", "tongue": "tongue"}
+
+
+def mouth_masks(backend, edited: Image.Image, open_mouth) -> dict:
+    """
+    The open mouth's opening, teeth and tongue in the mouth-open edit (on its canvas) from the
+    backend's segmentation model, mode L on the canvas, or {} without one. The model looks at a
+    close-up around the mouth (it finds small things better large).
+    """
+    if getattr(backend, "segment", None) is None:
+        return {}
+    w, h = open_mouth.image.size
+    cx, cy = open_mouth.left + w / 2, open_mouth.top + h / 2
+    side = max(w, h) * 4
+    crop = layers.clamp_box((cx - side / 2, cy - side / 2, cx + side / 2, cy + side / 2), edited.size)
+    close = edited.convert("RGB").crop(crop)
+    scale = 1024 / max(close.size)
+    close = close.resize((max(1, round(close.width * scale)), max(1, round(close.height * scale))), Image.Resampling.LANCZOS)
+    b64 = pil_to_b64(close)
+    masks = {}
+    for key, prompt in MOUTH_PROMPTS.items():
+        mask = next((m for m in (backend.segment(b64, prompt) for _ in range(SEGMENT_TRIES)) if m is not None), None)
+        if mask is None or mask.getbbox() is None:
+            continue
+        canvas = Image.new("L", edited.size, 0)
+        canvas.paste(mask.convert("L").resize((crop[2] - crop[0], crop[3] - crop[1]), Image.Resampling.BILINEAR), crop[:2])
+        masks[key] = canvas
+    return masks if "opening" in masks else {}
 
 
 SLEEVE_PROMPTS = ("right sleeve of jacket", "left sleeve of jacket")
@@ -958,6 +990,15 @@ def build_kit(
         variants.get(MOUTH_OPEN),
         *(variants.get(which) for which in EXPRESSION_ART),
     )
+    open_mouth = next((o for o in overlays if o.name == "Mouth open"), None)
+    if open_mouth is not None:
+        check_cancel()
+        progress("cutting the teeth and tongue", 0.9)
+        masks = mouth_masks(backend, variants[MOUTH_OPEN], open_mouth)
+        talking = layers.mouth_parts(open_mouth, variants[MOUTH_OPEN], masks) if masks else []
+        if talking:
+            overlays.extend(talking)
+            log("Mouth: " + ", ".join(o.name for o in talking) + " (lip sync shapes).")
     extra = outfits.outfit_parts(
         parts,
         canvas_size,
