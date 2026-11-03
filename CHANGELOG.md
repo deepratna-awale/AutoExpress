@@ -4,6 +4,9 @@ All notable changes to AutoExpress are listed here, newest first.
 
 ## Unreleased
 
+### Fixed
+- **Qwen-Image-Edit no longer picks Qwen-Image-Layered's VAE.** With both installed in ComfyUI, the edit took `qwen_image_layered_vae` (it sorts first), which burned any big change, such as a turned view, to near white. The edit now takes the Qwen-Image VAE the setup downloads.
+
 ### New
 - **Live2D puppets: cleaner arms with the coat off or half off.** With SAM 3.1 the kit also outlines the character in the coat-off edit, so on a white shirt the background closed in between an arm and the body no longer hangs beside the body as white bars when the arms rise; and it outlines the coat in the half-off edit, so the slipped coat no longer brings the shirt's redrawn upper arms (or bare shoulders) along as a pale smear. The side of a top painted in behind a raised arm is spread from the cloth's lit colours, not from the arm's shadow and outline.
 - **Live2D puppets: the outer garment by name.** The kit names the character's outermost garment (a haori, a cloak, a cape, a hoodie as well as a blazer) and SAM 3.1 and the coat edits look for that: what you type in **Outer garment** (or `none`), else what the description, character card or prompt data says, else what a vision language model on ComfyUI sees (Qwen3-VL 8B through ComfyUI's own TextGenerate node, now in the RunPod setup script). The manifest records the name, where it came from and the clothes the model saw.

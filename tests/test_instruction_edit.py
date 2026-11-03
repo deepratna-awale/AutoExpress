@@ -391,3 +391,9 @@ def test_closed_mouth_for_animated_sprites():
     assert instruction_edit.CLOSED_MOUTH in instruction_edit.build_instruction("love", closed_mouth=True)
     assert instruction_edit.CLOSED_MOUTH not in instruction_edit.build_instruction("love")
     assert instruction_edit.CLOSED_MOUTH in instruction_edit.build_instruction("joy", style=instruction_edit.PHOTO, closed_mouth=True)
+
+
+def test_find_model_skips_the_layered_vae():
+    choices = ["qwen_image_layered_vae.safetensors", "qwen_image_vae.safetensors", "pixel_space"]
+    assert instruction_edit.find_model("vae", choices) == "qwen_image_vae.safetensors"
+    assert instruction_edit.find_model("vae", ["qwen_image_layered_vae.safetensors"]) is None
