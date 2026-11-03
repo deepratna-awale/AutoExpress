@@ -106,13 +106,12 @@ The clothes are dressed in slots, the way Koikatsu does it: **coat** (the outerm
 jacket, blazer, cardigan, haori), **top**, **bottom**, **legwear**, **inner top** and **inner
 bottom**, over the body. Each slot is on (1), half off (0.5) or off (0):
 
-- One more Qwen-Image-Edit run takes the coat off, so the coat is its own layer and the top under
-  it is drawn complete. It is made for every character (turn off **Coat on its own layer** to skip
-  it).
-- Half off isn't drawn: it is the same garment with part of it faded out, showing the very layers
-  under it (the same inner wear and body as when it's off). The coat slips off the shoulders, the
-  top opens at the front in a V, and the skirt lifts at the front. The opened top and lifted skirt
-  need the inner wear.
+- Two more Qwen-Image-Edit runs take the coat off and slip it halfway off the shoulders, so the
+  coat is its own layer, the top under it is drawn complete, and the coat has a half-off art. These
+  are made for every character (turn off **Coat on its own layer** to skip them).
+- With the inner wear made, two more draw the top opened at the front and the skirt lifted, the
+  half-off art of the top and the bottom. Half off is drawn rather than faded out of the garment:
+  cloth that slips or opens changes its shape.
 - The inner wear is split at the bare midriff into **Inner top** and **Inner bottom** (a one-piece
   stays whole).
 
@@ -214,11 +213,15 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 
 **Skeleton.** By default the kit first redraws the character standing in a neutral A-pose, full
 body, with Qwen-Image-Edit (`--no-neutral-pose` or the **Neutral pose** switch off keeps the
-picture's pose). The puppet then gets a skeleton (hips, spine, chest, neck, head, and each arm and
+picture's pose). The legs come out straight and apart, the knees over the ankles: when the redraw
+keeps the feet together or crossed (a model's walk often survives it), the kit asks again, up to
+three times. When ComfyUI has DWPose ([comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux),
+installed by the RunPod setup script), the joints come from it and are kept in `pose.json` in the
+kit; otherwise from anime proportions. The puppet then gets a skeleton (hips, spine, chest, neck, head, and each arm and
 leg), stored under `Rig.Skeleton` (`Bones` with `Name`, `Parent`, `Head`, `Tail`, `Radius` and
 limits), fitted to the drawing: the hands from the split's arm layers, the legs from the body's
 outline. Each layer is cut into a torso piece and arm and leg pieces with matching edges (`"Piece"`
-in the layer entry): whole sleeves go with the arms, a skirt stays whole while the legs move under
+in the layer entry): whole sleeves go with the arms, cut from the jacket along the outline drawn between them, a skirt stays whole while the legs move under
 it, the body behind a hand is painted in, a top's sides run on behind the arms, and touching legs
 are split along the line drawn between them. Each vertex follows its nearest bones, and the
 weights blend across the seams: around the shoulder and the hip the body and the limb share the

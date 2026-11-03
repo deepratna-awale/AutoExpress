@@ -308,12 +308,43 @@ def change_outfit(backend, picture: Image.Image, settings: dict, name: str, log)
 NEUTRAL_POSE = (
     "Redraw this exact character standing in a neutral A-pose, seen straight from the front, full body from the top of the "
     "head to the feet: standing straight and relaxed, arms straight down and held a little away from the sides with open "
-    "relaxed hands, legs straight and slightly apart, feet flat. Keep the same face, expression, hair, outfit, accessories, "
+    "relaxed hands and a clear gap between each arm and the body, legs straight and parallel about hip-width apart with a "
+    "gap between them all the way down, knees facing forward straight above the ankles (not touching, not bent, not turned "
+    "inward), feet flat and pointing forward. Keep the same face, expression, hair, outfit, accessories, "
     "body proportions, colours, line art and art style. Plain white background, the whole character in frame with a little "
     "margin, nothing else in the picture."
 )
 # Portrait shape for the A-pose (width / height): room for the arms and the feet.
 NEUTRAL_ASPECT = 0.62
+# Asked again when the redraw kept the feet together or crossed (a model's walk often survives it).
+FEET_APART = (
+    " Her feet are planted apart, about shoulder-width, with a clear gap of background between her legs from the knees "
+    "all the way down to the feet; the legs and ankles do not cross or touch."
+)
+# The narrowest gap between the feet (share of the figure's height) that reads as standing apart.
+FEET_GAP = 0.04
+NEUTRAL_TRIES = 3
+
+
+def feet_gap(picture: Image.Image) -> float:
+    """
+    How far apart the feet stand in a full-body picture on white: the widest gap of background
+    between them across the bottom of the figure (ankles and feet), as a share of the figure's
+    height. Near 0 when the legs touch or cross there.
+    """
+    import numpy as np
+
+    rgb = np.asarray(picture.convert("RGB")).astype(np.int16)
+    figure = rgb.min(axis=2) < 230
+    rows = np.nonzero(figure.any(axis=1))[0]
+    if len(rows) < 20:
+        return 0.0
+    top, height = rows[0], rows[-1] - rows[0]
+    gaps = []
+    for share in (0.86, 0.89, 0.92, 0.95):
+        xs = np.nonzero(figure[int(top + share * height)])[0]
+        gaps.append(float(np.diff(xs).max()) / height if len(xs) > 1 else 0.0)
+    return min(gaps)
 
 
 def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Image.Image | None, str]:
@@ -332,28 +363,42 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
     description = settings.get("character_description", "")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
     log("Redrawing the character in a neutral A-pose, full body (Qwen-Image-Edit).")
-    posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(NEUTRAL_POSE, description) + outfits._describe(description), edit)
-    if posed is None:
+    best, best_gap = None, -1.0
+    for attempt in range(NEUTRAL_TRIES):
+        # The legs are straightened first, so the 2.5D rig only turns them a little from there.
+        instruction = NEUTRAL_POSE + (FEET_APART if attempt else "")
+        posed = backend.instruction_edit(pil_to_b64(canvas.convert("RGB")), outfits.adapt(instruction, description) + outfits._describe(description), edit)
+        if posed is None:
+            break
+        posed = posed.convert("RGB")
+        if posed.size != canvas.size:
+            posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
+        gap = feet_gap(posed)
+        if gap > best_gap:
+            best, best_gap = posed, gap
+        if gap >= FEET_GAP:
+            break
+        log("The redraw kept the feet together; asking again with the legs apart.")
+    if best is None:
         return None, f"Couldn't redraw the neutral pose: {getattr(backend, 'last_error', None) or 'the WebUI failed'}. The puppet keeps the picture's pose."
-    posed = posed.convert("RGB")
-    if posed.size != canvas.size:
-        posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
-    return posed, ""
+    return best, ""
 
 
-SLOT_EDITS = (outfits.MID,)
+SLOT_EDITS = (outfits.MID, outfits.OUTER_HALF, outfits.TOP_HALF, outfits.BOTTOM_HALF)
 
 
 def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, log, check_cancel, progress) -> tuple[dict, list[str]]:
     """
-    The edit for the clothing slots: the picture without its outermost layer, so the coat comes
-    off on its own. The half-off states aren't drawn: they fade part of each garment out and show
-    the layers under it (the same inner wear and body as when it's off). Returns ({key: picture}, notes).
+    The edits for the clothing slots: the picture without its outermost layer and with it slipped
+    halfway off (any character), and, when the inner wear was made (so the clothing check passed),
+    the top opened and the skirt lifted. Half off is drawn: cloth that slips or opens changes its
+    shape, which fading part of the garment out can't show. Returns ({key: picture}, notes).
     """
     description = settings.get("character_description", "")
     if settings.get("outfit_from_prompt"):
         description = (description + f". Her outfit: {settings['outfit_from_prompt']}").strip(". ")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
+    inner_wear = settings.get("inner_wear", "")
     edits: dict[str, Image.Image] = {}
     notes: list[str] = []
 
@@ -371,7 +416,13 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
         edits[key] = result
         return result
 
-    run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
+    mid = run(outfits.MID, picture, outfits.mid_instruction(description), "the outfit without its outer layer", 0.36)
+    if mid is not None:
+        run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description), "the outer layer half off", 0.37)
+    if outfits.INNER in made:
+        base = mid if mid is not None else picture
+        run(outfits.TOP_HALF, base, outfits.top_half_instruction(inner_wear, description), "the top opened", 0.38)
+        run(outfits.BOTTOM_HALF, base, outfits.bottom_half_instruction(inner_wear, description), "the skirt lifted", 0.39)
     return edits, notes
 
 
@@ -603,7 +654,7 @@ def build_kit(
     parts = layers.solidify_parts(parts)
     box = layers.square_placement(picture.size, canvas_size[0])
     base_canvas = to_canvas(picture, box, canvas_size)
-    parts = layers.match_picture(parts, Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas).convert("RGB"))
+    parts = layers.match_picture(parts, Image.alpha_composite(Image.new("RGBA", canvas_size, (255, 255, 255, 255)), base_canvas).convert("RGB"), subject=base_canvas.getchannel("A"))
     parts = layers.settle_lash_strays(parts, canvas_size)
     parts = layers.trim_neck(parts, canvas_size)
     underlay = layers.hair_underlay(parts, canvas_size)
@@ -677,7 +728,23 @@ def build_kit(
         json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
     )
 
-    puppet.build_puppet(tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed, depth_maps=depth_maps)
+    # The joints from a pose detector (DWPose) where the WebUI has one, in the kit's pixels: the
+    # skeleton then sits on the drawn limbs instead of anime proportions.
+    people = None
+    detect = getattr(backend, "pose_keypoints", None)
+    if posed and detect is not None:
+        check_cancel()
+        progress("finding the joints", 0.92)
+        people = detect(pil_to_b64(picture))
+        if people:
+            sx, sy = size[0] / picture.width, size[1] / picture.height
+            for person in people:
+                flat = person.get("pose_keypoints_2d") or []
+                person["pose_keypoints_2d"] = [round(v * (sx if i % 3 == 0 else sy if i % 3 == 1 else 1), 2) for i, v in enumerate(flat)]
+            (folder / puppet.POSE_FILE).write_text(json.dumps({"people": people}, indent=1) + "\n", encoding="utf-8")
+    puppet.build_puppet(
+        tree, manifest, size, folder / "puppet" / name, name, parts, enhance=lambda images: upscale_sheet(backend, images), neutral_pose=posed, depth_maps=depth_maps, people=people
+    )
 
     switches = ", ".join(o.name for o in overlays) or "none"
     (folder / "README.txt").write_text(README.format(name=name, switches=switches), encoding="utf-8")

@@ -21,7 +21,7 @@
 #   AUTOEXPRESS_REF  branch or tag of AutoExpress to use (default main)
 #   SKIP_QWEN=1      skip Qwen-Image-Edit (about 31 GB)
 #   SKIP_WAN=1       skip Wan 2.2 (about 38 GB)
-#   SKIP_SEETHROUGH=1  skip the See-through nodes and their models (about 10 GB, Live2D model kits)
+#   SKIP_SEETHROUGH=1  skip the See-through and DWPose nodes and their models (about 10 GB, Live2D model kits)
 #   CHECKPOINT_URL   a .safetensors checkpoint to put in models/checkpoints (for face inpainting)
 #   HF_TOKEN         Hugging Face token, only needed when downloads are rate limited
 #   COMFYUI_PORT     ComfyUI's port (default 8188)
@@ -51,6 +51,10 @@ if [ "${SKIP_SEETHROUGH:-0}" != "1" ]; then
   $PIP -r "$target/requirements.txt"
   # Its models download on first use; fetch them now so the first kit doesn't wait.
   python -c "from huggingface_hub import snapshot_download as d; [d(r) for r in ('layerdifforg/seethroughv0.0.2_layerdiff3d', 'layerdifforg/seethroughv0.0.1_marigold')]" || true
+  echo "== comfyui_controlnet_aux (DWPose: the puppet's joints)"
+  target="$COMFYUI_DIR/custom_nodes/comfyui_controlnet_aux"
+  [ -d "$target/.git" ] || git clone -q https://github.com/Fannovel16/comfyui_controlnet_aux "$target"
+  $PIP -r "$target/requirements.txt" || true
 fi
 
 echo "== AutoExpress ($AUTOEXPRESS_REF) in $AUTOEXPRESS_DIR"

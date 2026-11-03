@@ -505,3 +505,87 @@ def split_legs(masks: dict, skeleton_doc: dict, picture) -> dict:
     new_l = np.where(below, legs & right_of, np.asarray(masks["leg_L"]) > 0)
     new_r = np.where(below, legs & ~right_of, np.asarray(masks["leg_R"]) > 0)
     return {**masks, "leg_L": Image.fromarray((new_l * 255).astype(np.uint8)), "leg_R": Image.fromarray((new_r * 255).astype(np.uint8))}
+
+
+def split_arms(masks: dict, skeleton_doc: dict, picture, hands: dict | None = None) -> dict:
+    """
+    masks with each hanging arm's inner side cut along the line the drawing has there: the outline
+    between the sleeve and the body, or the gap under the arm. A sleeve is often wider than the arm's
+    measured thickness, so the nearest bone alone gives the arm a strip of the jacket's front, which
+    then comes off the chest when the arm moves. Arms raised away from the body (more across than
+    down) keep the plain split. picture is the body as drawn (RGBA, canvas size); hands ({"L"/"R":
+    mask}) stay with their arms whatever side of the line they're on.
+    """
+    import numpy as np
+    from PIL import Image
+
+    by_name = {b["Name"]: b for b in skeleton_doc.get("Bones", [])}
+    middle = by_name["Spine"]["Head"][0] if "Spine" in by_name else None
+    if middle is None:
+        return masks
+    width, height = picture.size
+    rgba = np.asarray(picture.convert("RGBA")).astype(np.float32)
+    alpha = rgba[..., 3] / 255
+    luma = (rgba[..., 0] * 0.3 + rgba[..., 1] * 0.59 + rgba[..., 2] * 0.11) / 255
+    # Cheapest on nothing (the gap under the arm) or a dark outline; squared so a soft shadow
+    # costs more than a line.
+    cost = alpha * (0.05 + luma * luma)
+    result = dict(masks)
+    for side in "LR":
+        group = f"arm_{side}"
+        chain = [by_name.get(f"{n}{side}") for n in ("UpperArm", "Forearm", "Hand")]
+        if group not in masks or not all(chain):
+            continue
+        if any(abs(b["Tail"][1] - b["Head"][1]) < 2 * abs(b["Tail"][0] - b["Head"][0]) for b in chain[:2]):
+            continue  # raised: no line runs down beside the body
+        toward = 1.0 if middle > chain[0]["Head"][0] else -1.0
+        top = int(chain[0]["Head"][1] + chain[0]["Radius"] * 0.5)
+        bottom = int(chain[2]["Tail"][1])
+        if bottom <= top + 4:
+            continue
+        rows = list(range(max(0, top), min(height - 1, bottom) + 1))
+        windows = []
+        for y in rows:
+            bone = next((b for b in chain if y <= b["Tail"][1]), chain[-1])
+            (hx, hy), (tx, ty) = bone["Head"], bone["Tail"]
+            x = hx + (tx - hx) * (y - hy) / (ty - hy)
+            near, far = x - toward * bone["Radius"] * 0.3, x + toward * bone["Radius"] * 1.4
+            lo, hi = sorted((near, far))
+            windows.append((max(0, int(lo)), min(width - 1, int(hi)), x, bone["Radius"]))
+        inf = 1e9
+        total = np.full((len(rows), width), inf, np.float32)
+        back = np.zeros((len(rows), width), np.int32)
+        columns_f = np.arange(width, dtype=np.float32)
+        # The first line out from the arm: further in, the jacket's front has lines of its own (the
+        # lapel's edge) that would take the front panel with the sleeve.
+        costs = [cost[y] + 0.15 * np.maximum(0.0, (columns_f - x0) * toward) / radius for y, (_, _, x0, radius) in zip(rows, windows, strict=True)]
+        lo, hi = windows[0][:2]
+        total[0, lo : hi + 1] = costs[0][lo : hi + 1]
+        for i in range(1, len(rows)):
+            lo, hi = windows[i][:2]
+            previous = total[i - 1]
+            here = costs[i]
+            for x in range(lo, hi + 1):
+                a, b = max(0, x - 2), min(width, x + 3)
+                j = int(np.argmin(previous[a:b])) + a
+                total[i, x] = previous[j] + here[x] + 0.02 * abs(j - x)
+                back[i, x] = j
+        x = int(np.argmin(total[-1]))
+        if total[-1, x] >= inf:
+            continue
+        seam = np.zeros(len(rows), np.int32)
+        for i in range(len(rows) - 1, -1, -1):
+            seam[i] = x
+            x = back[i, x]
+        columns = np.arange(width)[None, :]
+        body_side = np.zeros((height, width), bool)
+        body_side[rows[0] : rows[-1] + 1] = (columns > seam[:, None]) if toward > 0 else (columns < seam[:, None])
+        # Above it, the shoulder: the line goes straight up from where it starts, so the collar and
+        # lapel stay on the chest.
+        body_side[: rows[0]] = (columns > seam[0]) if toward > 0 else (columns < seam[0])
+        arm = (np.asarray(masks[group]) > 0) & ~body_side
+        hand = (hands or {}).get(side)
+        if hand is not None:
+            arm |= np.asarray(hand.convert("L")) > 128
+        result[group] = Image.fromarray((arm * 255).astype(np.uint8))
+    return result
