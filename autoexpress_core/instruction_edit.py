@@ -387,7 +387,11 @@ def find_model(role: str, choices: list[str], wanted: str | None = None) -> str 
     if wanted and wanted in choices:
         return wanted
     model = MODEL_BY_ROLE[role]
-    matches = [choice for choice in choices if model.matches(choice)]
+    # Qwen-Image-Layered's VAE (qwen_image_layered_vae) is a four-channel VAE of its own: picked for
+    # an edit (it sorts first), it burned every big change (a turned view) to near white.
+    matches = [choice for choice in choices if model.matches(choice) and "layered" not in choice.lower()]
+    # The file the setup downloads, by its own name, before other variants.
+    matches.sort(key=lambda name: name.replace("\\", "/").rsplit("/", 1)[-1].lower() != model.name.lower())
     if role == "diffusion_model":
         # The first Qwen-Image-Edit only takes one reference image and is weaker at keeping identity.
         matches.sort(key=lambda name: ("2511" in name, "2509" in name, "fp8" in name.lower()), reverse=True)
