@@ -5,6 +5,7 @@ All notable changes to AutoExpress are listed here, newest first.
 ## Unreleased
 
 ### Fixed
+- ComfyUI: a download the proxy in front of ComfyUI drops (a 404 or 5xx on a file that is there, as RunPod's proxy does now and then) is tried again, up to four times, instead of failing the whole job. A Live2D layer split downloads dozens of files, and one dropped file used to throw the split away.
 - **Qwen-Image-Edit no longer picks Qwen-Image-Layered's VAE.** With both installed in ComfyUI, the edit took `qwen_image_layered_vae` (it sorts first), which burned any big change, such as a turned view, to near white. The edit now takes the Qwen-Image VAE the setup downloads.
 
 ### New

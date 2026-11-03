@@ -601,3 +601,34 @@ def test_a1111_payload_takes_the_input_image_size():
 def test_a1111_takes_a_url_as_first_argument():
     assert A1111Client("http://host:7860").get_url() == "http://host:7860"
     assert A1111Client("host", "7861").get_url() == "http://host:7861"
+
+
+class FlakyViewSession(ComfySession):
+    """A proxy that answers the first downloads with a 404 although the file is there."""
+
+    def __init__(self, routes, misses):
+        super().__init__(routes)
+        self.misses = misses
+
+    def request(self, method, url, timeout=None, **kwargs):
+        if "/view" in url and self.misses:
+            self.misses -= 1
+            self.calls.append((method, "/view", kwargs))
+            return FakeResponse(None, 404)
+        return super().request(method, url, timeout, **kwargs)
+
+
+def test_comfyui_retries_a_dropped_download(payload, monkeypatch):
+    monkeypatch.setattr("autoexpress_core.backends.comfyui_api.time.sleep", lambda s: None)
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = FlakyViewSession(comfy_routes(done_history()), misses=2)
+    assert backend.img2img(payload).size == (64, 96)
+    assert sum(1 for m, p, kw in backend.session.calls if p == "/view") == 3
+
+
+def test_comfyui_gives_up_on_a_missing_download(payload, monkeypatch):
+    monkeypatch.setattr("autoexpress_core.backends.comfyui_api.time.sleep", lambda s: None)
+    backend = ComfyUIClient(poll_interval=0)
+    backend.session = FlakyViewSession(comfy_routes(done_history()), misses=10)
+    assert backend.img2img(payload) is None
+    assert sum(1 for m, p, kw in backend.session.calls if p == "/view") == ComfyUIClient.VIEW_TRIES

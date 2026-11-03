@@ -653,9 +653,23 @@ class ComfyUIClient(RemoteBackend):
         return result
 
     def _output_file(self, filename: str, subfolder: str = "") -> bytes:
-        response = self._request("GET", "/view", params={"filename": filename, "subfolder": subfolder, "type": "output"}, timeout=120)
+        response = self._view({"filename": filename, "subfolder": subfolder, "type": "output"})
         self._check(response, f"download of {filename}")
         return response.content
+
+    # A proxy in front of ComfyUI (RunPod's, for one) now and then answers a download with a 404 or a
+    # 5xx although the file is there: try again a few times before giving up on the whole job.
+    VIEW_TRIES = 4
+
+    def _view(self, params: dict):
+        """GET /view for one output file, retried when the answer is a 404 or a server error."""
+        for attempt in range(self.VIEW_TRIES):
+            response = self._request("GET", "/view", params=params, timeout=120)
+            if response.status_code != 404 and response.status_code < 500:
+                return response
+            if attempt + 1 < self.VIEW_TRIES:
+                time.sleep(min(8.0, 1.0 * 2**attempt))
+        return response
 
     # Upscale models for drawn art, best first (the setup script downloads the first).
     UPSCALE_MODELS = ("4x-AnimeSharp", "RealESRGAN_x4plus_anime_6B", "4x_foolhardy_Remacri", "RealESRGAN_x4plus", "4x-UltraSharp")
@@ -1278,12 +1292,7 @@ class ComfyUIClient(RemoteBackend):
         if not images:
             raise BackendRejected("ComfyUI finished without an output image (was a face detected?).")
         image = images[0]
-        response = self._request(
-            "GET",
-            "/view",
-            params={"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "temp")},
-            timeout=120,
-        )
+        response = self._view({"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "temp")})
         self._check(response, "image download")
         result = Image.open(io.BytesIO(response.content))
         result.load()
@@ -1418,12 +1427,7 @@ class ComfyUIClient(RemoteBackend):
             raise BackendRejected("ComfyUI finished without any frames.")
         frames = []
         for image in images:
-            response = self._request(
-                "GET",
-                "/view",
-                params={"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "temp")},
-                timeout=120,
-            )
+            response = self._view({"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "temp")})
             self._check(response, "frame download")
             frame = Image.open(io.BytesIO(response.content))
             frame.load()
