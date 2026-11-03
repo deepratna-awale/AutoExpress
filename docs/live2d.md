@@ -226,8 +226,12 @@ leg), stored under `Rig.Skeleton` (`Bones` with `Name`, `Parent`, `Head`, `Tail`
 limits), fitted to the drawing: the hands from the split's arm layers, the legs from the body's
 outline. Each layer is cut into a torso piece and arm and leg pieces with matching edges (`"Piece"`
 in the layer entry): whole sleeves go with the arms, cut from the jacket along the outline drawn between them or, when
-the kit has a sleeve map (`sleeves.png`: one more Qwen-Image-Edit run that paints the outer garment's
-sleeves flat magenta), exactly where the map paints them, a skirt stays whole while the legs move under
+the kit has a sleeve map (`sleeves.png`), exactly where the map paints them. With SAM 3.1 in ComfyUI
+(`sam3.1_multiplex_fp16.safetensors` from [Comfy-Org/sam3.1](https://huggingface.co/Comfy-Org/sam3.1) in
+`models/checkpoints`, installed by the RunPod setup script; ComfyUI's own SAM3_Detect node) the kit
+finds the coat (`outer_mask.png`) and each sleeve by name ("right sleeve of jacket") and paints the map
+from them; the coat layer then takes the coat's exact outline, and its shadow on the skirt comes off with
+it. Without SAM one more Qwen-Image-Edit run paints the sleeves flat magenta instead; a skirt stays whole while the legs move under
 it, the body behind a hand is painted in, a top's sides run on behind the arms, and touching legs
 are split along the line drawn between them. Each vertex follows its nearest bones, and the
 weights blend across the seams: around the shoulder and the hip the body and the limb share the

@@ -742,6 +742,54 @@ class ComfyUIClient(RemoteBackend):
         finally:
             self._prompt_id = None
 
+    # SAM 3 (ComfyUI's own SAM3_Detect, with the SAM 3.1 checkpoint from Comfy-Org/sam3.1).
+    SEGMENT_MODEL_HINT = "sam3"
+
+    def segment_model(self) -> str | None:
+        """The SAM 3 checkpoint ComfyUI has, or None (no SAM3_Detect node, or no checkpoint)."""
+        try:
+            if not self.object_info("SAM3_Detect"):
+                return None
+            return next((name for name in self.options("CheckpointLoaderSimple", "ckpt_name") if self.SEGMENT_MODEL_HINT in name.lower()), None)
+        except BackendError:
+            return None
+
+    def segment(self, image: str, prompt: str, positive: list | None = None, negative: list | None = None, threshold: float = 0.4) -> Image.Image | None:
+        """
+        Where a base64 picture shows prompt (a short noun phrase, or several separated by commas),
+        from SAM 3: a mask (mode L, the picture's size, 255 inside), or None without SAM 3 or on
+        failure. positive / negative are point prompts ([(x, y), ...] in the picture's pixels).
+        """
+        checkpoint = self.segment_model()
+        if checkpoint is None:
+            return None
+        self._interrupted.clear()
+        try:
+            picture = b64_to_pil(image)
+            detect = {"model": ["sam", 0], "image": ["image", 0], "conditioning": ["text", 0], "threshold": threshold, "refine_iterations": 5, "individual_masks": False}
+            if positive:
+                detect["positive_coords"] = json.dumps([{"x": int(x), "y": int(y)} for x, y in positive])
+            if negative:
+                detect["negative_coords"] = json.dumps([{"x": int(x), "y": int(y)} for x, y in negative])
+            workflow = {
+                "image": {"class_type": "LoadImage", "inputs": {"image": self.upload_image(image)}},
+                "sam": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": checkpoint}},
+                "text": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["sam", 1], "text": prompt}},
+                "detect": {"class_type": "SAM3_Detect", "inputs": detect},
+                "as_image": {"class_type": "MaskToImage", "inputs": {"mask": ["detect", 0]}},
+                "output": {"class_type": "SaveImage", "inputs": {"images": ["as_image", 0], "filename_prefix": f"autoexpress_mask_{uuid.uuid4().hex[:12]}"}},
+            }
+            self._prompt_id = self.queue_prompt(workflow)
+            entry = self.wait_for(self._prompt_id)
+            mask = self.fetch_image(entry).convert("L")
+            return mask.resize(picture.size, Image.Resampling.BILINEAR) if mask.size != picture.size else mask
+        except BackendError as e:
+            return self._fail(e, "segmentation")
+        except (KeyError, ValueError, TypeError, OSError) as e:
+            return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "segmentation")
+        finally:
+            self._prompt_id = None
+
     def decompose_layers(self, image: str, settings: "live2d_layers.SplitSettings") -> tuple[list, tuple[int, int]] | None:
         """
         Split a base64 character picture into layers with See-through.

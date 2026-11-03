@@ -736,6 +736,30 @@ def test_build_kit_with_swappable_clothing(tmp_path):
     assert "hair_under" in roles
 
 
+class SegmentingBackend(OutfitBackend):
+    def segment_model(self):
+        return "sam3.1_multiplex_fp16.safetensors"
+
+    def segment(self, image, prompt):
+        self.calls.append(("segment", prompt))
+        size = b64_to_pil(image).size
+        mask = Image.new("L", size, 0)
+        w, h = size
+        box = {kit.OUTER_PROMPT: (w * 0.3, h * 0.55, w * 0.7, h * 0.75)}.get(prompt, (w * 0.3, h * 0.55, w * 0.36, h * 0.75) if prompt.startswith("right") else (w * 0.64, h * 0.55, w * 0.7, h * 0.75))
+        ImageDraw.Draw(mask).rectangle(box, fill=255)
+        return mask
+
+
+def test_build_kit_finds_the_coat_and_sleeves_with_a_segmentation_model(tmp_path):
+    backend = SegmentingBackend()
+    settings = {"resolution": 1024, "outfit_layers": True, "adult_confirmed": True, "character_description": "an adult knight"}
+    result = kit.build_kit(backend, [character()], tmp_path, "mira", settings, log=lambda _: None)
+    edits = [call[1] for call in backend.calls if call[0] == "edit"]
+    assert edits and not any("magenta" in e for e in edits)  # no drawn sleeve map: the sleeves are found by name
+    assert [c[1] for c in backend.calls if c[0] == "segment"] == [kit.OUTER_PROMPT, *kit.SLEEVE_PROMPTS]
+    assert (result.folder / kit.OUTER_FILE).exists() and (result.folder / f"{kit.SLEEVE_MAP}.png").exists()
+
+
 def test_build_kit_reads_clothing_from_prompt_data_and_changes_the_outfit(tmp_path):
     backend = OutfitBackend()
     picture = character()
@@ -939,6 +963,65 @@ def test_slot_parts_split_the_coat_from_the_top_and_cut_drawn_half_off_art():
     assert slipped.getpixel((150, 210))[3] < 30 and slipped.getpixel((150, 340))[3] > 200  # off the shoulders, hanging lower down
     # No edit for the skirt lifted: no half state for it.
     assert "bottomwear half" not in tags
+
+
+def test_slot_parts_take_the_coat_outline_from_a_segmentation_mask():
+    size = (400, 400)
+    picture = Image.new("RGB", size, (255, 255, 255))
+    draw = ImageDraw.Draw(picture)
+    draw.rectangle((160, 220, 240, 300), fill=(240, 240, 240))  # shirt
+    draw.rectangle((160, 300, 240, 360), fill=(160, 40, 60))  # skirt
+    draw.rectangle((165, 300, 175, 312), fill=(90, 20, 30))  # the coat's shadow on the skirt
+    draw.rectangle((138, 200, 167, 300), fill=(20, 20, 20))  # the coat's drawn outline
+    draw.rectangle((141, 200, 165, 300), fill=(30, 90, 50))  # coat panel
+    mid = Image.new("RGB", size, (255, 255, 255))
+    ImageDraw.Draw(mid).rectangle((160, 220, 240, 300), fill=(240, 240, 240))
+    ImageDraw.Draw(mid).rectangle((160, 300, 240, 360), fill=(160, 40, 60))
+    picture = picture.convert("RGBA")
+    top_alpha = Image.new("L", size, 0)
+    ImageDraw.Draw(top_alpha).rectangle((138, 200, 240, 299), fill=255)
+    bottom_alpha = Image.new("L", size, 0)
+    ImageDraw.Draw(bottom_alpha).rectangle((160, 300, 240, 360), fill=255)
+    top, bottom = picture.copy(), picture.copy()
+    top.putalpha(top_alpha)
+    bottom.putalpha(bottom_alpha)
+    face = layers.Part("face", Image.new("RGBA", (60, 70), (245, 215, 195, 255)), 170, 120, 0.4)
+    parts = [face, layers.Part("topwear", top, 0, 0, 0.6), layers.Part("bottomwear", bottom, 0, 0, 0.6)]
+    sam = Image.new("L", size, 0)
+    ImageDraw.Draw(sam).rectangle((141, 200, 165, 300), fill=255)  # inside the drawn outline
+    result = {p.tag: p for p in outfits.slot_parts(parts, size, picture, {outfits.MID: mid}, outer=sam)}
+    coat = layers._on_canvas(result["outer wear"], size)
+    assert coat.getpixel((150, 250))[3] > 200 and coat.getpixel((139, 250))[3] > 200  # the outline comes off with it
+    assert coat.getpixel((170, 306))[3] > 200  # and its shadow on the skirt
+    assert coat.getpixel((200, 250))[3] < 30  # not the shirt
+    skirt = layers._on_canvas(result["bottomwear"], size)
+    assert sum(skirt.getpixel((170, 306))[:3]) > sum((140, 40, 50))  # lit cloth under the shadow
+
+
+def test_sam_sleeve_map_paints_each_named_sleeve_and_retries_a_dropped_request():
+    size = (200, 200)
+
+    class Segmenter:
+        def __init__(self):
+            self.calls = []
+
+        def segment(self, image, prompt):
+            self.calls.append(prompt)
+            if self.calls.count(prompt) == 1 and prompt.startswith("left"):
+                return None  # the remote ComfyUI dropped it
+            mask = Image.new("L", size, 0)
+            box = (20, 50, 50, 150) if prompt.startswith("right") else (150, 50, 180, 150)
+            ImageDraw.Draw(mask).rectangle(box, fill=255)
+            return mask
+
+    outer = Image.new("L", size, 0)
+    ImageDraw.Draw(outer).rectangle((20, 50, 180, 150), fill=255)
+    backend = Segmenter()
+    sleeve_map = kit.sam_sleeve_map(backend, Image.new("RGBA", size, (200, 180, 150, 255)), outer)
+    assert backend.calls.count("left sleeve of jacket") == 2
+    assert sleeve_map.getpixel((30, 100)) == (255, 0, 255) and sleeve_map.getpixel((170, 100)) == (255, 0, 255)
+    assert sleeve_map.getpixel((100, 100)) == (0, 255, 255)  # the coat's body
+    assert sleeve_map.getpixel((100, 10)) == (255, 255, 255)
 
 
 def test_trim_neck_takes_the_chin_out_of_the_neck_layer():

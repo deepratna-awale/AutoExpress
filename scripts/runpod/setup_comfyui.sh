@@ -21,7 +21,7 @@
 #   AUTOEXPRESS_REF  branch or tag of AutoExpress to use (default main)
 #   SKIP_QWEN=1      skip Qwen-Image-Edit (about 31 GB)
 #   SKIP_WAN=1       skip Wan 2.2 (about 38 GB)
-#   SKIP_SEETHROUGH=1  skip the See-through and DWPose nodes and their models (about 10 GB, Live2D model kits)
+#   SKIP_SEETHROUGH=1  skip the See-through, DWPose and SAM 3.1 nodes and models (about 12 GB, Live2D model kits)
 #   CHECKPOINT_URL   a .safetensors checkpoint to put in models/checkpoints (for face inpainting)
 #   HF_TOKEN         Hugging Face token, only needed when downloads are rate limited
 #   COMFYUI_PORT     ComfyUI's port (default 8188)
@@ -55,6 +55,9 @@ if [ "${SKIP_SEETHROUGH:-0}" != "1" ]; then
   target="$COMFYUI_DIR/custom_nodes/comfyui_controlnet_aux"
   [ -d "$target/.git" ] || git clone -q https://github.com/Fannovel16/comfyui_controlnet_aux "$target"
   $PIP -r "$target/requirements.txt" || true
+  echo "== SAM 3.1 (finds the coat and each sleeve by name for the clothing layers)"
+  [ -f "$COMFYUI_DIR/models/checkpoints/sam3.1_multiplex_fp16.safetensors" ] || \
+    wget -q -O "$COMFYUI_DIR/models/checkpoints/sam3.1_multiplex_fp16.safetensors" https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors || true
 fi
 
 echo "== AutoExpress ($AUTOEXPRESS_REF) in $AUTOEXPRESS_DIR"
