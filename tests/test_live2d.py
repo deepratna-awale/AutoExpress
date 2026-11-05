@@ -916,6 +916,17 @@ def test_puppet_rig_has_soft_body_and_cloth_for_a_full_body():
     assert {"ParamBustX", "ParamBustY", "ParamHipY", "ParamClothesOuter", "ParamClothesInner"} <= ids
 
 
+def test_the_player_is_a_vtuber_face_tracking_and_voice():
+    player = puppet.PLAYER.read_text(encoding="utf-8")
+    # The face tracker's blendshapes and head matrix drive the puppet; a voice opens the mouth.
+    for api in ("track(result", "recenter()", "stopTracking()", "listen(input)", "stopListening()", "_trackFrame(dt)", "_voiceFrame(dt)"):
+        assert api in player
+    for shape in ("eyeBlink", "jawOpen", "mouthSmileLeft", "browInnerUp", "eyeLookOutLeft", "mouthPucker"):
+        assert shape in player
+    page = puppet.PREVIEW.format(name="hina", suffix=puppet.SUFFIX)
+    assert 'id="track"' in page and 'id="mic"' in page and "FaceLandmarker" in page and "model.listen(stream)" in page
+
+
 def test_tight_skirts_barely_sway_and_flared_ones_swing(tmp_path):
     def skirt(name, hem_half_width):
         im = Image.new("RGBA", (300, 200), (0, 0, 0, 0))

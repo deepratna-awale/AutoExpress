@@ -1358,11 +1358,20 @@ PREVIEW = """<!doctype html>
     <button id="say">Speak</button>
     <label>Mouth shape <select id="viseme"></select></label>
   </div>
+  <div id="vtuber">
+    <label style="margin-top:10px"><strong>VTuber</strong></label>
+    <button id="track">Track my face (webcam)</button>
+    <button id="mic">Lip sync from the microphone</button>
+    <label><input type="checkbox" id="mirror" checked> Mirror me</label>
+    <button id="recenter" hidden>Recenter (sit as you'll stream, then press)</button>
+    <p id="track-note" hidden style="margin:4px 0;opacity:.75"></p>
+  </div>
   <label>Blush <input type="range" id="blush" min="0" max="1" step="0.05" value="0"></label>
   <label><input type="checkbox" id="follow" checked> Follow the cursor</label>
   <button id="reset-pose">Reset pose</button>
   <p style="margin:8px 0 0;opacity:.75">Drag the head, an arm or the torso to pose; drag the bust or hips to pull them; tap the head, face or body for a reaction.</p>
 </div>
+<video id="cam" playsinline muted hidden style="position:fixed;right:12px;bottom:12px;width:min(180px,30vw);border-radius:8px;opacity:.85"></video>
 <p id="file-note" hidden style="position:fixed;bottom:12px;left:12px;right:12px;margin:0">
   Browsers don't load the puppet's files from a page opened from the disk. Open <b>play.html</b> instead
   (everything is packed in), or serve this folder: <code>python3 -m http.server</code> and open
@@ -1430,6 +1439,77 @@ if (model.doc.Layers.some((e) => e.Role === "mouth_inside")) {{
   for (const name of model.constructor.visemes) visemes.append(new Option(name, name));
   visemes.onchange = () => {{ model.viseme(visemes.value); model._speech.hold = 1500; }};
 }}
+// VTuber: the face from the webcam (MediaPipe's face tracker, loaded when asked) and the mouth from the microphone.
+const MEDIAPIPE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+const FACE_MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const note = (text) => {{ const p = document.getElementById("track-note"); p.textContent = text; p.hidden = !text; }};
+const mirror = document.getElementById("mirror");
+const cam = document.getElementById("cam");
+const mirrorCam = () => (cam.style.transform = mirror.checked ? "scaleX(-1)" : "");
+mirror.onchange = mirrorCam;
+mirrorCam();
+let tracking = null;
+const trackButton = document.getElementById("track");
+trackButton.onclick = async () => {{
+  if (tracking) {{ tracking.stop(); return; }}
+  trackButton.disabled = true;
+  note("Starting the webcam and the face tracker…");
+  let stream = null;
+  try {{
+    stream = await navigator.mediaDevices.getUserMedia({{ video: {{ width: 640, height: 480, facingMode: "user" }} }});
+    cam.srcObject = stream;
+    await cam.play();
+    cam.hidden = false;
+    const vision = await import(MEDIAPIPE + "/vision_bundle.mjs");
+    const files = await vision.FilesetResolver.forVisionTasks(MEDIAPIPE + "/wasm");
+    const landmarker = await vision.FaceLandmarker.createFromOptions(files, {{
+      baseOptions: {{ modelAssetPath: FACE_MODEL, delegate: "GPU" }}, runningMode: "VIDEO", numFaces: 1,
+      outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true,
+    }});
+    let running = true, seen = -1;
+    const loop = () => {{
+      if (!running) return;
+      if (cam.currentTime !== seen && cam.readyState >= 2) {{
+        seen = cam.currentTime;
+        model.track(landmarker.detectForVideo(cam, performance.now()), {{ mirror: mirror.checked }});
+      }}
+      requestAnimationFrame(loop);
+    }};
+    loop();
+    tracking = {{ stop() {{
+      running = false;
+      stream.getTracks().forEach((t) => t.stop());
+      landmarker.close();
+      cam.hidden = true;
+      model.stopTracking();
+      tracking = null;
+      trackButton.textContent = "Track my face (webcam)";
+      document.getElementById("recenter").hidden = true;
+    }} }};
+    trackButton.textContent = "Stop tracking";
+    document.getElementById("recenter").hidden = false;
+    note("");
+  }} catch (err) {{
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    cam.hidden = true;
+    note("Face tracking needs a webcam, and the internet once to load the tracker: " + err.message);
+  }}
+  trackButton.disabled = false;
+}};
+document.getElementById("recenter").onclick = () => model.recenter();
+let stopMic = null;
+const micButton = document.getElementById("mic");
+micButton.onclick = async () => {{
+  if (stopMic) {{ stopMic(); stopMic = null; micButton.textContent = "Lip sync from the microphone"; return; }}
+  try {{
+    const stream = await navigator.mediaDevices.getUserMedia({{ audio: {{ echoCancellation: true, noiseSuppression: true }} }});
+    const stop = model.listen(stream);
+    stopMic = () => {{ stop(); stream.getTracks().forEach((t) => t.stop()); }};
+    micButton.textContent = "Stop the microphone";
+  }} catch (err) {{
+    note("The microphone: " + err.message);
+  }}
+}};
 window.puppet = model;
 </script>
 </body>
