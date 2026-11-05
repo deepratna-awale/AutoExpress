@@ -150,13 +150,20 @@ STRENGTH = {
     "drag": 1.0,  # how far dragging with the mouse pulls cloth, hair and soft parts
 }
 
-# Springs: hair, soft body (quick, bouncy, settles slowly) and cloth (slower, heavier).
+# Springs, as a natural frequency (Hz) and a damping ratio (the fraction of critical damping), the
+# way a body part really moves. The bust rings at about 2 to 3 Hz up and down and a little slower
+# side to side, and lightly damped it bounces a few times before it settles. The hips are firmer and
+# damped more. Hair and skirt hems are pendulums in locks and panels of their own, slower still.
+# gravity: how far the rest point moves when the body tilts, in radii; limit: the soft stop, in radii.
+# stiffness / damping (k, c) are the older single-spring form, still read for the head-driven sway.
 PHYSICS = {
     "stiffness": 18.0,
     "damping": 5.5,
     "gravity": 0.0,
-    "soft": {"stiffness": 75.0, "damping": 3.0},
-    "cloth": {"stiffness": 12.0, "damping": 3.2},
+    "soft": {"frequency": [1.9, 2.6], "damping": 0.15, "gravity": 0.12, "limit": 0.32},
+    "hips": {"frequency": [2.2, 3.0], "damping": 0.22, "gravity": 0.06, "limit": 0.22},
+    "hair": {"frequency": 1.15, "damping": 0.18, "locks": 6},
+    "cloth": {"frequency": 0.95, "damping": 0.24, "locks": 4},
     "drag": {"stiffness": 110.0, "damping": 5.0},
 }
 
@@ -349,6 +356,7 @@ def build_puppet(
                 better.save(path)
 
     rig = build_rig(entries, size)
+    cloth_sway(folder, entries, rig.get("Cloth", []))
     if rig.get("Mouth"):
         rig["Mouth"]["Jaw"] = jaw_line(folder, entries, rig["Mouth"]["Box"])
     radii, arm_alpha = None, {}
@@ -1248,6 +1256,30 @@ def cloth(entries: list[dict], body_box) -> list[dict]:
             continue
         result.append({"Layer": entry["Id"], "Root": round(root, 1), "Length": round(max(1, box[3] - root), 1)})
     return result
+
+
+def cloth_sway(folder, entries: list[dict], items: list[dict]) -> None:
+    """
+    How freely each swaying garment swings ("Sway", 0.15..1), from its flare: a pencil skirt as wide
+    at the hem as at the hips hugs the legs and barely moves, a skirt that flares out swings freely.
+    """
+    import numpy as np
+
+    by_id = {e["Id"]: e for e in entries}
+    for item in items:
+        entry = by_id.get(item["Layer"])
+        texture = pathlib.Path(folder) / entry["Texture"] if entry and entry.get("Texture") else None
+        if texture is None or not texture.exists():
+            continue  # nothing to measure: keep the full swing
+        alpha = np.asarray(Image.open(texture).convert("RGBA").getchannel("A")) > 127
+        widths = []
+        for share in (0.0, 0.85):
+            row = int(min(alpha.shape[0] - 1, max(0, item["Root"] - entry["Y"] + share * item["Length"])))
+            xs = np.nonzero(alpha[max(0, row - 3) : row + 4].any(0))[0]
+            widths.append(xs.max() - xs.min() + 1 if xs.size else 0)
+        if widths[0] > 0 and widths[1] > 0:
+            flare = widths[1] / widths[0]
+            item["Sway"] = round(float(np.clip((flare - 1.0) / 0.35, 0.15, 1.0)), 2)
 
 
 def _depth(entries, role):

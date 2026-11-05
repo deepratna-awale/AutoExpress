@@ -1408,6 +1408,40 @@ function definePuppetClass(PIXI) {
             return state.x;
         }
 
+        /**
+         * Where the puppet is in the world, in canvas pixels: dragging the model across the screen (or
+         * the page moving it) shakes the soft parts and hair like any other movement of the body.
+         */
+        _worldOffset() {
+            const sx = Math.abs(this.scale?.x || 1), sy = Math.abs(this.scale?.y || 1);
+            return [(this.x || 0) / sx, (this.y || 0) / sy];
+        }
+
+        /**
+         * A mass on a 2D spring, its anchor at (ax, ay) in the world (the body point plus the
+         * model's own movement): returns how far it lags behind the anchor. Real tissue and hair are
+         * springs with a natural frequency (Hz) and a damping ratio: fx/fy for the side-to-side and
+         * the up-and-down bounce, zeta the fraction of critical damping (0.1 rings a while, 1 doesn't).
+         * gx/gy shift its rest point (gravity pulling sideways when the body tilts).
+         */
+        _jiggle(key, ax, ay, dt, fx, fy, zeta, gx = 0, gy = 0) {
+            const [wx, wy] = this._worldOffset();
+            ax += wx; ay += wy;
+            const state = this._soft[key] || (this._soft[key] = { x: ax, y: ay, vx: 0, vy: 0 });
+            const kx = (2 * Math.PI * fx) ** 2, ky = (2 * Math.PI * fy) ** 2;
+            const cx = 2 * zeta * 2 * Math.PI * fx, cy = 2 * zeta * 2 * Math.PI * fy;
+            const steps = Math.max(1, Math.ceil(dt / 0.004));
+            const h = dt / steps;
+            for (let s = 0; s < steps; s++) {
+                // Semi-implicit Euler: stable at these stiffnesses with 4 ms steps.
+                state.vx += (kx * (ax + gx - state.x) - cx * state.vx) * h;
+                state.vy += (ky * (ay + gy - state.y) - cy * state.vy) * h;
+                state.x += state.vx * h;
+                state.y += state.vy * h;
+            }
+            return [state.x - ax, state.y - ay];
+        }
+
         /** A 2D spring that follows (ax, ay) with a lag: returns the lag (how far the soft part trails). */
         _softSpring(key, ax, ay, dt, k, d) {
             const state = this._soft[key] || (this._soft[key] = { x: ax, y: ay, vx: 0, vy: 0 });
@@ -1472,11 +1506,48 @@ function definePuppetClass(PIXI) {
             const sinBodyYaw = Math.sin(bx * (S.body_yaw ?? 8) * Math.PI / 180);
             const cosT = Math.cos(tilt), sinT = Math.sin(tilt);
             const cosB = Math.cos(bodyTilt), sinB = Math.sin(bodyTilt);
-            const hairSwing = {
-                front_hair: this._hairSwing('front', -ax * 0.7 - P('ParamAngleZ') / 30 * 0.9 - bx * 0.3 + P('ParamHairFront') + 0.12 * Math.sin(this._time * 1.3), dt),
-                back_hair: this._hairSwing('back', -ax * 0.9 - P('ParamAngleZ') / 30 * 1.1 - bx * 0.5 + P('ParamHairBack') + 0.15 * Math.sin(this._time * 1.1 + 1), dt),
-            };
             const hairReach = (S.hair ?? 0.06) * faceW;
+            // The hair hangs in locks, each a pendulum, so they swing a little out of step like real
+            // strands (one swing for the whole layer looks like a sheet of card). The front and back
+            // hair at the same place are the same lock, seen in front of and behind the head: they
+            // swing together, or the back hair (painted on under the front hair by the split, edge and
+            // all) slides out from under the front hair's outline.
+            const hairTarget = -ax * 0.8 - P('ParamAngleZ') / 30 - bx * 0.4 + (P('ParamHairFront') + P('ParamHairBack')) / 2 + 0.13 * Math.sin(this._time * 1.2);
+            const hairSpec = (rig.Physics || {}).hair;
+            let hairSwing = [this._hairSwing('front', hairTarget, dt)];
+            if (hairSpec && hairSpec.frequency) {
+                hairSwing = [];
+                const locks = Math.max(1, hairSpec.locks ?? 5);
+                for (let i = 0; i < locks; i++) {
+                    const f = hairSpec.frequency * (1 + 0.09 * Math.sin(i * 2.3));
+                    const w = 2 * Math.PI * f;
+                    const swing = this._hairSwing(`lock${i}`, hairTarget, dt, { stiffness: w * w, damping: 2 * (hairSpec.damping ?? 0.2) * w });
+                    // The head moving through space leaves the tips behind.
+                    const [lagX] = this._jiggle(`lockroot${i}`, cx, cy, dt, f, f, hairSpec.damping ?? 0.2);
+                    hairSwing.push(swing + clamp(lagX / Math.max(1, hairReach), -1.5, 1.5));
+                }
+            }
+            const hairRig = rig.Hair || [];
+            const hairRoot = hairRig.length ? Math.min(...hairRig.map(h => h.Root)) : 0;
+            const hairLength = hairRig.length ? Math.max(1, Math.max(...hairRig.map(h => h.Root + h.Length)) - hairRoot) : 1;
+            const spanOf = (layers) => {
+                let lo = Infinity, hi = -Infinity;
+                for (const l of layers) for (let i = 0; i < l.rest.length; i += 2) { lo = Math.min(lo, l.rest[i]); hi = Math.max(hi, l.rest[i]); }
+                return [lo, Math.max(lo + 1, hi)];
+            };
+            const lockAt = (swings, layer, x) => {
+                if (swings.length === 1) return swings[0];
+                if (layer.span === undefined) {
+                    // All the hair shares one row of locks across the whole hairdo.
+                    const hairLayers = layer.hair ? this.layers.filter(l => l.hair) : [layer];
+                    const span = spanOf(hairLayers);
+                    for (const l of hairLayers) l.span = span;
+                }
+                const u = clamp((x - layer.span[0]) / (layer.span[1] - layer.span[0]), 0, 1) * (swings.length - 1);
+                const i = Math.min(swings.length - 2, Math.floor(u));
+                const t = u - i;
+                return swings[i] * (1 - t) + swings[i + 1] * t;
+            };
             const mouth = rig.Mouth;
             const mouthOpen = P('ParamMouthOpenY');
             const mouthForm = P('ParamMouthForm');
@@ -1531,24 +1602,60 @@ function definePuppetClass(PIXI) {
                 if (!region || !(region.Radius?.[0] > 0) || gain <= 0) continue;
                 const [rx, ry] = region.Radius;
                 const param = name === 'Bust' ? ['ParamBustX', 'ParamBustY'] : ['ParamHipX', 'ParamHipY'];
+                const spec = (name === 'Bust' ? softPhysics : (rig.Physics || {}).hips) || softPhysics;
                 region.Centers.forEach(([cx0, cy0], index) => {
                     const [ax, ay] = bodyMove(cx0, cy0, cx0, cy0);
                     // Breathing lifts the bust a touch more, so it never sits perfectly still.
                     const lift = name === 'Bust' ? -breath * ry * 0.04 : 0;
-                    const k = (softPhysics.stiffness ?? 75) * (name === 'Hips' ? 0.7 : 1) * (index ? 1.06 : 1);
-                    const c = (softPhysics.damping ?? 3) * (name === 'Hips' ? 1.2 : 1);
-                    let [ox, oy] = this._softSpring(`${name}${index}`, ax, ay + lift, dt, k, c);
-                    ox = clamp(ox * 3 * gain, -rx * 0.3, rx * 0.3) + P(param[0]) * rx * 0.18;
-                    oy = clamp(oy * 3 * gain, -ry * 0.3, ry * 0.3) - P(param[1]) * ry * 0.18;
-                    softRegions.push({ cx: cx0, cy: cy0, rx, ry, ox, oy });
+                    let ox, oy;
+                    if (spec.frequency) {
+                        // The two sides ring a little out of step, as they do.
+                        const detune = index ? 1.04 : 1;
+                        const [fx, fy] = spec.frequency;
+                        // Tilting the body turns gravity against it: the mass settles towards the low side.
+                        const g = (spec.gravity ?? 0.12) * ry;
+                        const tiltNow = bodyTilt + (P('ParamAngleZ') * 0.15) * Math.PI / 180;
+                        [ox, oy] = this._jiggle(`${name}${index}`, ax, ay + lift, dt, fx * detune, fy * detune, spec.damping ?? 0.12,
+                            -Math.sin(tiltNow) * g, (1 - Math.cos(tiltNow)) * g);
+                        // Tissue stiffens as it stretches: a soft limit, never a hard stop.
+                        const limit = spec.limit ?? 0.32;
+                        ox = rx * limit * Math.tanh((ox * gain) / (rx * limit));
+                        oy = ry * limit * Math.tanh((oy * gain) / (ry * limit));
+                    } else {
+                        const k = (softPhysics.stiffness ?? 75) * (name === 'Hips' ? 0.7 : 1) * (index ? 1.06 : 1);
+                        const c = (softPhysics.damping ?? 3) * (name === 'Hips' ? 1.2 : 1);
+                        [ox, oy] = this._softSpring(`${name}${index}`, ax, ay + lift, dt, k, c);
+                        ox = clamp(ox * 3 * gain, -rx * 0.3, rx * 0.3);
+                        oy = clamp(oy * 3 * gain, -ry * 0.3, ry * 0.3);
+                    }
+                    ox += P(param[0]) * rx * 0.18;
+                    oy -= P(param[1]) * ry * 0.18;
+                    softRegions.push({ cx: cx0, cy: cy0, rx, ry, ox, oy, attached: name === 'Bust' });
                 });
             }
 
+            this._softNow = softRegions; // this frame's jiggle (read by tests and tools)
+
             // Cloth: skirt hems and ribbons swing behind the body like hair, a little heavier.
             const bodyW = Math.max(1, body.Box[2] - body.Box[0]);
-            const clothSwing = (rig.Cloth || []).length
-                ? this._hairSwing('cloth', -bx * 0.9 - P('ParamBodyAngleZ') / 10 * 0.7 + 0.08 * Math.sin(this._time * 0.9), dt, (rig.Physics || {}).cloth)
-                : 0;
+            const clothSpec = (rig.Physics || {}).cloth || {};
+            const clothTarget = -bx * 0.9 - P('ParamBodyAngleZ') / 10 * 0.7 + 0.08 * Math.sin(this._time * 0.9);
+            let clothSwing = [0];
+            if ((rig.Cloth || []).length && clothSpec.frequency) {
+                // The hem in panels, each its own pendulum, trailing the hips through space too.
+                clothSwing = [];
+                const locks = Math.max(1, clothSpec.locks ?? 4);
+                const hips = rig.Hips?.Centers?.[0] || body.Pivot;
+                for (let i = 0; i < locks; i++) {
+                    const f = clothSpec.frequency * (1 + 0.07 * Math.sin(i * 1.9));
+                    const w = 2 * Math.PI * f;
+                    const swing = this._hairSwing(`cloth${i}`, clothTarget, dt, { stiffness: w * w, damping: 2 * (clothSpec.damping ?? 0.25) * w });
+                    const [lagX] = this._jiggle(`clothroot${i}`, hips[0], hips[1], dt, f, f, clothSpec.damping ?? 0.25);
+                    clothSwing.push(swing + clamp(lagX / Math.max(1, (S.cloth ?? 0.05) * Math.max(1, body.Box[2] - body.Box[0])), -1.5, 1.5));
+                }
+            } else if ((rig.Cloth || []).length) {
+                clothSwing = [this._hairSwing('cloth', clothTarget, dt, clothSpec)];
+            }
             const clothReach = (S.cloth ?? 0.05) * bodyW;
 
             // The mouse's pull, strongest where the drag started.
@@ -1673,13 +1780,15 @@ function definePuppetClass(PIXI) {
                     // Hair and cloth sway ----------------------------------------------
                     let sway = 1;
                     if (layer.hair) {
-                        const t = clamp((rest[k + 1] - layer.hair.Root) / layer.hair.Length, 0, 1);
-                        x += hairSwing[role] * hairReach * t * t;
+                        // One curve for all the hair, so the back hair (painted on under the front hair
+                        // by the split, edge and all) never slides out from under it.
+                        const t = clamp((rest[k + 1] - hairRoot) / hairLength, 0, 1);
+                        x += lockAt(hairSwing, layer, rest[k]) * hairReach * t * t;
                         sway = t;
                     }
                     if (layer.cloth) {
                         const t = clamp((rest[k + 1] - layer.cloth.Root) / layer.cloth.Length, 0, 1);
-                        x += clothSwing * clothReach * t * t;
+                        x += lockAt(clothSwing, layer, rest[k]) * clothReach * (layer.cloth.Sway ?? 1) * t * t;
                     }
 
                     // Soft body jiggle ------------------------------------------------------
@@ -1690,10 +1799,15 @@ function definePuppetClass(PIXI) {
                             const dy = (rest[k + 1] - region.cy) / region.ry;
                             const d2 = dx * dx + dy * dy;
                             if (d2 >= 1) continue;
-                            const w = (1 - d2) * (1 - d2);
+                            let w = (1 - d2) * (1 - d2);
+                            // The bust hangs from the chest: its top barely moves, the lower curve swings most.
+                            if (region.attached) w *= 0.3 + 0.7 * smoothstep(-0.95, 0.55, dy);
                             x += region.ox * w;
-                            // Bouncing up stretches it a little, landing squashes it.
-                            y += region.oy * w + (rest[k + 1] - region.cy) * (region.oy / region.ry) * 0.25 * w;
+                            // Lagging below (the body rising) stretches it and lagging above squashes it,
+                            // keeping its volume: taller is narrower.
+                            const stretch = (region.oy / region.ry) * 0.35 * w;
+                            y += region.oy * w + (rest[k + 1] - region.cy) * stretch;
+                            x -= (rest[k] - region.cx) * stretch * 0.5;
                         }
                     }
 
