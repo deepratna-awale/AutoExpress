@@ -1063,6 +1063,105 @@ def split_limbs(folder, entries: list[dict], masks: dict, rig: dict, overlap: in
         cloth += [{**item, "Layer": new} for new in renamed.get(item["Layer"], [item["Layer"]])]
     if "Cloth" in rig:
         rig["Cloth"] = cloth
+    result = armpit_shadows(folder, result, masks, rig)
+    return shoes_over_legwear(result)
+
+
+def armpit_shadows(folder, entries: list[dict], masks: dict, rig: dict, band: float = 0.1) -> list[dict]:
+    """
+    The shadow an arm casts on the jacket or top beside it, lifted onto its own layer: the picture
+    was drawn with the arms down, so the cloth along the body's side is shaded dark there, and that
+    shade would stay behind as a streak when the arm rises. As an artist parts a shadow out, the
+    garment's torso piece gets the shade painted out (filled from the lit cloth around it) and a
+    new layer over it carries the shade, its opacity tied to the arm (entry "ShadowOf": the upper
+    arm's bone; the player fades it as that bone turns). Returns the entries with the shadows added.
+    """
+    import numpy as np
+
+    folder = pathlib.Path(folder)
+    result = []
+    for entry in entries:
+        result.append(entry)
+        if entry.get("Piece") != "torso" or entry.get("Garment") not in ("outerwear", "topwear") or entry.get("State") == "half":
+            continue
+        path = folder / entry["Texture"]
+        image = Image.open(path).convert("RGBA")
+        box = (entry["X"], entry["Y"], entry["X"] + image.width, entry["Y"] + image.height)
+        alpha = np.asarray(image.getchannel("A")) > 128
+        if alpha.sum() < 400:
+            continue
+        rgb = np.asarray(image.convert("RGB")).astype(np.float32)
+        lum = rgb @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+        base = float(np.median(lum[alpha]))
+        reach = max(12, int(band * image.width))  # band: share of the garment's width beside the arm
+        for side in ("L", "R"):
+            arm = masks.get(f"arm_{side}")
+            if arm is None:
+                continue
+            arm = arm.crop(box)
+            near = np.asarray(arm.filter(ImageFilter.MaxFilter(2 * min(reach, 40) + 1))) > 0
+            if reach > 40:
+                near = np.asarray(Image.fromarray(near.astype(np.uint8) * 255).filter(ImageFilter.MaxFilter(2 * (reach - 40) + 1))) > 0
+            zone = near & ~(np.asarray(arm) > 127) & alpha
+            if zone.sum() < 50:
+                continue
+            # How far into shadow each pixel there is, against the cloth's usual brightness.
+            depth = np.clip((0.88 * base - lum) / max(1.0, 0.45 * base), 0, 1) * zone
+            soft = np.asarray(Image.fromarray((depth * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(2))).astype(np.float32) / 255
+            soft = np.minimum(soft * zone, 1)
+            if soft.sum() < 60:
+                continue
+            # Lit: the same cloth brightened back to its usual tone (folds and texture kept), the
+            # colour taken from the lit cloth around it.
+            gain = np.clip(0.88 * base / np.maximum(lum, 8.0), 1.0, 3.0)
+            known = alpha & (soft < 0.05)
+            tint = rgb[known].mean(axis=0) / max(1.0, float(lum[known].mean())) if known.any() else np.ones(3, np.float32)
+            lit = (lum * gain)[..., None] * tint[None, None, :] * 0.6 + rgb * gain[..., None] * 0.4
+            rgb = rgb * (1 - soft[..., None]) + lit * soft[..., None]
+            shade = Image.fromarray(np.asarray(image.convert("RGB")), "RGB").convert("RGBA")
+            shade.putalpha(Image.fromarray((soft * np.asarray(image.getchannel("A")).astype(np.float32)).clip(0, 255).astype(np.uint8)))
+            bbox = shade.getchannel("A").getbbox()
+            if bbox is None:
+                continue
+            shade_id = f"{entry['Id']}__shadow_{side}"
+            shade.crop(bbox).save(folder / "textures" / f"{shade_id}.png")
+            result.append(
+                {
+                    **entry,
+                    "Id": shade_id,
+                    "Texture": f"textures/{shade_id}.png",
+                    "X": entry["X"] + bbox[0],
+                    "Y": entry["Y"] + bbox[1],
+                    "Width": bbox[2] - bbox[0],
+                    "Height": bbox[3] - bbox[1],
+                    "ShadowOf": f"UpperArm{side}",
+                }
+            )
+            for item in list(rig.get("Cloth", [])):
+                if item.get("Layer") == entry["Id"]:
+                    rig["Cloth"].append({**item, "Layer": shade_id})
+        lit_image = Image.fromarray(rgb.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+        lit_image.putalpha(image.getchannel("A"))
+        lit_image.save(path)
+    return result
+
+
+def shoes_over_legwear(entries: list[dict]) -> list[dict]:
+    """
+    The shoes drawn over the stockings: the split sometimes orders footwear under legwear, and the
+    legwear carried down into the shoe (_into_shoes) then covers half the shoe. Each shoe moves to
+    just after the last legwear layer of its state (the half-off states keep their own order).
+    """
+    result = list(entries)
+    for state in {e.get("State") for e in result if e.get("Garment") == "footwear"}:
+        shoes = [e for e in result if e.get("Garment") == "footwear" and e.get("State") == state]
+        legs = [i for i, e in enumerate(result) if e.get("Garment") == "legwear" and e.get("State") == state]
+        if not legs or min(result.index(s) for s in shoes) > max(legs):
+            continue
+        last = result[max(legs)]
+        result = [e for e in result if e not in shoes]
+        at = result.index(last) + 1
+        result[at:at] = shoes
     return result
 
 

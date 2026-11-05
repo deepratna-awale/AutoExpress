@@ -96,7 +96,11 @@ fi
 
 echo "== Starting ComfyUI on port $COMFYUI_PORT (log: $COMFYUI_DIR/comfyui.log)"
 cd "$COMFYUI_DIR"
-nohup python main.py --listen 0.0.0.0 --port "$COMFYUI_PORT" > "$COMFYUI_DIR/comfyui.log" 2>&1 &
+# Dynamic VRAM loading (ComfyUI's default since late 2026) leaves Qwen3-VL's weights unloaded when it
+# generates text (TextGenerate fails: "linear(): argument 'weight' must be Tensor, not NoneType").
+EXTRA_ARGS=""
+python main.py --help 2>/dev/null | grep -q -- --disable-dynamic-vram && EXTRA_ARGS="--disable-dynamic-vram"
+nohup python main.py --listen 0.0.0.0 --port "$COMFYUI_PORT" $EXTRA_ARGS > "$COMFYUI_DIR/comfyui.log" 2>&1 &
 for _ in $(seq 1 120); do
   curl -sf "http://127.0.0.1:$COMFYUI_PORT/system_stats" > /dev/null && break
   sleep 2

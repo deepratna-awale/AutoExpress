@@ -7,7 +7,8 @@
     "realization part the lips a little, as a held shape.",
     "motions: a short reaction the whole body joins played with the expression (keyframes [seconds, value] per parameter).",
     "idle: the looping breathing motion played whenever nothing else is.",
-    "ParamBrowAngry, ParamMouthGrin and ParamTear show drawn pieces (angry brows, a wide grin, tears) on puppets that have them; other models ignore them."
+    "ParamBrowAngry, ParamMouthGrin and ParamTear show drawn pieces (angry brows, a wide grin, tears) on puppets that have them; other models ignore them.",
+    "gestures: an arm pose (puppet skeleton angles, from the limbs' IK) the body takes during a reaction, held with an optional back-and-forth (wiggle); gesture_for picks one per emotion. Models without the bones ignore them."
   ],
   "multiply": [
     "ParamEyeLOpen",
@@ -154,7 +155,7 @@
       "ParamMouthGrin": 0.5
     },
     "grief": {
-      "EyeOpen": 0.28,
+      "EyeOpen": 0.45,
       "BrowY": -0.3,
       "BrowAngle": 1,
       "ParamMouthForm": -1,
@@ -201,11 +202,13 @@
     "realization": {
       "EyeOpen": 1.4,
       "BrowY": 1,
-      "ParamMouthOpenY": 0.2
+      "ParamMouthOpenY": 0.2,
+      "ParamTeeth": 0.25,
+      "ParamMouthWide": -0.45
     },
     "relief": {
       "EyeOpen": 0.52,
-      "EyeSmile": 0.45,
+      "EyeSmile": 0.85,
       "BrowAngle": 0.75,
       "ParamMouthForm": 0.75,
       "ParamTear": 0.3
@@ -227,7 +230,9 @@
     "surprise": {
       "EyeOpen": 1.48,
       "BrowY": 1,
-      "ParamMouthOpenY": 0.35
+      "ParamMouthOpenY": 0.35,
+      "ParamTeeth": 0.35,
+      "ParamMouthWide": -0.35
     }
   },
   "reactions": {
@@ -1056,5 +1061,164 @@
     "idParamBreath": "ParamBreath",
     "idParamEyeBallX": "ParamEyeBallX",
     "idParamEyeBallY": "ParamEyeBallY"
+  },
+  "gestures": {
+    "cheer": {
+      "pose": {
+        "ParamBoneUpperArmL": -48,
+        "ParamBoneUpperArmLSwing": 0,
+        "ParamBoneForearmL": -130,
+        "ParamBoneForearmLSwing": 15,
+        "ParamBoneUpperArmR": 50,
+        "ParamBoneUpperArmRSwing": 3,
+        "ParamBoneForearmR": 130,
+        "ParamBoneForearmRSwing": 9
+      },
+      "wiggle": [
+        [
+          "ParamBoneForearmL",
+          14
+        ],
+        [
+          "ParamBoneForearmR",
+          -14
+        ]
+      ]
+    },
+    "clasp": {
+      "pose": {
+        "ParamBoneUpperArmL": -6,
+        "ParamBoneUpperArmLSwing": 5,
+        "ParamBoneForearmL": 101,
+        "ParamBoneForearmLSwing": 38,
+        "ParamBoneUpperArmR": 3,
+        "ParamBoneUpperArmRSwing": 10,
+        "ParamBoneForearmR": -97,
+        "ParamBoneForearmRSwing": 29
+      },
+      "wiggle": []
+    },
+    "hips": {
+      "pose": {
+        "ParamBoneUpperArmL": -4,
+        "ParamBoneUpperArmLSwing": 6,
+        "ParamBoneForearmL": 55,
+        "ParamBoneForearmLSwing": 33,
+        "ParamBoneUpperArmR": 2,
+        "ParamBoneUpperArmRSwing": 13,
+        "ParamBoneForearmR": -52,
+        "ParamBoneForearmRSwing": 16
+      },
+      "wiggle": []
+    },
+    "hand_on_hip": {
+      "pose": {
+        "ParamBoneUpperArmR": 2,
+        "ParamBoneUpperArmRSwing": 13,
+        "ParamBoneForearmR": -52,
+        "ParamBoneForearmRSwing": 16
+      },
+      "wiggle": []
+    },
+    "chest": {
+      "pose": {
+        "ParamBoneUpperArmL": -6,
+        "ParamBoneUpperArmLSwing": 10,
+        "ParamBoneForearmL": 135,
+        "ParamBoneForearmLSwing": 40,
+        "ParamBoneUpperArmR": 3,
+        "ParamBoneUpperArmRSwing": 16,
+        "ParamBoneForearmR": -135,
+        "ParamBoneForearmRSwing": 34
+      },
+      "wiggle": []
+    },
+    "heart": {
+      "pose": {
+        "ParamBoneUpperArmL": -5,
+        "ParamBoneUpperArmLSwing": 14,
+        "ParamBoneForearmL": 135,
+        "ParamBoneForearmLSwing": 41
+      },
+      "wiggle": []
+    },
+    "low": {
+      "pose": {
+        "ParamBoneUpperArmL": 9,
+        "ParamBoneUpperArmLSwing": 8,
+        "ParamBoneForearmL": 51,
+        "ParamBoneForearmLSwing": 28,
+        "ParamBoneUpperArmR": -11,
+        "ParamBoneUpperArmRSwing": 14,
+        "ParamBoneForearmR": -48,
+        "ParamBoneForearmRSwing": 15
+      },
+      "wiggle": []
+    },
+    "fists": {
+      "pose": {
+        "ParamBoneUpperArmL": -20,
+        "ParamBoneUpperArmLSwing": -1,
+        "ParamBoneForearmL": 57,
+        "ParamBoneForearmLSwing": 44,
+        "ParamBoneUpperArmR": 17,
+        "ParamBoneUpperArmRSwing": 5,
+        "ParamBoneForearmR": -49,
+        "ParamBoneForearmRSwing": 31
+      },
+      "wiggle": [
+        [
+          "ParamBoneForearmL",
+          6
+        ],
+        [
+          "ParamBoneForearmR",
+          -6
+        ]
+      ]
+    },
+    "wave": {
+      "pose": {
+        "ParamBoneUpperArmL": -68,
+        "ParamBoneUpperArmLSwing": -1,
+        "ParamBoneForearmL": -107,
+        "ParamBoneForearmLSwing": 16
+      },
+      "wiggle": [
+        [
+          "ParamBoneForearmL",
+          22
+        ]
+      ]
+    }
+  },
+  "gesture_for": {
+    "joy": "cheer",
+    "excitement": "cheer",
+    "amusement": "clasp",
+    "approval": "clasp",
+    "gratitude": "clasp",
+    "optimism": "wave",
+    "annoyance": "hips",
+    "disapproval": "hips",
+    "pride": "hips",
+    "anger": "fists",
+    "admiration": "heart",
+    "caring": "heart",
+    "love": "heart",
+    "desire": "heart",
+    "relief": "heart",
+    "fear": "chest",
+    "surprise": "chest",
+    "realization": "chest",
+    "sadness": "low",
+    "grief": "low",
+    "remorse": "low",
+    "disappointment": "low",
+    "nervousness": "clasp",
+    "embarrassment": "low",
+    "confusion": "hand_on_hip",
+    "curiosity": "hand_on_hip",
+    "disgust": "fists"
   }
 }

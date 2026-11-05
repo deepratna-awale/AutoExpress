@@ -591,6 +591,30 @@ def outer_garment(backend, picture: Image.Image, settings: dict, log) -> tuple[s
     return outer, "vision model"
 
 
+# The coat-off edit is drawn again (up to COAT_OFF_RETRIES times) while the vision model still sees
+# an outer layer on it: Qwen sometimes recolours the coat instead of taking it off (a white blazer
+# where the beige one was). The segmentation model can't tell: it finds the shirt as the blazer.
+COAT_OFF_RETRIES = 2
+COAT_CHECK_PROMPT = (
+    "Look at the clothes on her upper body. Is she wearing a jacket, blazer, coat, cardigan, cape, robe or "
+    "other outer layer open over her shirt or top? A shirt or blouse alone, even with its sleeves rolled up, "
+    "is not an outer layer. Answer with one word: yes or no."
+)
+
+
+def coat_still_on(backend, edited: Image.Image) -> bool | None:
+    """Whether the vision model still sees an outer layer on edited (None without a vision model or answer)."""
+    describe = getattr(backend, "describe", None)
+    if describe is None:
+        return None
+    b64 = pil_to_b64(edited.convert("RGB"))
+    answer = next((a for a in (describe(b64, COAT_CHECK_PROMPT) for _ in range(SEGMENT_TRIES)) if a), None)
+    if not answer:
+        return None
+    word = re.search(r"\b(yes|no)\b", answer.lower())
+    return None if word is None else word.group(1) == "yes"
+
+
 def has_segmentation(backend) -> bool:
     """Whether the backend has a segmentation model (SAM 3) to find the coat and its sleeves."""
     find = getattr(backend, "segment_model", None)
@@ -690,7 +714,18 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
     mid = None
     if garment != NO_GARMENT or settings.get("outer_garment_source") != "typed":
         garment = "" if garment == NO_GARMENT else garment
-        mid = run(outfits.MID, picture, outfits.mid_instruction(description, garment), f"the outfit without the {garment or 'outer layer'}", 0.36)
+        label = f"the outfit without the {garment or 'outer layer'}"
+        mid = run(outfits.MID, picture, outfits.mid_instruction(description, garment), label, 0.36)
+        for _ in range(COAT_OFF_RETRIES):
+            if mid is None or not coat_still_on(backend, mid):
+                break
+            log(f"The {garment or 'outer layer'} is still on; drawing it again.")
+            if edit.seed >= 0:
+                edit = dataclasses.replace(edit, seed=edit.seed + 1)
+            mid = run(outfits.MID, picture, outfits.mid_instruction(description, garment), label, 0.36) or mid
+        else:
+            if mid is not None and coat_still_on(backend, mid):
+                notes.append(f"The {garment or 'outer layer'} wasn't fully taken off; the coat-off outfit may still show it.")
     if mid is not None:
         run(outfits.OUTER_HALF, picture, outfits.outer_half_instruction(description, garment), f"the {garment or 'outer layer'} half off", 0.37)
         if not has_segmentation(backend):

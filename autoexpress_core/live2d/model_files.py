@@ -33,6 +33,9 @@ MOTIONS_DIR = "motions"
 SETTINGS_FILE = "sillytavern_settings.json"
 FPS = 30.0
 FADE = 0.5
+# A reaction is short: long fades would leave it no time at full strength.
+MOTION_FADE_IN = 0.25
+MOTION_FADE_OUT = 0.4
 
 
 @lru_cache(maxsize=1)
@@ -102,8 +105,8 @@ def build_motion(curves: dict[str, list[list[float]]], loop: bool = False, durat
             "Fps": FPS,
             "Loop": loop,
             "AreBeziersRestricted": True,
-            "FadeInTime": FADE,
-            "FadeOutTime": FADE,
+            "FadeInTime": MOTION_FADE_IN,
+            "FadeOutTime": MOTION_FADE_OUT,
             "CurveCount": len(items),
             "TotalSegmentCount": segment_total,
             "TotalPointCount": point_total,
@@ -120,7 +123,32 @@ def reaction_motion(emotion: str, parameters: set[str] | None = None) -> dict | 
     name = data["motions"].get(emotion)
     if not name:
         return None
-    return build_motion(data["reactions"][name], parameters=parameters)
+    curves = dict(data["reactions"][name])
+    gesture = data.get("gestures", {}).get(data.get("gesture_for", {}).get(emotion, ""))
+    if gesture:
+        curves.update(gesture_curves(gesture, max(k[0] for keys in curves.values() for k in keys)))
+    return build_motion(curves, parameters=parameters)
+
+
+def gesture_curves(gesture: dict, length: float) -> dict[str, list[list[float]]]:
+    """
+    Keyframes for an arm gesture during a reaction: into the pose, held (with its back-and-forth),
+    and back out, over at least 2.4 seconds so the fades leave it time to show.
+    """
+    end = max(2.4, length)
+    into, out = 0.45, end - 0.55
+    wiggle = {name: amount for name, amount in gesture.get("wiggle", [])}
+    curves = {}
+    for parameter, value in gesture["pose"].items():
+        keys = [[0.0, 0.0], [into, float(value)]]
+        if parameter in wiggle:
+            t, sign = into + 0.25, 1
+            while t < out - 0.2:
+                keys.append([round(t, 3), float(value) + sign * wiggle[parameter]])
+                t, sign = t + 0.25, -sign
+        keys += [[round(out, 3), float(value)], [round(end, 3), 0.0]]
+        curves[parameter] = keys
+    return curves
 
 
 def idle_motion(parameters: set[str] | None = None) -> dict:
@@ -209,7 +237,7 @@ def write_model_files(folder: pathlib.Path, parameters: set[str] | None = None) 
         if motion and motion["Curves"]:
             relative = f"{MOTIONS_DIR}/{emotion}.motion3.json"
             _write_json(folder / relative, motion)
-            motions[emotion] = [{"File": relative, "FadeInTime": FADE, "FadeOutTime": FADE}]
+            motions[emotion] = [{"File": relative, "FadeInTime": MOTION_FADE_IN, "FadeOutTime": MOTION_FADE_OUT}]
     idle = idle_motion(parameters)
     if idle["Curves"]:
         relative = f"{MOTIONS_DIR}/idle.motion3.json"
