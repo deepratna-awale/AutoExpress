@@ -1258,9 +1258,9 @@ def test_skeleton_from_a_pose_proportions_has_limbs_with_mirrored_limits():
     short = skeleton.bones(skeleton.from_proportions(face, (150, 300, 850, 900)), face)
     assert not any(b["Name"].startswith("Shin") for b in short["Bones"])
     assert ("ParamBoneHips", -8, 8, 0) in skeleton.parameters(sk)
-    # Limbs and the spine also swing a little towards the viewer (the knee only bends back).
-    assert ("ParamBoneUpperArmLSwing", -15, 25, 0) in skeleton.parameters(sk)
-    assert ("ParamBoneShinRSwing", -25, 0, 0) in skeleton.parameters(sk)
+    # Limbs and the spine also swing towards the viewer, wide enough for IK (the knee only bends back).
+    assert ("ParamBoneUpperArmLSwing", -40, 80, 0) in skeleton.parameters(sk)
+    assert ("ParamBoneShinRSwing", -130, 0, 0) in skeleton.parameters(sk)
 
 
 def test_skeleton_from_openpose_keypoints():
