@@ -1166,6 +1166,138 @@ function definePuppetClass(PIXI) {
             return { ParamMouthOpenY: mix('open'), ParamMouthWide: mix('wide'), ParamTongueUp: mix('tongue'), ParamTeeth: mix('teeth') };
         }
 
+        // Face tracking and voice (what makes the puppet a VTuber) ---------------------------
+        /**
+         * Drive the puppet from a face tracker, one video frame at a time: MediaPipe
+         * FaceLandmarker's result (with outputFaceBlendshapes and outputFacialTransformationMatrixes),
+         * or {blendshapes: {name: score}, matrix: [16 numbers, column-major]} from any tracker that
+         * gives ARKit-style blendshapes. The head, eyes, gaze, brows and mouth follow the face, the
+         * body follows the head a little. mirror (the default) moves her like a mirror image, as
+         * VTuber apps do. The head's rest angle is taken from the first frames; recenter() takes it
+         * again. Without new frames for half a second the puppet goes back to idling on its own.
+         */
+        track(result, { mirror = true } = {}) {
+            const shapes = {};
+            const categories = result?.faceBlendshapes?.[0]?.categories;
+            if (categories) for (const c of categories) shapes[c.categoryName] = c.score;
+            else if (result?.blendshapes) Object.assign(shapes, result.blendshapes);
+            const m = result?.facialTransformationMatrixes?.[0]?.data || result?.matrix;
+            if (!m && !Object.keys(shapes).length) return false;
+            const deg = 180 / Math.PI;
+            // The face's forward (nose) and up directions in the camera's space: x to the picture's
+            // right, y up, z towards the camera.
+            let yaw = 0, pitch = 0, roll = 0;
+            if (m) {
+                yaw = Math.asin(clamp(m[8], -1, 1)) * deg;
+                pitch = Math.asin(clamp(m[9], -1, 1)) * deg;
+                roll = Math.atan2(m[4], m[5]) * deg;
+            }
+            const t = this._tracking || (this._tracking = { rest: null, samples: [], target: {}, now: {}, last: 0 });
+            if (!t.rest) {
+                t.samples.push([yaw, pitch, roll]);
+                if (t.samples.length >= 8) t.rest = [0, 1, 2].map(j => t.samples.reduce((a, v) => a + v[j], 0) / t.samples.length);
+            }
+            const rest = t.rest || [yaw, pitch, roll];
+            yaw -= rest[0]; pitch -= rest[1]; roll -= rest[2];
+            // Seen in a mirror, turning to your left turns her to the screen's left, and your left eye
+            // is the one on the screen's left: her right.
+            const s = mirror ? -1 : 1;
+            const g = (k) => shapes[k] || 0;
+            const eye = (side) => clamp(1 - (g(`eyeBlink${side}`) - 0.3) / 0.35, 0, 1) * (1 + 0.2 * clamp((g(`eyeWide${side}`) - 0.2) / 0.4, 0, 1));
+            const brow = (side) => clamp((g('browInnerUp') * 0.6 + g(`browOuterUp${side}`) - g(`browDown${side}`)) * 1.5, -1, 1);
+            const [her, other] = mirror ? ['R', 'L'] : ['L', 'R'];
+            const gazeX = (g('eyeLookOutLeft') + g('eyeLookInRight') - g('eyeLookInLeft') - g('eyeLookOutRight')) / 2;
+            const gazeY = (g('eyeLookUpLeft') + g('eyeLookUpRight') - g('eyeLookDownLeft') - g('eyeLookDownRight')) / 2;
+            const smile = (g('mouthSmileLeft') + g('mouthSmileRight')) / 2 - (g('mouthFrownLeft') + g('mouthFrownRight')) / 2;
+            const open = clamp((g('jawOpen') - 0.05) * 1.6 - g('mouthClose') * 0.5, 0, 1);
+            const wide = clamp((g('mouthStretchLeft') + g('mouthStretchRight')) * 1.5 + smile * 0.6 - (g('mouthPucker') + g('mouthFunnel')) * 1.6, -1, 1);
+            t.target = {
+                ParamAngleX: clamp(s * yaw, -30, 30),
+                ParamAngleY: clamp(pitch * 1.2, -30, 30),
+                ParamAngleZ: clamp(s * roll * 1.5, -30, 30),
+                ParamBodyAngleX: clamp(s * yaw * 0.25, -10, 10),
+                ParamBodyAngleZ: clamp(s * roll * 0.3, -10, 10),
+                [`ParamEye${her}Open`]: eye('Left'),
+                [`ParamEye${other}Open`]: eye('Right'),
+                ParamEyeBallX: clamp(s * gazeX * 1.8, -1, 1),
+                ParamEyeBallY: clamp(gazeY * 1.8, -1, 1),
+                [`ParamBrow${her}Y`]: brow('Left'),
+                [`ParamBrow${other}Y`]: brow('Right'),
+                ParamMouthOpenY: open,
+                ParamMouthForm: clamp(smile * 2, -1, 1),
+                ParamMouthWide: wide,
+                ParamTeeth: clamp(open * 1.2 + Math.max(0, smile) * 0.3, 0, 1),
+            };
+            t.last = performance.now();
+            return true;
+        }
+
+        /** Take the head's rest angle again from the next frames (sit as you will stream, then call it). */
+        recenter() {
+            if (this._tracking) { this._tracking.rest = null; this._tracking.samples = []; }
+        }
+
+        stopTracking() { this._tracking = null; }
+
+        /**
+         * Lip sync from a voice: a MediaStream (the microphone) or an <audio>/<video> element (a TTS
+         * clip). The mouth opens with the loudness and widens on bright sounds (ee) and rounds on
+         * dark ones (oo). Returns a function that stops it.
+         */
+        listen(input) {
+            this.stopListening();
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            const ctx = new AudioContextClass();
+            const source = input instanceof MediaStream ? ctx.createMediaStreamSource(input) : ctx.createMediaElementSource(input);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            analyser.smoothingTimeConstant = 0.3;
+            source.connect(analyser);
+            if (!(input instanceof MediaStream)) analyser.connect(ctx.destination); // still hear the clip
+            this._voice = { ctx, analyser, wave: new Float32Array(analyser.fftSize), spectrum: new Uint8Array(analyser.frequencyBinCount), level: 0, bright: 0, floor: 0.004 };
+            return () => this.stopListening();
+        }
+
+        stopListening() {
+            if (this._voice) { this._voice.ctx.close().catch(() => {}); this._voice = null; }
+        }
+
+        /** This frame's mouth from the voice, or null when it's quiet. */
+        _voiceFrame(dt) {
+            const v = this._voice;
+            if (!v) return null;
+            v.analyser.getFloatTimeDomainData(v.wave);
+            let sum = 0;
+            for (const x of v.wave) sum += x * x;
+            const rms = Math.sqrt(sum / v.wave.length);
+            // The room's own noise is learnt slowly, so a fan or hiss doesn't keep the mouth open.
+            v.floor = rms < v.floor ? lerp(v.floor, rms, 0.05) : lerp(v.floor, rms, 0.002);
+            const loud = clamp((rms - v.floor * 1.5) * 14, 0, 1);
+            // The mouth opens fast and closes a little slower, like a jaw.
+            v.level = lerp(v.level, loud, 1 - Math.exp(-dt * (loud > v.level ? 30 : 14)));
+            v.analyser.getByteFrequencyData(v.spectrum);
+            let total = 0, weighted = 0;
+            const hz = v.ctx.sampleRate / v.analyser.fftSize;
+            for (let i = 2; i < v.spectrum.length; i++) { total += v.spectrum[i]; weighted += v.spectrum[i] * i * hz; }
+            const centroid = total > 0 ? weighted / total : 1500;
+            v.bright = lerp(v.bright, clamp((centroid - 1400) / 1400, -1, 1), 1 - Math.exp(-dt * 10));
+            if (v.level < 0.03) return null;
+            return { ParamMouthOpenY: v.level * 0.9, ParamMouthWide: v.bright * 0.8, ParamTeeth: clamp(v.level * 0.9 + Math.max(0, v.bright) * 0.3, 0, 1), ParamTongueUp: 0 };
+        }
+
+        /** This frame's tracked face ({values, weight}), eased; null when there is no tracker. */
+        _trackFrame(dt) {
+            const t = this._tracking;
+            if (!t) return null;
+            const age = performance.now() - t.last;
+            const weight = age < 500 ? 1 : clamp(1 - (age - 500) / 700, 0, 1);
+            if (weight <= 0) return null;
+            // Trackers jitter: ease towards each new reading (fast enough to keep up with speech).
+            const ease = 1 - Math.exp(-dt * 22);
+            for (const [id, value] of Object.entries(t.target)) t.now[id] = t.now[id] === undefined ? value : lerp(t.now[id], value, ease);
+            return { values: t.now, weight };
+        }
+
         // Expressions and motions (the Live2DModel calls the extension makes) ---------------
         async expression(id) {
             const list = this.internalModel.settings.expressions;
@@ -1323,8 +1455,9 @@ function definePuppetClass(PIXI) {
                 }
             }
 
-            // Blinking and breathing.
-            const blink = this._autoBlink(dt);
+            // Blinking and breathing (a tracked face blinks for itself).
+            const tracked = this._trackFrame(dt);
+            const blink = tracked ? lerp(this._autoBlink(dt), 1, tracked.weight) : this._autoBlink(dt);
             for (const id of ['ParamEyeLOpen', 'ParamEyeROpen']) {
                 const i = core.getParameterIndex(id);
                 if (i >= 0) values[i] *= blink;
@@ -1335,8 +1468,9 @@ function definePuppetClass(PIXI) {
             // Cursor.
             const f = this._focus;
             const ease = 1 - Math.exp(-dt * 6);
-            f.x += (f.tx - f.x) * ease;
-            f.y += (f.ty - f.y) * ease;
+            const fx = tracked ? f.tx * (1 - tracked.weight) : f.tx, fy = tracked ? f.ty * (1 - tracked.weight) : f.ty;
+            f.x += (fx - f.x) * ease;
+            f.y += (fy - f.y) * ease;
             const im = this.internalModel;
             const addFocus = (id, amount) => {
                 if (!id || id === 'none') return;
@@ -1357,6 +1491,19 @@ function definePuppetClass(PIXI) {
                 else values[i] += add.value;
             }
             for (const [i, value] of core.overrides) values[i] = value;
+            if (tracked) {
+                for (const [id, value] of Object.entries(tracked.values)) {
+                    const i = core.getParameterIndex(id);
+                    if (i >= 0) values[i] = lerp(values[i], value, tracked.weight);
+                }
+            }
+            const voiced = this._voiceFrame(dt);
+            if (voiced) {
+                for (const [id, value] of Object.entries(voiced)) {
+                    const i = core.getParameterIndex(id);
+                    if (i >= 0) values[i] = id === 'ParamMouthOpenY' ? Math.max(values[i], value) : value;
+                }
+            }
             const said = this._speakFrame();
             if (said) {
                 for (const [id, value] of Object.entries(said)) {
@@ -1947,6 +2094,8 @@ function definePuppetClass(PIXI) {
         }
 
         destroy(options) {
+            this.stopListening();
+            this._tracking = null;
             LIVE.delete(this);
             this._ticker?.remove(this._tick, this);
             window.removeEventListener('pointermove', this._onPointerMove);
