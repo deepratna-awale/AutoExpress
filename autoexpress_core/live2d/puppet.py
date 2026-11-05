@@ -1268,10 +1268,10 @@ def cloth_sway(folder, entries: list[dict], items: list[dict]) -> None:
     by_id = {e["Id"]: e for e in entries}
     for item in items:
         entry = by_id.get(item["Layer"])
-        try:
-            alpha = np.asarray(Image.open(pathlib.Path(folder) / entry["Texture"]).getchannel("A")) > 127
-        except Exception:  # noqa: BLE001 - no texture to measure: keep the full swing
-            continue
+        texture = pathlib.Path(folder) / entry["Texture"] if entry and entry.get("Texture") else None
+        if texture is None or not texture.exists():
+            continue  # nothing to measure: keep the full swing
+        alpha = np.asarray(Image.open(texture).convert("RGBA").getchannel("A")) > 127
         widths = []
         for share in (0.0, 0.85):
             row = int(min(alpha.shape[0] - 1, max(0, item["Root"] - entry["Y"] + share * item["Length"])))
