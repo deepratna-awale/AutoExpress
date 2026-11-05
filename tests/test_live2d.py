@@ -916,6 +916,22 @@ def test_puppet_rig_has_soft_body_and_cloth_for_a_full_body():
     assert {"ParamBustX", "ParamBustY", "ParamHipY", "ParamClothesOuter", "ParamClothesInner"} <= ids
 
 
+def test_tight_skirts_barely_sway_and_flared_ones_swing(tmp_path):
+    def skirt(name, hem_half_width):
+        im = Image.new("RGBA", (300, 200), (0, 0, 0, 0))
+        ImageDraw.Draw(im).polygon([(100, 0), (200, 0), (150 + hem_half_width, 199), (150 - hem_half_width, 199)], fill=(150, 30, 50, 255))
+        (tmp_path / "textures").mkdir(exist_ok=True)
+        im.save(tmp_path / "textures" / f"{name}.png")
+        return {"Id": name, "Texture": f"textures/{name}.png", "X": 0, "Y": 0, "Width": 300, "Height": 200}
+
+    entries = [skirt("pencil", 52), skirt("flared", 120)]
+    items = [{"Layer": e["Id"], "Root": 0.0, "Length": 200.0} for e in entries]
+    puppet.cloth_sway(tmp_path, entries, items)
+    pencil, flared = (i["Sway"] for i in items)
+    assert pencil <= 0.2 and flared == 1.0
+    assert {"frequency", "damping"} <= set(puppet.PHYSICS["soft"]) and puppet.PHYSICS["hair"]["locks"] > 1
+
+
 def test_small_pictures_are_upscaled_with_the_backends_model():
     class Upscaler:
         def __init__(self):
