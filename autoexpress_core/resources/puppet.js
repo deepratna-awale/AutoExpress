@@ -39,13 +39,13 @@ const MOUTH_PART_ROLES = new Set(['mouth_inside', 'teeth_upper', 'teeth_lower', 
 const VISEMES = {
     sil: { open: 0, wide: 0, tongue: 0, teeth: 0 },
     PP: { open: 0, wide: -0.1, tongue: 0, teeth: 0 },
-    FF: { open: 0.1, wide: 0.2, tongue: 0, teeth: 1 },
-    TH: { open: 0.18, wide: 0.1, tongue: 0.7, teeth: 0.6 },
-    DD: { open: 0.22, wide: 0.2, tongue: 0.6, teeth: 0.5 },
+    FF: { open: 0.16, wide: 0.2, tongue: 0, teeth: 1 },
+    TH: { open: 0.3, wide: 0.1, tongue: 1, teeth: 0.15 },
+    DD: { open: 0.26, wide: 0.2, tongue: 0.8, teeth: 0.25 },
     kk: { open: 0.28, wide: 0.1, tongue: 0.2, teeth: 0.3 },
     CH: { open: 0.2, wide: -0.5, tongue: 0, teeth: 0.9 },
-    SS: { open: 0.12, wide: 0.5, tongue: 0, teeth: 1 },
-    nn: { open: 0.18, wide: 0.15, tongue: 0.6, teeth: 0.4 },
+    SS: { open: 0.18, wide: 0.55, tongue: 0, teeth: 1 },
+    nn: { open: 0.22, wide: 0.15, tongue: 0.7, teeth: 0.2 },
     RR: { open: 0.22, wide: -0.35, tongue: 0.3, teeth: 0.3 },
     aa: { open: 0.75, wide: 0.05, tongue: 0, teeth: 0.6 },
     E: { open: 0.42, wide: 0.5, tongue: 0, teeth: 0.7 },
@@ -63,6 +63,8 @@ const LETTER_VISEMES = [
 ];
 // Layers of the body under the head: they jiggle with the soft parts and follow the mouse's pull.
 const SOFT_ROLES = new Set(['body', 'clothing', 'nude_body', 'inner']);
+// Painted on the face's skin: these move exactly with it (its depth), see _onFaceSurface.
+const FACE_SURFACE_ROLES = new Set(['mouth', 'mouth_open', 'mouth_grin', 'mouth_lips', 'mouth_inside', 'teeth_upper', 'teeth_lower', 'tongue', 'cheek', 'cheek_hatch']);
 // The outer clothes, hidden by ParamClothesOuter when there is a body layer under them.
 const OUTER_ROLES = new Set(['clothing', 'arm']);
 // Expressions whose names start with these stay on (each in its own slot) while emotions change.
@@ -537,7 +539,14 @@ function definePuppetClass(PIXI) {
             const start = (id) => d.poseStart.get(id) || 0;
             if (d.pose.startsWith('bone ')) {
                 const bone = this._boneByName.get(d.pose.slice(5));
-                if (bone) this._solveIK(bone, d.local, point.x, point.y);
+                const group = bone && (bone.Group || 'torso');
+                const limb = group && /^(arm|leg)_[LR]$/.test(group) ? group.replace('_', ' ') : null;
+                if (limb && /^(UpperArm|Thigh)/.test(bone.Name)) {
+                    // The elbow or knee is a hint point: it bends the limb that way, the hand or foot stays.
+                    const old = (this._hints || {})[limb];
+                    this.ikHint(limb, { x: point.x, y: point.y, z: old ? old.z : undefined });
+                } else if (limb) this.ik(limb, { x: point.x, y: point.y });
+                else if (bone) this._solveIK(bone, d.local, point.x, point.y);
             } else if (d.pose === 'head') {
                 set('ParamAngleX', start('ParamAngleX') + dx / Math.max(1, hr - hl) * 50);
                 set('ParamAngleY', start('ParamAngleY') - dy / Math.max(1, hb - ht) * 50);
@@ -562,6 +571,8 @@ function definePuppetClass(PIXI) {
         /** Put the skeleton back in the drawing's pose. */
         resetPose() {
             this._pose.clear();
+            this._hints = {};
+            this._ikTargets = {};
         }
 
         _grabStart(event) {
@@ -677,6 +688,33 @@ function definePuppetClass(PIXI) {
                 .map(area => area.Name);
         }
 
+        /**
+         * The mouth's pieces and the blush are painted on the face, so they take the face's depth
+         * where they lie: their own depth (a split's guess for a small layer, or none for the blush)
+         * made them slide off the face when the head turned.
+         */
+        _onFaceSurface() {
+            const face = this.layers.find(l => l.role === 'face');
+            if (!face || !face.z) return;
+            const n = face.rest.length >> 1;
+            for (const layer of this.layers) {
+                if (!FACE_SURFACE_ROLES.has(layer.role)) continue;
+                const count = layer.rest.length >> 1;
+                const z = new Float32Array(count);
+                for (let k = 0; k < count; k++) {
+                    const x = layer.rest[2 * k], y = layer.rest[2 * k + 1];
+                    let best = Infinity, value = 0;
+                    for (let j = 0; j < n; j++) {
+                        const dx = face.rest[2 * j] - x, dy = face.rest[2 * j + 1] - y;
+                        const d = dx * dx + dy * dy;
+                        if (d < best) { best = d; value = face.z[j]; }
+                    }
+                    z[k] = value;
+                }
+                layer.z = z;
+            }
+        }
+
         // Loading -------------------------------------------------------------------------
         async _loadTextures() {
             const rig = this.doc.Rig;
@@ -694,6 +732,7 @@ function definePuppetClass(PIXI) {
                 }
                 index += 1;
             }
+            this._onFaceSurface();
             this._setupSkeleton();
             // Where the open mouth's inside is: the pieces open and close about its middle.
             const inside = this.layers.find(l => l.role === 'mouth_inside');
@@ -984,6 +1023,195 @@ function definePuppetClass(PIXI) {
                 if (q + bias < bestQ) { bestQ = q + bias; found = b; }
             }
             return found;
+        }
+
+        // Inverse kinematics for the limbs ---------------------------------------------------------
+        /**
+         * The limbs IK moves: the upper bone, the lower bone and the end (hand or foot), by name.
+         * 'arm L', 'arm R', 'leg L', 'leg R'.
+         */
+        _limb(name) {
+            const [kind, side] = name.split(' ');
+            const names = kind === 'arm' ? [`UpperArm${side}`, `Forearm${side}`, `Hand${side}`] : [`Thigh${side}`, `Shin${side}`, `Foot${side}`];
+            const bones = names.map(n => this._boneByName && this._boneByName.get(n));
+            if (bones.slice(0, 2).some(b => !b)) return null;
+            return { name, kind, side, upper: bones[0], lower: bones[1], end: bones[2] || null };
+        }
+
+        /** A bone's local 3D transform (3x4) for a turn in the picture's plane and a swing towards the viewer, as _poseBones3. */
+        _boneLocal3(b, rollDeg, swingDeg) {
+            const t = rollDeg * Math.PI / 180, w = swingDeg * Math.PI / 180;
+            const ct = Math.cos(t), st = Math.sin(t);
+            const dx = b.Tail[0] - b.Head[0], dy = b.Tail[1] - b.Head[1];
+            const len = Math.hypot(dx, dy) || 1;
+            const ax = dy / len, ay = -dx / len;
+            const cw = Math.cos(w), sw = Math.sin(w), k = 1 - cw;
+            const S = [cw + k * ax * ax, k * ax * ay, sw * ay, k * ax * ay, cw + k * ay * ay, -sw * ax, -sw * ay, sw * ax, cw];
+            const R = [
+                ct * S[0] - st * S[3], ct * S[1] - st * S[4], ct * S[2] - st * S[5],
+                st * S[0] + ct * S[3], st * S[1] + ct * S[4], st * S[2] + ct * S[5],
+                S[6], S[7], S[8],
+            ];
+            const [hx, hy] = b.Head;
+            const hz = b.HeadZ || 0;
+            return [R[0], R[1], R[2], hx - (R[0] * hx + R[1] * hy + R[2] * hz), R[3], R[4], R[5], hy - (R[3] * hx + R[4] * hy + R[5] * hz), R[6], R[7], R[8], hz - (R[6] * hx + R[7] * hy + R[8] * hz)];
+        }
+
+        /** The joint where a bone ends (its child's head, or its tail), with its depth. */
+        _boneTip(b) {
+            const child = this._bones.find(c => c.parentIndex === b.index && (c.Group || 'torso') === (b.Group || 'torso'));
+            return child ? [child.Head[0], child.Head[1], child.HeadZ ?? b.HeadZ ?? 0] : [b.Tail[0], b.Tail[1], b.HeadZ || 0];
+        }
+
+        /** This frame's angle of a bone parameter (what plays, plus the pose). */
+        _boneValue(id) {
+            if (!id) return 0;
+            const i = this.core.getParameterIndex(id);
+            return i < 0 ? 0 : this.core.values[i];
+        }
+
+        /** The world 3x4 matrix of a bone's parent now, or the identity. */
+        _parentWorld(b) {
+            if (b.parentIndex < 0) return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+            const M = this._poseBones3(x => this._boneValue(x.param), x => this._boneValue(x.SwingParam));
+            return Array.from(M.slice(b.parentIndex * 12, b.parentIndex * 12 + 12));
+        }
+
+        /**
+         * Turn one bone (in the picture's plane, and towards or away from the viewer) so the point at
+         * its end lands as near the goal as its limits allow. A coarse search over both angles, then
+         * a finer one round the best: exact for the renderer's own rotation, joint limits included.
+         * Returns [roll, swing, world matrix].
+         */
+        _aimBone(b, parent, tip, goal) {
+            const range = (id, fallback) => {
+                const i = id ? this.core.getParameterIndex(id) : -1;
+                return i < 0 ? fallback : [this.core.mins[i], this.core.maxs[i]];
+            };
+            const [r0, r1] = range(b.param, [0, 0]);
+            const [w0, w1] = b.SwingParam ? range(b.SwingParam, [0, 0]) : [0, 0];
+            const compose = (L) => {
+                const W = new Array(12);
+                for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) {
+                    let v = parent[r * 4] * L[c] + parent[r * 4 + 1] * L[4 + c] + parent[r * 4 + 2] * L[8 + c];
+                    if (c === 3) v += parent[r * 4 + 3];
+                    W[r * 4 + c] = v;
+                }
+                return W;
+            };
+            const cost = (roll, swing) => {
+                const W = compose(this._boneLocal3(b, roll, swing));
+                const x = W[0] * tip[0] + W[1] * tip[1] + W[2] * tip[2] + W[3];
+                const y = W[4] * tip[0] + W[5] * tip[1] + W[6] * tip[2] + W[7];
+                const z = W[8] * tip[0] + W[9] * tip[1] + W[10] * tip[2] + W[11];
+                return (x - goal[0]) ** 2 + (y - goal[1]) ** 2 + (z - goal[2]) ** 2;
+            };
+            let best = [clamp(0, r0, r1), clamp(0, w0, w1)], bestC = cost(best[0], best[1]);
+            for (const step of [6, 1.5, 0.4]) {
+                const span = step === 6 ? null : step * 4;
+                const ra = span === null ? r0 : Math.max(r0, best[0] - span), rb = span === null ? r1 : Math.min(r1, best[0] + span);
+                const wa = span === null ? w0 : Math.max(w0, best[1] - span), wb = span === null ? w1 : Math.min(w1, best[1] + span);
+                for (let r = ra; r <= rb + 1e-6; r += step) {
+                    for (let w = wa; w <= wb + 1e-6; w += step) {
+                        const c = cost(r, w);
+                        if (c < bestC) { bestC = c; best = [r, w]; }
+                    }
+                }
+            }
+            return [best[0], best[1], compose(this._boneLocal3(b, best[0], best[1]))];
+        }
+
+        /**
+         * Two-bone inverse kinematics with a hint point, as animators rig a limb: the hand (or foot)
+         * goes to target and the elbow (or knee) bends towards hint. limb is 'arm L', 'arm R',
+         * 'leg L' or 'leg R'; target and hint are canvas points {x, y, z?} (z: how far in front of
+         * the body, in canvas pixels). Without a hint the limb keeps the last one, or bends the
+         * natural way (elbows out and down, knees forward). The hand keeps its turn, the foot stays
+         * level. The pose stays until resetPose(). Returns false without a skeleton.
+         */
+        ik(limb, target, hint) {
+            const L = this._limb(limb);
+            if (!L) return false;
+            this._hints = this._hints || {};
+            if (hint) this._hints[limb] = { x: hint.x, y: hint.y, z: hint.z };
+            this._ikTargets = this._ikTargets || {};
+            this._ikTargets[limb] = { x: target.x, y: target.y, z: target.z };
+            const parent = this._parentWorld(L.upper);
+            const apply = (W, p) => [W[0] * p[0] + W[1] * p[1] + W[2] * p[2] + W[3], W[4] * p[0] + W[5] * p[1] + W[6] * p[2] + W[7], W[8] * p[0] + W[9] * p[1] + W[10] * p[2] + W[11]];
+            const rootRest = [L.upper.Head[0], L.upper.Head[1], L.upper.HeadZ || 0];
+            const elbowRest = this._boneTip(L.upper);
+            const wristRest = this._boneTip(L.lower);
+            const S = apply(parent, rootRest);
+            const l1 = Math.hypot(elbowRest[0] - rootRest[0], elbowRest[1] - rootRest[1], elbowRest[2] - rootRest[2]);
+            const l2 = Math.hypot(wristRest[0] - elbowRest[0], wristRest[1] - elbowRest[1], wristRest[2] - elbowRest[2]);
+            // The goal, on the body's depth unless given (a hand brought over the body comes in front
+            // of it), and never past the limb's reach.
+            let tz = target.z;
+            if (tz === undefined) {
+                tz = S[2];
+                const body = this.doc.Rig.Body && this.doc.Rig.Body.Box;
+                if (L.kind === 'arm' && body && target.x > body[0] && target.x < body[2] && target.y > body[1] && target.y < body[3]) tz = S[2] + l1 * 0.45;
+            }
+            let T = [target.x, target.y, tz];
+            let v = [T[0] - S[0], T[1] - S[1], T[2] - S[2]];
+            let d = Math.hypot(...v) || 1e-6;
+            const reach = l1 + l2;
+            const dd = clamp(d, Math.abs(l1 - l2) + 1, reach * 0.999);
+            const n = v.map(c => c / d);
+            T = [S[0] + n[0] * dd, S[1] + n[1] * dd, S[2] + n[2] * dd];
+            // The bend: elbows out from the body and back, knees forward, unless a hint says otherwise.
+            let H = this._hints[limb];
+            if (!H) {
+                const E0 = apply(parent, elbowRest);
+                const out = L.side === 'L' ? 1 : -1;
+                H = L.kind === 'arm' ? { x: E0[0] + out * l1 * 0.8, y: E0[1] + l1 * 0.4, z: E0[2] } : { x: E0[0], y: E0[1], z: E0[2] + l1 };
+            }
+            const h = [H.x - S[0], H.y - S[1], (H.z ?? S[2]) - S[2]];
+            const along = h[0] * n[0] + h[1] * n[1] + h[2] * n[2];
+            let p = [h[0] - n[0] * along, h[1] - n[1] * along, h[2] - n[2] * along];
+            let pl = Math.hypot(...p);
+            if (pl < 1e-3) { p = L.kind === 'arm' ? [0, 0, -1] : [0, 0, 1]; pl = 1; }
+            p = p.map(c => c / pl);
+            const a = (l1 * l1 - l2 * l2 + dd * dd) / (2 * dd);
+            const k = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+            const E = [S[0] + n[0] * a + p[0] * k, S[1] + n[1] * a + p[1] * k, S[2] + n[2] * a + p[2] * k];
+            const set = (id, value) => {
+                if (!id) return;
+                const i = this.core.getParameterIndex(id);
+                if (i < 0) return;
+                // The pose is an offset over what plays (the motions), like a drag.
+                this._pose.set(id, clamp(value, this.core.mins[i], this.core.maxs[i]) - this.core.defaults[i]);
+            };
+            const [r1, w1, W1] = this._aimBone(L.upper, parent, elbowRest, E);
+            set(L.upper.param, r1); set(L.upper.SwingParam, w1);
+            const [r2, w2, W2] = this._aimBone(L.lower, W1, wristRest, T);
+            set(L.lower.param, r2); set(L.lower.SwingParam, w2);
+            if (L.end && L.kind === 'leg') {
+                // The foot stays level: it turns back by what the leg turned in the picture's plane.
+                const tip = this._boneTip(L.end);
+                const ankle = apply(W2, [L.end.Head[0], L.end.Head[1], L.end.HeadZ || 0]);
+                const goal = [ankle[0] + (tip[0] - L.end.Head[0]), ankle[1] + (tip[1] - L.end.Head[1]), ankle[2]];
+                const [r3, w3] = this._aimBone(L.end, W2, tip, goal);
+                set(L.end.param, r3); set(L.end.SwingParam, w3);
+            }
+            return true;
+        }
+
+        /** Move the elbow's or knee's hint point and bend the limb towards it again (its hand or foot stays put). */
+        ikHint(limb, hint) {
+            const L = this._limb(limb);
+            if (!L) return false;
+            let target = this._ikTargets && this._ikTargets[limb];
+            if (!target) {
+                const M = this._poseBones3(x => this._boneValue(x.param), x => this._boneValue(x.SwingParam));
+                const tip = this._boneTip(L.lower), o = L.lower.index * 12;
+                target = {
+                    x: M[o] * tip[0] + M[o + 1] * tip[1] + M[o + 2] * tip[2] + M[o + 3],
+                    y: M[o + 4] * tip[0] + M[o + 5] * tip[1] + M[o + 6] * tip[2] + M[o + 7],
+                    z: M[o + 8] * tip[0] + M[o + 9] * tip[1] + M[o + 10] * tip[2] + M[o + 11],
+                };
+            }
+            return this.ik(limb, target, hint);
         }
 
         /**
@@ -1826,9 +2054,11 @@ function definePuppetClass(PIXI) {
                 let alpha = 1;
                 // A quick cross-fade between the open eye and the closed art (a blink lasts a tenth of a
                 // second, so the swap reads as the lid closing).
-                if (role === 'eye_closed') alpha = 1 - smoothstep(0.2, 0.42, eyeOpen);
-                else if (role === 'eye_white' || role === 'iris') alpha = hasClosed ? smoothstep(0.22, 0.4, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen);
-                else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.2, 0.42, eyeOpen) : 1;
+                // The open and the closed drawings swap over a narrow band: a half-way mix shows both
+                // lids at once (a ghost). A blink passes it in a frame or two.
+                if (role === 'eye_closed') alpha = 1 - smoothstep(0.27, 0.33, eyeOpen);
+                else if (role === 'eye_white' || role === 'iris') alpha = hasClosed ? smoothstep(0.28, 0.33, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen);
+                else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.27, 0.33, eyeOpen) : 1;
                 else if (role === 'mouth' && talk) alpha = (1 - talkShow) * (1 - grin);
                 else if (role === 'mouth') alpha = (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1) * (1 - grin);
                 else if (role === 'mouth_open') alpha = talk ? 0 : smoothstep(0.15, 0.55, mouthOpen);
@@ -1836,7 +2066,7 @@ function definePuppetClass(PIXI) {
                 else if (role === 'mouth_grin') alpha = grin * (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1);
                 else if (role === 'brow') alpha = 1 - angry;
                 else if (role === 'brow_angry') alpha = angry;
-                else if (role === 'eye_tears') alpha = tears * (hasClosed ? smoothstep(0.2, 0.42, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen));
+                else if (role === 'eye_tears') alpha = tears * (hasClosed ? smoothstep(0.27, 0.33, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen));
                 else if (role === 'cheek') alpha = clamp(P('ParamCheek'), 0, 1) * 0.85;
                 else if (role === 'cheek_hatch') alpha = smoothstep(0.35, 0.85, P('ParamCheek')) * 0.8;
                 else if (OUTER_ROLES.has(role)) alpha = clamp(outer, 0, 1);
@@ -1852,6 +2082,11 @@ function definePuppetClass(PIXI) {
                     else alpha *= clamp(v, 0, 1);
                 } else if (layer.entry.State === 'half') alpha = 0;
                 if (layer.entry.Accessory) alpha *= clamp(P('ParamAccessories'), 0, 1);
+                if (layer.entry.ShadowOf) {
+                    // The shade an arm casts on the cloth beside it fades as the arm moves away.
+                    const b = layer.entry.ShadowOf;
+                    alpha *= 1 - smoothstep(6, 30, Math.hypot(P(`ParamBone${b}`), P(`ParamBone${b}Swing`)));
+                }
                 for (const mesh of layer.meshes) {
                     mesh.alpha = alpha;
                     mesh.visible = alpha > 0.003;
@@ -1900,9 +2135,9 @@ function definePuppetClass(PIXI) {
                         // shows a sliver of them and the dark, not a row of white.
                         // ParamTeeth brings them to the lips' edge (s, ee, f).
                         const teeth = clamp(P('ParamTeeth'), 0, 1);
-                        if (role === 'teeth_upper') y += talkUp * (0.45 + 0.55 * teeth);
+                        if (role === 'teeth_upper') y += talkUp * (0.62 + 0.38 * teeth);
                         else if (role === 'teeth_lower') y += talkDown * (0.3 + 0.7 * teeth);
-                        else if (role === 'tongue') y = talk.cy + (y - talk.cy) * talkOpen + (1 - talkOpen) * 0.3 * h - P('ParamTongueUp') * 0.4 * h;
+                        else if (role === 'tongue') y = talk.cy + (y - talk.cy) * talkOpen + (1 - talkOpen) * 0.14 * h - P('ParamTongueUp') * 0.18 * h;
                         else y += talkUp + (talkDown - talkUp) * clamp((rest[k + 1] - talk.top) / Math.max(1, h), 0, 1);
                         if (mouth) {
                             const mw = Math.max(1, mouth.Box[2] - mouth.Box[0]);

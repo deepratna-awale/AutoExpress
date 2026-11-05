@@ -25,49 +25,50 @@ OPENPOSE = {
 }
 
 # name, parent, from joint, to joint, group, limits (degrees, clockwise on screen), thickness as a
-# share of the face width. The limits keep to small, natural motion (a sway, a lean, an arm lifted a
-# little): a single drawing has nothing drawn behind its arms, so bigger poses tear the clothes. Raising the left arm sideways turns it anticlockwise (towards the right
-# of the picture), so its outward limit is the negative one; the right side is the mirror image.
+# share of the face width. The limbs reach a person's range (an arm raised overhead, an elbow or a
+# knee bent well over), for the limbs' inverse kinematics; the torso keeps to a sway and a lean.
+# Raising the left arm sideways turns it anticlockwise (towards the right of the picture), so its
+# outward limit is the negative one; the right side is the mirror image.
 BONES = (
     ("Hips", None, "pelvis", "spine", "torso", (-8, 8), None),
     ("Spine", "Hips", "spine", "chest", "torso", (-10, 10), None),
     ("Chest", "Spine", "chest", "neck", "torso", (-8, 8), None),
     ("Neck", "Chest", "neck", "chin", "torso", (-15, 15), 0.28),
     ("Head", "Neck", "chin", "crown", "head", (-20, 20), 0.6),
-    ("UpperArmL", "Chest", "shoulder_L", "elbow_L", "arm_L", (-35, 12), 0.24),
-    ("ForearmL", "UpperArmL", "elbow_L", "wrist_L", "arm_L", (-15, 40), 0.2),
-    ("HandL", "ForearmL", "wrist_L", "hand_L", "arm_L", (-20, 20), 0.22),
-    ("UpperArmR", "Chest", "shoulder_R", "elbow_R", "arm_R", (-12, 35), 0.24),
-    ("ForearmR", "UpperArmR", "elbow_R", "wrist_R", "arm_R", (-40, 15), 0.2),
-    ("HandR", "ForearmR", "wrist_R", "hand_R", "arm_R", (-20, 20), 0.22),
-    ("ThighL", "Hips", "hip_L", "knee_L", "leg_L", (-8, 5), 0.36),
-    ("ShinL", "ThighL", "knee_L", "ankle_L", "leg_L", (-8, 8), 0.26),
-    ("FootL", "ShinL", "ankle_L", "foot_L", "leg_L", (-10, 10), 0.24),
-    ("ThighR", "Hips", "hip_R", "knee_R", "leg_R", (-5, 8), 0.36),
-    ("ShinR", "ThighR", "knee_R", "ankle_R", "leg_R", (-8, 8), 0.26),
-    ("FootR", "ShinR", "ankle_R", "foot_R", "leg_R", (-10, 10), 0.24),
+    ("UpperArmL", "Chest", "shoulder_L", "elbow_L", "arm_L", (-120, 25), 0.24),
+    ("ForearmL", "UpperArmL", "elbow_L", "wrist_L", "arm_L", (-135, 135), 0.2),
+    ("HandL", "ForearmL", "wrist_L", "hand_L", "arm_L", (-40, 40), 0.22),
+    ("UpperArmR", "Chest", "shoulder_R", "elbow_R", "arm_R", (-25, 120), 0.24),
+    ("ForearmR", "UpperArmR", "elbow_R", "wrist_R", "arm_R", (-135, 135), 0.2),
+    ("HandR", "ForearmR", "wrist_R", "hand_R", "arm_R", (-40, 40), 0.22),
+    ("ThighL", "Hips", "hip_L", "knee_L", "leg_L", (-30, 15), 0.36),
+    ("ShinL", "ThighL", "knee_L", "ankle_L", "leg_L", (-20, 20), 0.26),
+    ("FootL", "ShinL", "ankle_L", "foot_L", "leg_L", (-35, 35), 0.24),
+    ("ThighR", "Hips", "hip_R", "knee_R", "leg_R", (-15, 30), 0.36),
+    ("ShinR", "ThighR", "knee_R", "ankle_R", "leg_R", (-20, 20), 0.26),
+    ("FootR", "ShinR", "ankle_R", "foot_R", "leg_R", (-35, 35), 0.24),
 )
 
 # How far a bone swings towards the viewer (positive) or away, in degrees: the depth the puppet
 # has gives every point of the drawing a place in 3D, so a limb can come a little forward (a hand
-# lifting towards the viewer, a knee bending) while the view stays the picture's. Kept small for
-# the same reason as the turns: a limb seen end-on isn't drawn, and squashing the side view
-# doesn't make one. The knee only bends back.
+# lifting towards the viewer, a knee bending) while the view stays the picture's. The limbs' IK
+# uses it for an elbow or knee bending towards or away from the viewer (its hint point); the shin
+# only swings back (the knee bends one way).
 SWING = {
     "Spine": (-5, 8),
     "Chest": (-5, 6),
-    "UpperArmL": (-15, 25),
-    "ForearmL": (0, 30),
-    "HandL": (-20, 20),
-    "UpperArmR": (-15, 25),
-    "ForearmR": (0, 30),
-    "HandR": (-20, 20),
-    "ThighL": (-10, 20),
-    "ShinL": (-25, 0),
-    "FootL": (-15, 15),
-    "ThighR": (-10, 20),
-    "ShinR": (-25, 0),
-    "FootR": (-15, 15),
+    "UpperArmL": (-40, 80),
+    "ForearmL": (0, 120),
+    "HandL": (-40, 40),
+    "UpperArmR": (-40, 80),
+    "ForearmR": (0, 120),
+    "HandR": (-40, 40),
+    "ThighL": (-20, 90),
+    "ShinL": (-130, 0),
+    "FootL": (-40, 40),
+    "ThighR": (-20, 90),
+    "ShinR": (-130, 0),
+    "FootR": (-40, 40),
 }
 
 

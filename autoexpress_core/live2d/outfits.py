@@ -162,8 +162,10 @@ def mid_instruction(description: str = "", garment: str = "") -> str:
     """The Qwen edit that takes the outermost layer off (the coat, jacket, haori...; garment when known)."""
     named = f"her {garment}" if garment else "the coat, jacket, blazer, cardigan, cape, robe or haori"
     return (
-        f"Take off only her outermost layer of clothing: {named} worn "
-        "open over her other clothes. Keep every garment under it (top, dress, skirt, trousers, belt, legwear) exactly "
+        f"Take off only her outermost layer of clothing: {named} worn open over her other clothes. "
+        "Remove it completely, collar, lapels, sleeves and hem included: do not recolour it, lighten it or leave "
+        "any part of it. Her arms now show the sleeves of the top under it (or bare arms if that top has none). "
+        "Keep every garment under it (top, dress, skirt, trousers, belt, legwear) exactly "
         "as it is, drawn complete where the outer layer covered it. If she wears no outer layer, change nothing. " + KEEP + _describe(description)
     )
 

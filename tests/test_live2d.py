@@ -1655,3 +1655,73 @@ def test_mouth_parts_have_their_own_roles():
         assert role in puppet.HEAD_ROLES and role in puppet.FEATURE_ROLES
     ids = [p[0] for p in puppet.PARAMETERS]
     assert {"ParamMouthWide", "ParamTongueUp", "ParamTeeth"} <= set(ids)
+
+
+def test_the_coat_off_edit_is_redrawn_while_the_coat_is_still_on():
+    class Seeing(FakeBackend):
+        def __init__(self, answers):
+            super().__init__()
+            self.answers = list(answers)
+
+        def describe(self, image, prompt, max_length=300):
+            self.calls.append(("describe", prompt))
+            return self.answers.pop(0)
+
+    picture = character()
+    settings = {"outer_garment_found": "beige blazer", "outer_garment_source": "vision model"}
+    run = lambda backend: kit.make_slot_edits(backend, picture, settings, {}, lambda _: None, lambda: None, lambda *a: None)
+    # Recoloured (still a blazer), then really off: one redraw.
+    backend = Seeing(["Yes.", "no"])
+    edits, notes = run(backend)
+    takes = [c for c in backend.calls if c[0] == "edit" and "Take off only" in c[1]]
+    assert len(takes) == 2 and outfits.MID in edits and not notes
+    # Never comes off: two redraws, then a note.
+    backend = Seeing(["yes"] * 4)
+    edits, notes = run(backend)
+    assert len([c for c in backend.calls if c[0] == "edit" and "Take off only" in c[1]]) == 1 + kit.COAT_OFF_RETRIES
+    assert any("wasn't fully taken off" in n for n in notes)
+    # Without a vision model nothing is checked.
+    backend = FakeBackend()
+    run(backend)
+    assert len([c for c in backend.calls if c[0] == "edit" and "Take off only" in c[1]]) == 1
+    assert "do not recolour it" in outfits.mid_instruction("", "beige blazer")
+
+
+def test_shoes_are_drawn_over_the_stockings():
+    entries = [
+        {"Id": "shoe_L", "Garment": "footwear"},
+        {"Id": "tights_L", "Garment": "legwear"},
+        {"Id": "tights_R", "Garment": "legwear"},
+        {"Id": "skirt", "Garment": "bottomwear"},
+        {"Id": "shoe_half", "Garment": "footwear", "State": "half"},
+    ]
+    order = [e["Id"] for e in puppet.shoes_over_legwear(entries)]
+    assert order == ["tights_L", "tights_R", "shoe_L", "skirt", "shoe_half"]
+
+
+def test_the_arm_shadow_on_the_jacket_is_its_own_layer(tmp_path):
+    (tmp_path / "textures").mkdir()
+    jacket = Image.new("RGBA", (200, 200), (200, 170, 140, 255))
+    ImageDraw.Draw(jacket).rectangle((150, 0, 175, 199), fill=(90, 70, 60, 255))  # the shade beside the arm
+    jacket.save(tmp_path / "textures" / "coat.png")
+    arm = Image.new("L", (200, 200), 0)
+    ImageDraw.Draw(arm).rectangle((176, 0, 199, 199), fill=255)
+    entries = [{"Id": "coat", "Texture": "textures/coat.png", "X": 0, "Y": 0, "Width": 200, "Height": 200, "Garment": "outerwear", "Piece": "torso", "Role": "clothing"}]
+    rig = {"Cloth": [{"Layer": "coat"}]}
+    out = puppet.armpit_shadows(tmp_path, entries, {"arm_L": arm}, rig)
+    shadow = [e for e in out if e.get("ShadowOf")]
+    assert [e["ShadowOf"] for e in shadow] == ["UpperArmL"] and {"Layer": shadow[0]["Id"]} in rig["Cloth"]
+    lit = Image.open(tmp_path / "textures" / "coat.png").convert("RGB")
+    assert sum(lit.getpixel((165, 100))) > 1.5 * (90 + 70 + 60)  # the shade painted out underneath
+    assert sum(lit.getpixel((40, 100))) == 200 + 170 + 140  # the rest untouched
+    assert "ShadowOf" in puppet.PLAYER.read_text(encoding="utf-8")
+
+
+def test_the_player_has_two_bone_ik_with_hints_and_mouth_parts_on_the_face():
+    player = puppet.PLAYER.read_text(encoding="utf-8")
+    for api in ("ik(limb, target, hint", "ikHint(limb, hint)", "_aimBone(", "_onFaceSurface()"):
+        assert api in player
+    data = json.loads(model_files.RESOURCE.read_text(encoding="utf-8"))
+    # Every emotion's motion moves the arms (a gesture the IK posed), not just the head.
+    assert set(data["gesture_for"].values()) <= set(data["gestures"])
+    assert set(data["expressions"]) - set(data["gesture_for"]) == {"neutral"}
