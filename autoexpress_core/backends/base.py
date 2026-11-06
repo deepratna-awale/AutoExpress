@@ -7,6 +7,7 @@ settings back out of that body with FaceEditRequest and translate them into
 their own request format.
 """
 
+import base64
 import dataclasses
 import re
 import time
@@ -36,7 +37,7 @@ def normalize_url(url: str | None, default: str) -> str:
         url = "http://" + url
     parts = urlsplit(url)
     if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
-        raise ValueError(f"Not a valid http(s) URL: {url}")
+        raise ValueError(f"Not a valid http(s) URL: {redact_url(url)}")
     return url.rstrip("/")
 
 
@@ -48,6 +49,104 @@ def split_credentials(url: str) -> tuple[str, str | None, str | None]:
     netloc = parts.hostname + (f":{parts.port}" if parts.port else "")
     clean = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
     return clean, unquote(parts.username), unquote(parts.password or "")
+
+
+def redact_url(url: str | None) -> str:
+    """The URL with any user:password@ replaced, safe to log or show."""
+    url = url or ""
+    try:
+        parts = urlsplit(url if "://" in url else f"//{url}")
+    except ValueError:
+        return re.sub(r"[^/@]*@", "***@", url)
+    if "@" not in parts.netloc:
+        return url
+    host = parts.netloc.rsplit("@", 1)[1]
+    return url.replace(parts.netloc, f"***@{host}", 1)
+
+
+def same_origin(a: str | None, b: str | None) -> bool:
+    """True when two URLs point at the same scheme, host and port (credentials ignored)."""
+    def origin(url: str | None):
+        if not url:
+            return None
+        try:
+            parts = urlsplit(url if re.match(r"^[a-z][a-z0-9+.-]*://", url, re.IGNORECASE) else f"http://{url}")
+            port = parts.port or {"http": 80, "https": 443}.get(parts.scheme.lower())
+        except ValueError:
+            return None
+        return parts.scheme.lower(), (parts.hostname or "").lower(), port
+
+    first, second = origin(a), origin(b)
+    return first is not None and first == second
+
+
+# Headers the transport manages itself; a custom header may not replace them.
+RESERVED_HEADERS = frozenset({"host", "content-length", "content-type", "transfer-encoding", "connection", "upgrade", "te", "trailer"})
+_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+
+class HeaderError(ValueError):
+    """Extra headers that can't be sent as written."""
+
+
+def parse_headers(value) -> dict[str, str]:
+    """
+    Extra headers for a WebUI behind a login proxy (e.g. Cloudflare Access service tokens).
+
+    Takes a dict, a JSON object, or "Name: value" lines (newline separated).
+
+    Raises:
+        HeaderError: A malformed or reserved header, or a value with a line break.
+    """
+    import json
+
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        if text.startswith("{"):
+            try:
+                value = json.loads(text)
+            except ValueError as e:
+                raise HeaderError("Extra headers look like JSON but don't parse as a JSON object.") from e
+        else:
+            pairs = {}
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                name, sep, header_value = line.partition(":")
+                if not sep:
+                    raise HeaderError("Write each extra header as Name: value, one per line.")
+                pairs[name.strip()] = header_value.strip()
+            value = pairs
+    if not isinstance(value, dict):
+        raise HeaderError("Extra headers must be Name: value lines or a JSON object.")
+    headers = {}
+    for name, header_value in value.items():
+        name = str(name).strip()
+        header_value = "" if header_value is None else str(header_value).strip()
+        if not _HEADER_NAME.match(name):
+            raise HeaderError(f"{name!r} is not a valid header name.")
+        if name.lower() in RESERVED_HEADERS:
+            raise HeaderError(f"The {name} header is set by AutoExpress and can't be replaced.")
+        if any(ch in header_value for ch in "\r\n\0"):
+            raise HeaderError(f"The {name} header's value has a line break in it.")
+        headers[name] = header_value
+    return headers
+
+
+class _AuthSession(requests.Session):
+    """A session that also drops the custom auth headers when a redirect leaves the WebUI's host."""
+
+    secret_headers: tuple[str, ...] = ()
+
+    def rebuild_auth(self, prepared_request, response):
+        if self.secret_headers and self.should_strip_auth(response.request.url, prepared_request.url):
+            for name in self.secret_headers:
+                prepared_request.headers.pop(name, None)
+        super().rebuild_auth(prepared_request, response)
 
 
 def lora_stem(name: str) -> str:
@@ -310,8 +409,9 @@ def connection_fix(error: "BackendError", label: str = "the WebUI") -> Fix:
     if isinstance(error, BackendAuthError):
         return Fix(
             [
-                f"{label} asked for a login. Enter its username and password (or token) next to the URL,",
-                "or put them in the URL: https://user:password@host",
+                f"{label[:1].upper()}{label[1:]} asked for a login. Open Login under the URL and enter its username and password, or a token.",
+                "Behind a login proxy (e.g. Cloudflare Access), add the headers it expects under Extra headers.",
+                "Or put the username and password in the URL: https://user:password@host",
             ]
         )
     if isinstance(error, (BackendUnavailable, BackendTimeout)):
@@ -333,9 +433,10 @@ class ConnectionOptions:
     """How to reach a WebUI. Every field has a sensible default for a local install."""
 
     username: str | None = None
-    password: str | None = None
-    token: str | None = None
-    headers: dict[str, str] = field(default_factory=dict)
+    # Secrets stay out of repr() so they never reach a log line.
+    password: str | None = field(default=None, repr=False)
+    token: str | None = field(default=None, repr=False)
+    headers: dict[str, str] = field(default_factory=dict, repr=False)
     connect_timeout: float = 5.0
     timeout: float = 30.0
     job_timeout: float = 1800.0
@@ -381,7 +482,7 @@ class RemoteBackend:
 
     # Transport ------------------------------------------------------------
     def _new_session(self) -> requests.Session:
-        session = requests.Session()
+        session = _AuthSession()
         retry = Retry(
             total=self.connection.retries,
             connect=self.connection.retries,
@@ -404,10 +505,41 @@ class RemoteBackend:
         username = self.connection.username or url_user
         password = self.connection.password if self.connection.username else url_password
         self.session.auth = (username, password or "") if username else None
-        self.session.headers.pop("Authorization", None)
+        for name in (*getattr(self.session, "secret_headers", ()), "Authorization"):
+            self.session.headers.pop(name, None)
         if self.connection.token:
             self.session.headers["Authorization"] = f"Bearer {self.connection.token}"
-        self.session.headers.update(self.connection.headers or {})
+        extra = self.connection.headers or {}
+        self.session.headers.update(extra)
+        self.session.secret_headers = tuple(extra)
+
+    def auth_headers(self) -> dict[str, str]:
+        """
+        The headers that carry this backend's login, for connections the session doesn't make (websockets).
+
+        Includes basic auth as an Authorization header, a bearer token and any extra headers.
+        """
+        headers = {}
+        auth = getattr(self.session, "auth", None)
+        if isinstance(auth, tuple) and auth[0]:
+            pair = f"{auth[0]}:{auth[1] or ''}".encode()
+            headers["Authorization"] = "Basic " + base64.b64encode(pair).decode()
+        for name, value in getattr(self.session, "headers", {}).items():
+            if name.lower() == "authorization" or name in getattr(self.session, "secret_headers", ()):
+                headers[name] = value
+        cookies = "; ".join(f"{c.name}={c.value}" for c in getattr(self.session, "cookies", ()))
+        if cookies:
+            headers["Cookie"] = cookies
+        return headers
+
+    def auth_summary(self) -> dict:
+        """Which login is set, without any secret: safe to send to the browser."""
+        return {
+            "username": self.connection.username,
+            "password": bool(self.connection.password),
+            "token": bool(self.connection.token),
+            "headers": sorted(self.connection.headers or {}),
+        }
 
     # URL handling ---------------------------------------------------------
     def set_url(self, url: str | None, notify: bool = True) -> None:

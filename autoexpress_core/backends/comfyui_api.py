@@ -1306,7 +1306,8 @@ class ComfyUIClient(RemoteBackend):
             return None
 
         ws_url = "ws" + self._base_url[len("http"):] + f"/ws?clientId={self.client_id}"
-        headers = [f"{k}: {v}" for k, v in self.session.headers.items() if k.lower() == "authorization"]
+        # The same login as the HTTP calls: basic auth, bearer token and extra proxy headers.
+        headers = [f"{k}: {v}" for k, v in self.auth_headers().items()]
         try:
             ws = websocket.create_connection(ws_url, timeout=self.connection.connect_timeout, header=headers)
         except Exception as e:  # progress is optional, never fail the job over it
