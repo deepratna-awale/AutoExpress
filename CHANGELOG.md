@@ -4,6 +4,9 @@ All notable changes to AutoExpress are listed here, newest first.
 
 ## Unreleased
 
+### Docs
+- **Animated sprites in the README and docs.** The README has an Animated sprites section with looping examples, and [docs/animated-sprites.md](docs/animated-sprites.md) shows more clips, frames from two loops, and how the endlessly looping WebP files keep playing in SillyTavern, browsers and other tools. The SillyTavern and RunPod guides explain where the looping sprites go, and the HTTP API table lists `lightning` with the current sampling defaults (20 steps, cfg 3.5).
+
 ### Fixed
 - **Live2D: the coat really comes off.** Qwen-Image-Edit sometimes recoloured the blazer (a white one where the beige one was) instead of taking it off. The coat-off edit now asks for the whole garment gone, collar, lapels and sleeves included, with the shirt's own sleeves showing, and the vision language model on ComfyUI (Qwen3-VL) checks the result: while it still sees an outer layer the edit is drawn again, up to twice. The RunPod setup starts ComfyUI with `--disable-dynamic-vram`, because ComfyUI's dynamic VRAM loading left Qwen3-VL's weights out when it writes text.
 - **Live2D: shoes painted all over.** Stockings carried down into the shoes were drawn over them when the split put the footwear under the legwear, which hid the inner half of each shoe. Shoes are now always drawn over the stockings.

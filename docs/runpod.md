@@ -67,4 +67,10 @@ In AutoExpress pick ComfyUI (or Auto) and enter `https://<pod id>-8188.proxy.run
 
 On RTX PRO 6000 a Qwen-Image-Edit expression with a pose takes about 15 seconds and a 3 second Wan 2.2 clip (49 frames, 480p) about 90 seconds at the default 20 steps or 15 seconds with Fast (4 steps), so all 28 animated expressions take about an hour, or 15 to 30 minutes with Fast, including background removal.
 
+### Animated sprites on a pod
+
+1. Run the setup script without `SKIP_WAN`, so the Wan 2.2 files are there (the checklist in AutoExpress lists them if any are missing).
+2. Connect AutoExpress to the pod as above, drop in the character card, and turn on **Animate sprites** (and **Remove background** for transparent sprites). In SillyTavern, tick **Animate** in the Generate dialog.
+3. The pod only renders the video. The clips come back to the AutoExpress machine, where the background is removed and they're saved as looping `Output/<character>/<expression>.webp` files, next to the stills, ready for Character Expressions. See [Animated sprites](animated-sprites.md) for examples.
+
 Stop the pod in the RunPod console when you're done; it bills by the hour while running.
