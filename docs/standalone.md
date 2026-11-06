@@ -105,8 +105,19 @@ After connecting, AutoExpress checks over the WebUI's API that everything it nee
 
 ### Protected or remote WebUIs
 
-- **Username and password**: put them in the URL (`https://user:pass@host:7860`) or set `AUTOEXPRESS_BACKEND_USERNAME` / `AUTOEXPRESS_BACKEND_PASSWORD`. A1111/Forge started with `--api-auth` get them as basic auth, SwarmUI logs in with them, and InvokeAI (multi-user mode) trades its email and password for a token and renews it when it expires.
-- **Token**: `AUTOEXPRESS_BACKEND_TOKEN` is sent as `Authorization: Bearer ...` (for proxies such as RunPod or a reverse proxy), or as SwarmUI's `swarm_token` cookie.
+Open **Login** under the WebUI URL (it opens by itself when the WebUI refuses the request):
+
+- **Username and password**: A1111/Forge started with `--api-auth` get them as basic auth, SwarmUI logs in with them, and InvokeAI (multi-user mode) trades its email and password for a token and renews it when it expires. Putting them in the URL (`https://user:pass@host:7860`) works too; they are taken out of it before it is saved or logged.
+- **Token**: sent as `Authorization: Bearer ...` (for a reverse proxy that wants one), or as SwarmUI's `swarm_token` cookie.
+- **Extra headers**: `Name: value` lines for a login proxy, e.g. Cloudflare Access service tokens (`CF-Access-Client-Id` / `CF-Access-Client-Secret`).
+
+How the login is kept safe:
+
+- It stays on the AutoExpress server. The page only learns which fields are set (and the username), never a password, token or header value; empty secret fields keep the saved ones, and **Forget login** clears them.
+- It belongs to one host. Reconnecting to the same address, from the app or the SillyTavern extension, keeps it; another address never receives it. Extra headers are dropped if the WebUI redirects to another host, and ComfyUI's progress websocket uses the same login.
+- Passwords never reach the log: URLs are logged without credentials and error tracebacks don't print local variables.
+
+The same settings can come from the environment: `AUTOEXPRESS_BACKEND_USERNAME`, `AUTOEXPRESS_BACKEND_PASSWORD`, `AUTOEXPRESS_BACKEND_TOKEN` and `AUTOEXPRESS_BACKEND_HEADERS` (`Name: value` lines or a JSON object). With `AUTOEXPRESS_BACKEND_URL` set they are only sent to that host.
 
 ## Configuration
 

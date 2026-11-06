@@ -1,22 +1,24 @@
 "use client";
 
-import { Link, Loader2, SlidersHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ChevronRight, KeyRound, Link, Loader2, SlidersHorizontal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AUTO_FAMILY, useAutoExpress, type ConnectionStatus } from "@/lib/store";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { LoraSelect } from "@/components/lora-select";
 import { SliderField } from "@/components/slider-field";
 import { WebUISetup } from "@/components/webui-setup";
 import { ExpressionSettingsDialog } from "@/components/expression-settings-dialog";
-import { AUTO_BACKEND } from "@/lib/api";
+import { AUTO_BACKEND, hasLogin, type LoginInput } from "@/lib/api";
 import { FAMILY_DEFAULTS, detectFamily, type Adjustment } from "@/lib/model-defaults";
 import { INPAINT_METHOD } from "@/lib/api";
 
@@ -27,6 +29,19 @@ function AdjustmentNote({ adjustment }: { adjustment?: Adjustment }) {
       <span className="font-medium">{adjustment.from}</span> {adjustment.reason}.
     </p>
   );
+}
+
+/** Login fields the user changed since the last connect. Secrets are dropped from memory once sent. */
+type LoginDraft = Partial<Record<"username" | "password" | "token" | "headers", string>>;
+
+function draftToInput(draft: LoginDraft): LoginInput | undefined {
+  const input: LoginInput = {};
+  if (draft.username !== undefined) input.username = draft.username.trim();
+  // Empty secret fields mean "keep the saved one"; Forget login clears them.
+  if (draft.password) input.password = draft.password;
+  if (draft.token) input.token = draft.token.trim();
+  if (draft.headers?.trim()) input.headers = draft.headers;
+  return Object.keys(input).length ? input : undefined;
 }
 
 const CONNECT_BUTTON_CLASSES: Record<ConnectionStatus, string> = {
@@ -74,6 +89,8 @@ export function ParametersPanel() {
     setApiUrl,
     connection,
     connect,
+    login,
+    loginNeeded,
     connectedBackend,
     options,
     editMethods,
@@ -105,6 +122,19 @@ export function ParametersPanel() {
   const autoDetect = backend === AUTO_BACKEND;
   const urlLabel = currentBackend && !autoDetect ? `${currentBackend.name} URL` : "WebUI URL";
 
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [draft, setDraft] = useState<LoginDraft>({});
+  const saved = hasLogin(login);
+  useEffect(() => {
+    if (loginNeeded) setLoginOpen(true);
+  }, [loginNeeded]);
+  const editDraft = (key: keyof LoginDraft) => (e: { target: { value: string } }) =>
+    setDraft((current) => ({ ...current, [key]: e.target.value }));
+  const submit = async (input?: LoginInput) => {
+    // Keep what was typed if the server refused it, so it can be corrected.
+    if (await connect(input)) setDraft({});
+  };
+
   return (
     <ScrollArea className="h-full">
       <div className="space-y-5 p-3 sm:space-y-6 sm:p-6">
@@ -135,30 +165,129 @@ export function ParametersPanel() {
               {urlLabel}
             </Label>
             <form
-              className="flex gap-2"
+              className="space-y-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                connect();
+                submit(draftToInput(draft));
               }}
             >
-              <Input
-                id="api-url"
-                value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="http://host:7860 or https://your-pod-7860.proxy.runpod.net"
-                className="flex-1 text-sm"
-              />
-              <Button
-                type="submit"
-                size="icon"
-                variant="outline"
-                className={cn("h-9 w-9 shrink-0", CONNECT_BUTTON_CLASSES[connection])}
-                disabled={connection === "connecting"}
-                aria-label="Connect"
-                title={connection === "connected" ? "Connected, click to refresh lists" : "Connect"}
-              >
-                {connection === "connecting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
-              </Button>
+              <div className="flex gap-2">
+                <Input
+                  id="api-url"
+                  value={apiUrl}
+                  onChange={(e) => setApiUrl(e.target.value)}
+                  placeholder="http://host:7860 or https://your-pod-7860.proxy.runpod.net"
+                  className="flex-1 text-sm"
+                  autoComplete="off"
+                />
+                <Button
+                  type="submit"
+                  size="icon"
+                  variant="outline"
+                  className={cn("h-9 w-9 shrink-0", CONNECT_BUTTON_CLASSES[connection])}
+                  disabled={connection === "connecting"}
+                  aria-label="Connect"
+                  title={connection === "connected" ? "Connected, click to refresh lists" : "Connect"}
+                >
+                  {connection === "connecting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
+                </Button>
+              </div>
+
+              <Collapsible open={loginOpen} onOpenChange={setLoginOpen}>
+                <CollapsibleTrigger
+                  type="button"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronRight className={cn("h-3 w-3 transition-transform", loginOpen && "rotate-90")} />
+                  <KeyRound className="h-3 w-3" />
+                  Login
+                  {saved && <span className="text-green-600 dark:text-green-400">(set)</span>}
+                  {loginNeeded && <span className="text-amber-600 dark:text-amber-400">(needed)</span>}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-2 pt-2">
+                  <p className="text-xs text-muted-foreground">
+                    For a WebUI with a login (A1111/Forge <code>--api-auth</code>, SwarmUI or InvokeAI accounts) or behind a
+                    login proxy. It is only sent to this address, kept on the AutoExpress server, and never shown again.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="login-username" className="text-xs">
+                        Username or email
+                      </Label>
+                      <Input
+                        id="login-username"
+                        value={draft.username ?? login?.username ?? ""}
+                        onChange={editDraft("username")}
+                        autoComplete="username"
+                        className="text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="login-password" className="text-xs">
+                        Password
+                      </Label>
+                      <Input
+                        id="login-password"
+                        type="password"
+                        value={draft.password ?? ""}
+                        onChange={editDraft("password")}
+                        placeholder={login?.password ? "Saved" : ""}
+                        autoComplete="current-password"
+                        className="text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="login-token" className="text-xs">
+                      Token
+                    </Label>
+                    <Input
+                      id="login-token"
+                      type="password"
+                      value={draft.token ?? ""}
+                      onChange={editDraft("token")}
+                      placeholder={login?.token ? "Saved (empty keeps it)" : "Bearer token, or SwarmUI's swarm_token"}
+                      autoComplete="off"
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="login-headers" className="text-xs">
+                      Extra headers
+                    </Label>
+                    <Textarea
+                      id="login-headers"
+                      value={draft.headers ?? ""}
+                      onChange={editDraft("headers")}
+                      placeholder={
+                        login?.headers.length
+                          ? `Saved: ${login.headers.join(", ")}. Typing here replaces them.`
+                          : "One per line, e.g.\nCF-Access-Client-Id: ...\nCF-Access-Client-Secret: ..."
+                      }
+                      autoComplete="off"
+                      spellCheck={false}
+                      rows={2}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="submit" size="sm" disabled={connection === "connecting"}>
+                      Connect with login
+                    </Button>
+                    {saved && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={connection === "connecting"}
+                        onClick={() => submit({ forget_login: true })}
+                      >
+                        Forget login
+                      </Button>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             </form>
             {autoDetect && connectedBackend && connected && (
               <p className="text-xs text-muted-foreground" role="status">

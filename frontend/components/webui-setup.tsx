@@ -167,7 +167,7 @@ export function WebUISetup() {
           variant="outline"
           size="sm"
           className="h-7 shrink-0 gap-1 px-2 text-xs"
-          onClick={connectionFailed ? connect : checkCapabilities}
+          onClick={connectionFailed ? () => connect() : checkCapabilities}
           disabled={busy}
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
