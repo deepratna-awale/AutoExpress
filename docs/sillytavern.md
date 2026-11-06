@@ -33,7 +33,7 @@ The WebUI only needs to be reachable from the AutoExpress app, not from SillyTav
 | Character prompt | Describes the character, e.g. `1girl, long silver hair, blue eyes`. Read from the image when it has one. |
 | Remove background | Saves the sprites with a transparent background (needs rembg on the AutoExpress machine). |
 | Change the pose too | A small gesture per expression, keeping the outfit and background. Needs Qwen-Image-Edit on ComfyUI. |
-| Animate | Turns every sprite into a looping animated WebP with Wan 2.2 on ComfyUI. Neutral becomes the idle animation, written from the character's card (and its wiki page). Transparent with Remove background on. See [Animated sprites](animated-sprites.md). |
+| Animate | Turns every sprite into a looping animated WebP with Wan 2.2 on ComfyUI. Neutral becomes the idle animation, written from the character's card (and its wiki page). Transparent with Remove background on. The sprite of the current emotion keeps looping beside the chat until the next message changes it. See [Animated sprites](animated-sprites.md#always-playing). |
 | Keep existing sprites | Uploads each sprite as `joy-autoexpress.png` next to the existing `joy.png` instead of replacing it. Turn on **Allow multiple sprites** in Character Expressions to use both. |
 
 Sprites go into the folder Character Expressions reads: `characters/<character name>/`, or the character's **Override folder name** when it has one. AutoExpress also keeps a copy in its own `Output/<folder>/`.
@@ -57,6 +57,6 @@ put the puppet folder in `data/<user>/assets/live2d` and pick it like any Live2D
 
 ## Copying sprites by hand
 
-Results from the WebUI extension, the ComfyUI nodes or the standalone app are named `joy.png`, `anger.png` and so on. Copy the character's output folder into SillyTavern's `data/<user>/characters/<character name>/` folder, or zip it and use **Upload sprite pack** in Character Expressions.
+Results from the WebUI extension, the ComfyUI nodes or the standalone app are named `joy.png`, `anger.png` and so on (animated sprites are `joy.webp`, `anger.webp`, ...; copy those instead of the PNGs to get the looping versions). Copy the character's output folder into SillyTavern's `data/<user>/characters/<character name>/` folder, or zip it and use **Upload sprite pack** in Character Expressions.
 
 [← Back to the docs](README.md)

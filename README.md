@@ -22,7 +22,7 @@ AutoExpress repaints a character's face with 28 different emotions and keeps eve
 - **Prompts tuned per model family.** Separate expression prompts for Danbooru-tag anime models, Pony, Illustrious/NoobAI, SDXL and natural-language models such as Flux. **Auto** picks the family from the checkpoint name.
 - **Expression LoRAs.** It downloads and applies the right expression LoRA for the checkpoint, reusing a Civitai key you already have set up.
 - **Two ways to edit.** Face inpainting uses ADetailer or FaceDetailer. Instruction editing uses Qwen-Image-Edit on ComfyUI, which also works on photos.
-- **Animated sprites.** Every expression can become a looping animation (Wan 2.2 image to video on ComfyUI), transparent if you like, with an idle animation written from the character card.
+- **Animated sprites.** Every expression can become a seamless looping animation that keeps playing for as long as it's shown (Wan 2.2 image to video on ComfyUI), transparent if you like, with an idle animation written from the character card. [Examples](#animated-sprites).
 - **Live2D models from pictures.** A ready-to-play puppet for the SillyTavern Live2D extension, and a layered PSD to rig a full Live2D model in Cubism Editor. The puppet blinks, turns its head with depth, follows the cursor and plays the 28 expressions, gliding from one to the next. Its hair, skirts and ribbons sway, and the bust and hips jiggle. You can drag hair, clothes and soft parts with the mouse or poke them. Layers are split at 2048 px and cleaned up: skin is solid and the hair colour is painted under the bangs.
 - **Swappable clothing for Live2D puppets.** Optional, and only for drawn adult characters. The body, the inner wear and the outer clothes become separate layers, and outfit switches change between them.
 - **One intensity slider** sets how far each expression is pushed.
@@ -50,6 +50,21 @@ Photos work too. This set was made from a generated portrait with the [instructi
 <p align="center">
   <a href=".github/readme/sheet_portrait.jpg"><img src=".github/readme/sheet_portrait.jpg" alt="A realistic portrait and its anger, sadness and surprise expressions" width="100%"></a>
 </p>
+
+## Animated sprites
+
+Turn on **Animate** and every expression also comes out as a looping animated WebP. Each clip starts and ends on the same still, so it plays on forever without a visible jump: the character keeps breathing, blinking and moving a little for as long as the sprite is on screen. In SillyTavern the sprite of the current emotion just keeps playing beside the chat until the next message changes it.
+
+<table>
+  <tr>
+    <td width="25%" align="center"><img src=".github/readme/animated/neutral.webp" alt="Looping idle animation: breathing, blinking and a slow sway"><br><sub>neutral (idle, from the character card)</sub></td>
+    <td width="25%" align="center"><img src=".github/readme/animated/pride.webp" alt="Looping pride animation: a confident smile with peace signs"><br><sub>pride</sub></td>
+    <td width="25%" align="center"><img src=".github/readme/animated/curiosity.webp" alt="Looping curiosity animation: leaning in with a small head tilt"><br><sub>curiosity</sub></td>
+    <td width="25%" align="center"><img src=".github/readme/animated/anger.webp" alt="Looping anger animation: a frown and clenched fists"><br><sub>anger</sub></td>
+  </tr>
+</table>
+
+The clips are made with Wan 2.2 image to video on ComfyUI and saved with a transparent background. The character reacts but never talks, so the loops read as an emotion display rather than speech. See [Animated sprites](docs/animated-sprites.md) for how it works and more examples.
 
 ## Installation
 

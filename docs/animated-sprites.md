@@ -2,6 +2,22 @@
 
 AutoExpress can turn every expression into a short looping animation, so a character card becomes a full set of 28 animated sprites, with an idle animation that fits the character.
 
+<table>
+  <tr>
+    <td width="20%" align="center"><img src="../.github/readme/animated/neutral.webp" alt="Idle loop: breathing, blinking and a slow sway"><br><sub>neutral (idle)</sub></td>
+    <td width="20%" align="center"><img src="../.github/readme/animated/pride.webp" alt="Pride loop: a confident smile with peace signs"><br><sub>pride</sub></td>
+    <td width="20%" align="center"><img src="../.github/readme/animated/curiosity.webp" alt="Curiosity loop: leaning in with a head tilt"><br><sub>curiosity</sub></td>
+    <td width="20%" align="center"><img src="../.github/readme/animated/confusion.webp" alt="Confusion loop: a finger to the cheek and a puzzled look"><br><sub>confusion</sub></td>
+    <td width="20%" align="center"><img src="../.github/readme/animated/anger.webp" alt="Anger loop: a frown, a small huff and clenched fists"><br><sub>anger</sub></td>
+  </tr>
+</table>
+
+These are the animated WebP files exactly as AutoExpress saves them (shrunk for this page), with a transparent background. Each one plays forever. The still under each clip is both its first and its last frame, so the loop has no seam, and the motion is kept small so it can keep playing beside a chat for hours without looking busy.
+
+<p align="center"><img src="../.github/readme/animated/frames.jpg" alt="Six frames from the idle and confusion loops, showing the small blink, breath and head movements" width="100%"></p>
+<p align="center"><sub>Six frames from two loops, half a second apart. The first and last frames match, so playback wraps around smoothly.</sub></p>
+
+
 1. Each expression's still is made as usual (face inpainting or Qwen-Image-Edit, with [poses](comfyui.md#instruction-edit-mode-qwen-image-edit) if you turn them on).
 2. The still is animated with **Wan 2.2 image to video 14B** on ComfyUI. The still is used as both the first and the last frame, so the clip loops without a jump, and the camera, framing and outfit stay put.
 3. **Neutral becomes the idle animation**: its motion comes from the character, see below.
@@ -46,6 +62,16 @@ Any picture works too; without a card, the idle is a calm breathing and blinking
 - **Standalone app**: turn on **Animate sprites** under the output folder. The gallery shows the animations. See the [HTTP API](standalone.md#http-api) for `"animate": true`.
 - **SillyTavern extension**: tick **Animate** in the Generate dialog. The idle comes from the character's card (the avatar PNG), and each animated WebP goes into Character Expressions.
 
+## Always playing
+
+Every file is saved to loop forever (WebP, APNG and GIF all carry an endless loop count), so whatever shows the sprite keeps it moving without any extra setup:
+
+- **SillyTavern**: Character Expressions shows the sprite for the emotion of the latest message. With animated sprites, that sprite keeps playing its loop beside the chat, the idle (`neutral`) when nothing stronger is going on, until the next message switches to another emotion's loop. The extension uploads the `.webp` files themselves (the upload keeps them animated), so nothing needs converting. If you copy sprites by hand, copy the `.webp` files into `data/<user>/characters/<character name>/`. Character Expressions shows one sprite per emotion unless **Allow multiple sprites** is on, so keep only the `.webp` for each emotion (not a `joy.png` next to `joy.webp`).
+- **Web pages and web-based front ends** play animated WebP in a plain `<img>` in every current browser, and loop it.
+- **Visual novel engines and other tools** that don't read animated WebP can use the `.apng` or `.gif` from the `formats` setting. GIF only has on/off transparency, so its edges are harder.
+
+Because each clip is small, calm and seamless, a sprite can sit on screen for a long time without the loop drawing attention to itself. Loops are 3 seconds by default; set `frames` (up to 121, about 7.5 seconds) for a longer, less repetitive cycle.
+
 ## HTTP API
 
 `POST /generate` takes `"animate": true` and an optional `"animation"` object:
@@ -58,7 +84,8 @@ Any picture works too; without a card, the idle is a calm breathing and blinking
 | `frames` | 49 | 17 to 121 (Wan rounds to 4n+1) |
 | `fps` | 16 | Playback speed of the saved file |
 | `resolution` | 480 | Short side of the video Wan renders |
-| `steps`, `cfg`, `seed` | 4, 1 with the LoRAs (20, 3.5 without), random | Sampling |
+| `lightning` | false | `true` uses the 4-step LoRAs (about 6× faster, but the negative prompt stops working, so mouths move more) |
+| `steps`, `cfg`, `seed` | 20, 3.5 (4, 1 with `lightning`), random | Sampling |
 | `loop` | true | Use the still as the last frame too |
 | `extra` | | Added to every clip's prompt |
 
