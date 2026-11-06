@@ -25,7 +25,13 @@ from autoexpress_core.backends.base import (
     BackendNotReady,
     BackendTimeout,
     BackendUnavailable,
+    HeaderError,
     connection_fix,
+    normalize_url,
+    parse_headers,
+    redact_url,
+    same_origin,
+    split_credentials,
 )
 from autoexpress_core.backends.detect import detect_backend, not_a_webui
 from autoexpress_core.backends.registry import AUTO, REMOTE_BACKENDS, create_backend, describe_backends
@@ -69,17 +75,22 @@ class AppState:
         self.detected = detection.kind
         return detection.kind or "a1111"
 
-    def connect(self, kind: str, url: str | None, credentials: dict | None = None):
+    def connect(self, kind: str, url: str | None, login: dict | None = None):
         """
         Switch WebUI and/or URL. kind "auto" asks the WebUI what it is.
 
+        login holds what the user sent of username, password, token, headers and forget_login;
+        see resolve_login for how it combines with the login already in use.
+
         Raises:
-            ValueError: Unknown id or a bad URL.
+            ValueError: Unknown id, a bad URL or malformed extra headers.
             BackendError: "auto" could not reach the WebUI, was refused, or found no supported WebUI.
         """
-        options = settings.connection_options()
-        if credentials is not None:
-            options.update(credentials)
+        if kind != AUTO and kind not in REMOTE_BACKENDS:
+            raise ValueError(f"Unknown backend '{kind}'.")
+        default_url = REMOTE_BACKENDS[kind].default_url if kind in REMOTE_BACKENDS else None
+        url, credentials = resolve_login(current_backend(), url, default_url, login or {})
+        options = {**settings.connection_options(url), **credentials}
         detected = None
         if kind == AUTO:
             detection = detect_backend(url, **options)
@@ -91,6 +102,58 @@ class AppState:
             self.backend = backend
             self.detected = detected
         return backend
+
+
+LOGIN_FIELDS = ("username", "password", "token", "headers")
+# A fixed message, so nothing typed into the headers (a secret value) is ever sent back.
+HEADERS_HELP = (
+    "Extra headers must be Name: value lines, one per line (or a JSON object). Host, Content-Type, "
+    "Content-Length and other headers AutoExpress sets itself can't be replaced, and values can't contain line breaks."
+)
+
+
+def resolve_login(current, url: str | None, default_url: str | None, data: dict) -> tuple[str | None, dict]:
+    """
+    The URL without credentials in it, and the login to use for it.
+
+    A field the user sent replaces the one in use, an empty one clears it, and a field left out is kept,
+    but only while the WebUI stays on the same host: a login is never carried to another address.
+    For a new host the environment's login applies when it belongs to that host. A username and
+    password written into the URL win over everything else. forget_login drops the kept login.
+
+    Raises:
+        ValueError: A bad URL or malformed extra headers.
+    """
+    if url and "@" in url:
+        url, url_user, url_password = split_credentials(normalize_url(url, default_url or ""))
+        if url_user:
+            data = {**data, "username": url_user, "password": url_password}
+    target = url or default_url
+    if current is not None and not data.get("forget_login") and same_origin(target, current.get_url()):
+        kept = {
+            "username": current.connection.username,
+            "password": current.connection.password,
+            "token": current.connection.token,
+            "headers": dict(current.connection.headers or {}),
+        }
+    else:
+        kept = settings.credentials_for(target)
+
+    login = dict(kept)
+    for key in LOGIN_FIELDS:
+        if key not in data:
+            continue
+        value = data[key]
+        if key == "headers":
+            login[key] = parse_headers(value)
+        else:
+            login[key] = (str(value).strip() if key == "username" else str(value)) if value else None
+    # A different account doesn't keep the old account's password.
+    if "username" in data and "password" not in data and login["username"] != kept["username"]:
+        login["password"] = None
+    # Kept even when empty, so create_backend replaces the defaults instead of keeping them.
+    login["headers"] = login["headers"] or {}
+    return url, login
 
 
 state = AppState()
@@ -260,6 +323,7 @@ def list_backends():
             "selected": backend.kind,
             "detected": state.detected is not None,
             "url": backend.get_url(),
+            "login": backend.auth_summary(),
             "backends": describe_backends(include_auto=True),
         }
     )
@@ -343,22 +407,25 @@ def receive_data():
     Pick the WebUI backend and set its URL.
 
     Body: {"text": url, "backend": id (optional, keeps the current one),
-           "username", "password", "token" (optional, replace stored credentials)}
+           "username", "password", "token", "headers" (optional: a sent field replaces the one in use,
+           an empty one clears it, a missing one is kept while the host stays the same),
+           "forget_login": true (optional, drop the kept login)}
+
+    The response never contains a password, token or header value: "login" only says which are set.
     """
     data = request.get_json(silent=True) or {}
     url = data.get("text")
     kind = data.get("backend") or current_backend().kind
-
-    credentials = None
-    if any(key in data for key in ("username", "password", "token")):
-        credentials = {key: (data.get(key) or None) for key in ("username", "password", "token")}
+    login = {key: data[key] for key in (*LOGIN_FIELDS, "forget_login") if key in data}
 
     try:
-        backend = state.connect(kind, url, credentials)
+        backend = state.connect(kind, url, login)
     except ValueError as e:
-        log.info(f"Could not connect to {kind} at {url}: {e}")
+        log.info(f"Could not connect to {kind} at {redact_url(url)}: {redact_url(str(e))}")
         if kind != AUTO and kind not in REMOTE_BACKENDS:
             return jsonify({"error": f"Unknown WebUI backend. Choose one of: {', '.join([AUTO, *REMOTE_BACKENDS])}."}), 400
+        if isinstance(e, HeaderError):
+            return jsonify({"error": HEADERS_HELP}), 400
         return jsonify({"error": "Not a valid http(s) URL."}), 400
 
     if not url:
@@ -372,6 +439,7 @@ def receive_data():
             "name": backend.label,
             "url": backend.get_url(),
             "detected": kind == AUTO,
+            "login": backend.auth_summary(),
         }
     )
 

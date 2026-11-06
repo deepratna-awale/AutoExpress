@@ -16,8 +16,36 @@ export interface BackendInfo {
 /** The id that asks the server to work out which WebUI answers at the URL. */
 export const AUTO_BACKEND = "auto";
 
+/** Which login the server uses for the WebUI. Never holds a secret: only whether each one is set. */
+export interface LoginSummary {
+  username: string | null;
+  password: boolean;
+  token: boolean;
+  /** Names of the extra headers, without their values. */
+  headers: string[];
+}
+
+/** Login fields to send on connect. A field left out keeps the one in use (on the same host). */
+export interface LoginInput {
+  username?: string;
+  password?: string;
+  token?: string;
+  /** "Name: value" lines. */
+  headers?: string;
+  forget_login?: boolean;
+}
+
+export const hasLogin = (login: LoginSummary | null | undefined) =>
+  !!login && (!!login.username || login.password || login.token || login.headers.length > 0);
+
+/** The URL without a user:password@ part, so a password never lands in browser storage. */
+export function stripCredentials(url: string): string {
+  return url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^/@\s]*@/i, (_, scheme) => scheme || "");
+}
+
 export interface ConnectResponse {
   status: string;
+  login?: LoginSummary;
   /** The WebUI that answered; with "auto", the one that was detected. */
   backend?: string;
   name?: string;
@@ -71,6 +99,7 @@ export interface Capabilities {
 export interface BackendsResponse {
   selected: string;
   url: string;
+  login?: LoginSummary;
   backends: BackendInfo[];
 }
 
@@ -421,8 +450,8 @@ async function stringList(path: string): Promise<string[]> {
 export const api = {
   backends: () => optional(request<BackendsResponse>("/backends")),
 
-  connect: (url: string, backend?: string) =>
-    postJson<ConnectResponse>("/receive_data", backend ? { text: url, backend } : { text: url }),
+  connect: (url: string, backend?: string, login?: LoginInput) =>
+    postJson<ConnectResponse>("/receive_data", { text: url, ...(backend ? { backend } : {}), ...(login ?? {}) }),
 
   capabilities: () => optional(request<Capabilities>("/backend/capabilities")),
 

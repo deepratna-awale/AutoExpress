@@ -11,6 +11,10 @@ its type is read from its API.
 | AUTOEXPRESS_BACKEND_URL | the WebUI's default | Its address, e.g. https://<pod-id>-8188.proxy.runpod.net |
 | AUTOEXPRESS_BACKEND_USERNAME / _PASSWORD | | Basic auth (A1111 --api-auth), SwarmUI login, InvokeAI email login |
 | AUTOEXPRESS_BACKEND_TOKEN | | Bearer token (or SwarmUI swarm_token) |
+| AUTOEXPRESS_BACKEND_HEADERS | | Extra headers for a login proxy: "Name: value" lines or a JSON object (e.g. Cloudflare Access service token) |
+
+The login above is only sent to AUTOEXPRESS_BACKEND_URL's host when that is set,
+never to another address typed in the app. Secrets never appear in logs or API responses.
 | AUTOEXPRESS_CONNECT_TIMEOUT | 5 | Seconds to wait for a connection |
 | AUTOEXPRESS_REQUEST_TIMEOUT | 30 | Seconds to wait for listings and other quick calls |
 | AUTOEXPRESS_JOB_TIMEOUT | 1800 | Seconds one expression may take |
@@ -62,6 +66,15 @@ def _origins(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(origin.strip().rstrip("/") for origin in value.split(",") if origin.strip())
 
 
+def _headers(name: str) -> dict[str, str]:
+    from autoexpress_core.backends.base import parse_headers
+
+    try:
+        return parse_headers(os.environ.get(name))
+    except ValueError as e:
+        raise ValueError(f"{name}: {e}") from e
+
+
 def _path(name: str, default: pathlib.Path) -> pathlib.Path:
     value = os.environ.get(name)
     return pathlib.Path(value).expanduser().resolve() if value else default
@@ -72,8 +85,10 @@ class Settings:
     backend: str = "auto"
     backend_url: str | None = None
     username: str | None = None
-    password: str | None = None
-    token: str | None = None
+    # Secrets stay out of repr() so they never reach a log line.
+    password: str | None = field(default=None, repr=False)
+    token: str | None = field(default=None, repr=False)
+    headers: dict[str, str] = field(default_factory=dict, repr=False)
     connect_timeout: float = 5.0
     request_timeout: float = 30.0
     job_timeout: float = 1800.0
@@ -97,6 +112,7 @@ class Settings:
             username=os.environ.get("AUTOEXPRESS_BACKEND_USERNAME") or None,
             password=os.environ.get("AUTOEXPRESS_BACKEND_PASSWORD") or None,
             token=os.environ.get("AUTOEXPRESS_BACKEND_TOKEN") or None,
+            headers=_headers("AUTOEXPRESS_BACKEND_HEADERS"),
             connect_timeout=_number("AUTOEXPRESS_CONNECT_TIMEOUT", 5.0),
             request_timeout=_number("AUTOEXPRESS_REQUEST_TIMEOUT", 30.0),
             job_timeout=_number("AUTOEXPRESS_JOB_TIMEOUT", 1800.0),
@@ -113,12 +129,23 @@ class Settings:
             cors_origins=_origins("AUTOEXPRESS_CORS_ORIGINS", DEFAULT_CORS_ORIGINS),
         )
 
-    def connection_options(self) -> dict:
-        """Keyword arguments for create_backend."""
+    def credentials_for(self, url: str | None) -> dict:
+        """
+        The login from the environment, when it belongs to url.
+
+        With AUTOEXPRESS_BACKEND_URL set, the login is only for that host, so typing another
+        address in the app never sends it elsewhere. Without it, it is used for any address.
+        """
+        from autoexpress_core.backends.base import same_origin
+
+        if self.backend_url and not same_origin(url or self.backend_url, self.backend_url):
+            return {"username": None, "password": None, "token": None, "headers": {}}
+        return {"username": self.username, "password": self.password, "token": self.token, "headers": dict(self.headers)}
+
+    def connection_options(self, url: str | None = None) -> dict:
+        """Keyword arguments for create_backend, with the login when it belongs to url."""
         return {
-            "username": self.username,
-            "password": self.password,
-            "token": self.token,
+            **self.credentials_for(url),
             "connect_timeout": self.connect_timeout,
             "timeout": self.request_timeout,
             "job_timeout": self.job_timeout,
@@ -133,9 +160,10 @@ def configure_logging(settings: Settings) -> None:
 
     from loguru import logger
 
+    # diagnose=False: tracebacks never print local variables, which can hold passwords and tokens.
     logger.remove()
     fmt = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {extra[request_id]} | {name}:{function}:{line} - {message}"
     logger.configure(extra={"request_id": "-"})
-    logger.add(sys.stderr, level=settings.log_level, serialize=settings.log_json, format=fmt, backtrace=False)
+    logger.add(sys.stderr, level=settings.log_level, serialize=settings.log_json, format=fmt, backtrace=False, diagnose=False)
     if settings.log_file:
-        logger.add(settings.log_file, level=settings.log_level, serialize=settings.log_json, format=fmt, rotation="10 MB", retention=5)
+        logger.add(settings.log_file, level=settings.log_level, serialize=settings.log_json, format=fmt, rotation="10 MB", retention=5, diagnose=False)
