@@ -23,6 +23,8 @@ import {
   type AnimationInfo,
   type CharacterCard,
   type IdleSource,
+  type GenerateRequest,
+  type ExpressionOverride,
   type LoginInput,
   type LoginSummary,
   stripCredentials,
@@ -201,6 +203,10 @@ interface AutoExpressState {
   /** The running job on backends with the job API, null otherwise. */
   job: Job | null;
   generate: () => Promise<void>;
+  /** Make one expression again (a new seed), optionally with its own prompt and settings, remembered for the character. */
+  retryExpression: (expression: string, override?: ExpressionOverride, remember?: boolean) => Promise<void>;
+  /** The /generate body for the current inputs, null without an input image. */
+  buildRequest: () => GenerateRequest | null;
   interrupt: () => Promise<void>;
   images: string[];
   galleryDir: string;
@@ -721,7 +727,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       stopPolling();
       setGenerating(false);
       setJob(finished);
-      loadImages(finished.output_dir, false);
+      // Retries overwrite files, so load them fresh.
+      loadImages(finished.output_dir, true);
       if (finished.status === "completed") {
         toast.success(`Finished generating expressions in Output/${finished.output_dir}`);
         if (finished.notes?.some((note) => note.kind === "missing_lora"))
@@ -777,77 +784,115 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** The /generate body for the current inputs, the same for a whole set and for a retry. */
+  const buildRequest = useCallback((): GenerateRequest | null => {
+    if (!imageDataUrl) return null;
+    const { adPrompt, extra } = applyLoras(params.prompt, params.loras);
+    return {
+      init_images: imageDataUrl,
+      output_dir: outputDirectory,
+      ad_scheduler: params.scheduler,
+      loras: extra,
+      seed: params.seed,
+      ad_prompt: adPrompt,
+      ad_negative_prompt: params.negativePrompt,
+      ad_steps: params.steps,
+      ad_checkpoint: params.model,
+      ad_sampler: params.sampler,
+      ad_clip_skip: params.clipSkip,
+      ad_cfg_scale: params.cfgScale,
+      ad_denoising_strength: params.denoisingStrength,
+      ...(editMethods ? { method } : {}),
+      ...(method !== INPAINT_METHOD ? { edit_style: photoStyle ? "photo" : "illustration" } : {}),
+      ...(intensity !== null ? { expression_intensity: intensity } : {}),
+      ...(removeBackground && backgroundRemoval?.available ? { remove_background: true } : {}),
+      ...(pose && posesAvailable ? { pose: true } : {}),
+      ...(animate && animationInfo?.available
+        ? {
+            animate: true,
+            animation: {
+              formats: animationFormats,
+              lightning: animationFast,
+              ...(idleMotion.trim() ? { idle_motion: idleMotion.trim() } : { idle_source: idleSource }),
+            },
+          }
+        : {}),
+    };
+  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, pose, posesAvailable, animate, animationInfo, animationFormats, animationFast, idleMotion, idleSource]);
+
+  const startGeneration = useCallback(
+    async (data: GenerateRequest, dir: string) => {
+      setGenerating(true);
+      setJob(null);
+      loadImages(dir);
+      stopPolling();
+      // Older backends answer only when the whole set is done; watch the folder meanwhile.
+      pollRef.current = setInterval(() => loadImages(dir, false), POLL_INTERVAL_MS);
+
+      let tracking = false;
+      try {
+        const result = await api.generate(data);
+        if (result.job_id && result.job && isActiveJob(result.job)) {
+          tracking = true;
+          trackJob(result.job);
+        } else if (result.job) {
+          tracking = true;
+          finishJob(result.job);
+        } else if (result.status === "success") {
+          toast.success(`Finished generating expressions in Output/${dir}`);
+        } else {
+          toast.error(result.message || "Generation failed");
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Point at the setup checklist: the fix for an unreachable WebUI, or what it is missing.
+        if (error instanceof ApiError && error.fix) setCapabilities(connectionReport(message, error.fix));
+        else if (error instanceof ApiError && error.status === 409) checkCapabilities();
+        toast.error(`Generation failed: ${message}`);
+      } finally {
+        if (!tracking) {
+          stopPolling();
+          setGenerating(false);
+          loadImages(dir, true);
+        }
+      }
+    },
+    [loadImages, stopPolling, trackJob, finishJob, checkCapabilities]
+  );
+
   const generate = useCallback(async () => {
-    if (!imageDataUrl) {
+    const data = buildRequest();
+    if (!data) {
       toast.error("Drop an input image first.");
       return;
     }
-    const dir = resolveOutputDir(outputDirectory);
-    const { adPrompt, extra } = applyLoras(params.prompt, params.loras);
-    setGenerating(true);
-    setJob(null);
-    loadImages(dir);
-    stopPolling();
-    // Older backends answer only when the whole set is done; watch the folder meanwhile.
-    pollRef.current = setInterval(() => loadImages(dir, false), POLL_INTERVAL_MS);
+    await startGeneration(data, resolveOutputDir(outputDirectory));
+  }, [buildRequest, startGeneration, outputDirectory]);
 
-    let tracking = false;
-    try {
-      const result = await api.generate({
-        init_images: imageDataUrl,
-        output_dir: outputDirectory,
-        ad_scheduler: params.scheduler,
-        loras: extra,
-        seed: params.seed,
-        ad_prompt: adPrompt,
-        ad_negative_prompt: params.negativePrompt,
-        ad_steps: params.steps,
-        ad_checkpoint: params.model,
-        ad_sampler: params.sampler,
-        ad_clip_skip: params.clipSkip,
-        ad_cfg_scale: params.cfgScale,
-        ad_denoising_strength: params.denoisingStrength,
-        ...(editMethods ? { method } : {}),
-        ...(method !== INPAINT_METHOD ? { edit_style: photoStyle ? "photo" : "illustration" } : {}),
-        ...(intensity !== null ? { expression_intensity: intensity } : {}),
-        ...(removeBackground && backgroundRemoval?.available ? { remove_background: true } : {}),
-        ...(pose && posesAvailable ? { pose: true } : {}),
-        ...(animate && animationInfo?.available
-          ? {
-              animate: true,
-              animation: {
-                formats: animationFormats,
-                lightning: animationFast,
-                ...(idleMotion.trim() ? { idle_motion: idleMotion.trim() } : { idle_source: idleSource }),
-              },
-            }
-          : {}),
-      });
-      if (result.job_id && result.job && isActiveJob(result.job)) {
-        tracking = true;
-        trackJob(result.job);
-      } else if (result.job) {
-        tracking = true;
-        finishJob(result.job);
-      } else if (result.status === "success") {
-        toast.success(`Finished generating expressions in Output/${dir}`);
-      } else {
-        toast.error(result.message || "Generation failed");
+  const retryExpression = useCallback(
+    async (expression: string, override?: ExpressionOverride, remember = false) => {
+      const data = buildRequest();
+      if (!data) {
+        toast.error("Drop the character's input image first, then retry.");
+        return;
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      // Point at the setup checklist: the fix for an unreachable WebUI, or what it is missing.
-      if (error instanceof ApiError && error.fix) setCapabilities(connectionReport(message, error.fix));
-      else if (error instanceof ApiError && error.status === 409) checkCapabilities();
-      toast.error(`Generation failed: ${message}`);
-    } finally {
-      if (!tracking) {
-        stopPolling();
-        setGenerating(false);
-        loadImages(dir, false);
-      }
-    }
-  }, [imageDataUrl, outputDirectory, params, editMethods, method, photoStyle, intensity, removeBackground, backgroundRemoval, pose, posesAvailable, animate, animationInfo, animationFormats, animationFast, idleMotion, idleSource, loadImages, stopPolling, trackJob, finishJob, checkCapabilities]);
+      const dir = galleryDir || resolveOutputDir(outputDirectory);
+      const name = expression.toLowerCase();
+      const hasOwn = override && (override.prompt || Object.keys(override.settings ?? {}).length > 0);
+      await startGeneration(
+        {
+          ...data,
+          output_dir: dir,
+          expressions: [name],
+          // A new take unless the expression has a seed of its own.
+          seed: -1,
+          ...(hasOwn ? { overrides: { [name]: override }, save_overrides: remember } : {}),
+        },
+        dir
+      );
+    },
+    [buildRequest, startGeneration, galleryDir, outputDirectory]
+  );
 
   const interrupt = useCallback(async () => {
     try {
@@ -925,6 +970,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       generating,
       job,
       generate,
+      retryExpression,
+      buildRequest,
       interrupt,
       images,
       galleryDir,
@@ -938,7 +985,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,
       outputDirectory, backgroundRemoval, removeBackground, setRemoveBackground,
       animationInfo, animate, setAnimate, character, idleMotion, idleSource, suggestIdleMotion, suggestingIdle, animationFormats, animationFast,
-      generating, job, generate, interrupt, images, galleryDir, galleryVersion, loadImages,
+      generating, job, generate, retryExpression, buildRequest, interrupt, images, galleryDir, galleryVersion, loadImages,
     ]
   );
 

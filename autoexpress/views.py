@@ -15,8 +15,18 @@ from autoexpress.config import Settings, configure_logging
 from autoexpress.jobs import CANCELLED, COMPLETED, FINISHED, LIVE2D_KIT, JobManager, JobSpec, run_expression_job
 from autoexpress.modules import expression_sets, image_parser
 from autoexpress.modules.expression_loras import CIVITAI_KEY_ENV
-from autoexpress.validation import ValidationError, resolve_inside, safe_dir_name, validate_animation, validate_generate, validate_live2d
+from autoexpress.validation import (
+    ValidationError,
+    resolve_inside,
+    safe_dir_name,
+    validate_animation,
+    validate_generate,
+    validate_live2d,
+    validate_overrides,
+)
 from autoexpress_core import animation, background, character_card, expression_loras, get_expressions, instruction_edit, resolve_flavor
+from autoexpress_core import overrides as expression_overrides
+from autoexpress_core.generator import default_expression_prompt
 from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance as live2d_guidance
 from autoexpress_core.live2d import layers as live2d_layers
 from autoexpress_core.backends.base import (
@@ -463,6 +473,12 @@ def generate():
     "pose": true also changes the pose with each expression (a small sprite
     gesture from the current pose, outfit and background kept). It needs the
     instruction edit mode on the backend, whichever method is used.
+
+    "overrides": {expression: {"prompt", "settings"}} gives single expressions their
+    own prompt and settings (see GET /expression-overrides). The ones saved in the
+    output folder apply too unless "use_saved_overrides": false; the request's win.
+    "save_overrides": true remembers the request's in the folder for later runs.
+    To retry one expression, send "expressions": [name] (and "seed": -1 for a new take).
     """
     request_data = validate_generate(request.get_json(silent=True), settings.max_image_pixels)
     backend = current_backend()
@@ -503,6 +519,14 @@ def generate():
     output_path = resolve_inside(settings.output_dir, request_data["output_name"])
     if output_path is None:
         raise ValidationError({"output_dir": "Invalid folder name."})
+
+    if request_data["save_overrides"] and request_data["overrides"]:
+        expression_overrides.save(output_path, expression_overrides.merge(expression_overrides.load(output_path), request_data["overrides"]))
+    saved = expression_overrides.load(output_path) if request_data["use_saved_overrides"] else {}
+    wanted = set(expressions)
+    custom = {name: entry for name, entry in expression_overrides.merge(saved, request_data["overrides"]).items() if name in wanted}
+    if custom:
+        job_settings["expression_overrides"] = custom
 
     animate = request_data["animation"]
     if animate is not None and not backend.can_animate:
@@ -887,6 +911,86 @@ def get_expression_defaults():
     except KeyError:
         return error_response("invalid_request", f"Unknown expression family: {family_choice}", 400)
     return jsonify({"family": family, "defaults": expression_sets.family_defaults(family)})
+
+
+@autoexpress.route("/expression-overrides", methods=["GET"])
+def get_expression_overrides():
+    """
+    The per-expression prompts and settings saved for a character.
+
+    Query: output_dir (the character's output folder), download=1 to get the file as an attachment (export).
+    """
+    output_name = safe_dir_name(request.args.get("output_dir"))
+    folder = resolve_inside(settings.output_dir, output_name)
+    if folder is None:
+        raise ValidationError({"output_dir": "Invalid folder name."})
+    document = expression_overrides.document(expression_overrides.load(folder))
+    if request.args.get("download") in ("1", "true"):
+        response = jsonify(document)
+        response.headers["Content-Disposition"] = f'attachment; filename="{output_name}_{expression_overrides.FILE_NAME}"'
+        return response
+    return jsonify({**document, "output_dir": output_name, "settings": list(expression_overrides.SETTINGS)})
+
+
+@autoexpress.route("/expression-overrides", methods=["PUT", "POST"])
+def put_expression_overrides():
+    """
+    Save a character's per-expression prompts and settings (replacing what was there), e.g. an imported file.
+
+    Body: {"output_dir": folder, "expressions": {expression: {"prompt", "settings"}}}. An empty mapping clears them.
+    """
+    data = request.get_json(silent=True) or {}
+    output_name = safe_dir_name(data.get("output_dir"))
+    folder = resolve_inside(settings.output_dir, output_name)
+    if folder is None:
+        raise ValidationError({"output_dir": "Invalid folder name."})
+    custom = validate_overrides(data.get("expressions") or {})
+    unknown = sorted(set(custom) - set(instruction_edit.instruction_names()))
+    if unknown:
+        raise ValidationError({"expressions": f"Unknown expressions: {', '.join(unknown)}."})
+    expression_overrides.save(folder, custom)
+    log.info(f"Saved per-expression overrides for {output_name}: {', '.join(custom) or 'none'}")
+    return jsonify({**expression_overrides.document(custom), "output_dir": output_name})
+
+
+@autoexpress.route("/expression-prompt", methods=["POST"])
+def get_expression_prompt():
+    """
+    The default wording of expressions: the text a per-expression "prompt" override replaces.
+
+    Body: {"expressions": [names] (default all), "method", "ad_checkpoint", "family" (default the selected
+    prompt style), "expression_intensity", "edit_style", "pose"}. Returns {"prompts": {name: text}, "kind":
+    "tags" (face inpainting) or "instruction" (instruction edit)}.
+    """
+    data = request.get_json(silent=True) or {}
+    method = data.get("method") or instruction_edit.INPAINT
+    if method not in (instruction_edit.INPAINT, instruction_edit.INSTRUCT):
+        raise ValidationError({"method": "must be inpaint or instruct"})
+    intensity = data.get("expression_intensity")
+    if intensity is not None:
+        try:
+            intensity = min(max(float(intensity), 0.0), 1.0)
+        except (TypeError, ValueError):
+            raise ValidationError({"expression_intensity": "must be a number"}) from None
+    names = data.get("expressions") or instruction_edit.instruction_names()
+    if not isinstance(names, list):
+        raise ValidationError({"expressions": "must be a list of expression names"})
+    prompts = {}
+    for name in names:
+        try:
+            prompts[str(name).strip().lower()] = default_expression_prompt(
+                str(name),
+                method,
+                family=data.get("family") or model_family,
+                checkpoint=data.get("ad_checkpoint"),
+                intensity=intensity,
+                style=data.get("edit_style"),
+                is_realistic=is_realistic,
+                pose=bool(data.get("pose")),
+            )
+        except KeyError:
+            continue
+    return jsonify({"prompts": prompts, "kind": "instruction" if method == instruction_edit.INSTRUCT else "tags"})
 
 
 @autoexpress.route("/edit-methods", methods=["GET"])

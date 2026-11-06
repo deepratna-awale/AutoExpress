@@ -8,6 +8,8 @@ import re
 
 from PIL import Image, UnidentifiedImageError
 
+from autoexpress_core import overrides as expression_overrides
+
 # field: (type, min, max)
 NUMERIC_FIELDS = {
     "ad_steps": (int, 1, 150),
@@ -92,6 +94,8 @@ def validate_generate(data, max_pixels: int) -> dict:
               method ("inpaint", "instruct" or None for the family's default),
               remove_background (bool), animation (dict of animation settings, or None for stills only).
               settings["pose"] is True when sprite poses were asked for.
+              overrides (per-expression prompt and settings sent with the request),
+              save_overrides (remember them in the output folder), use_saved_overrides (bool).
     """
     if not isinstance(data, dict):
         raise ValidationError({"body": "Expected a JSON object."})
@@ -192,10 +196,22 @@ def validate_generate(data, max_pixels: int) -> dict:
         except ValidationError as e:
             errors.update(e.errors)
 
+    custom = {}
+    try:
+        custom = validate_overrides(data.get("overrides"))
+    except ValidationError as e:
+        errors.update(e.errors)
+    for key in ("save_overrides", "use_saved_overrides"):
+        if not isinstance(data.get(key, False), bool):
+            errors[key] = "must be true or false"
+
     if errors:
         raise ValidationError(errors)
 
     return {
+        "overrides": custom,
+        "save_overrides": data.get("save_overrides", False),
+        "use_saved_overrides": data.get("use_saved_overrides", True),
         "animation": animation,
         "image": image,
         "output_name": safe_dir_name(data.get("output_dir")),
@@ -372,3 +388,11 @@ def validate_live2d(data, max_pixels: int) -> dict:
         "character_lora": lora,
         "wait": data.get("wait", False) is True,
     }
+
+
+def validate_overrides(data) -> dict[str, dict]:
+    """Per-expression prompts and settings, see autoexpress_core.overrides. Errors are keyed overrides.<field>."""
+    try:
+        return expression_overrides.normalize(data)
+    except expression_overrides.OverrideError as e:
+        raise ValidationError({f"overrides.{key}" if key != "overrides" else key: value for key, value in e.errors.items()}) from e

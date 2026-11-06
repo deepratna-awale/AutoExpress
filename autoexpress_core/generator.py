@@ -5,7 +5,7 @@ from typing import Iterator, Protocol
 
 from PIL import Image, PngImagePlugin
 
-from . import expression_sets, instruction_edit
+from . import expression_sets, instruction_edit, overrides
 from . import intensity as expression_intensity
 from .expressions import DEFAULT_FLAVOR, resolve_flavor
 from .images import pil_to_b64
@@ -83,6 +83,8 @@ class ExpressionGenerator:
                 {expression: sentence}) made by Qwen-Image-Edit from the current pose, keeping the
                 outfit. Face inpainting then adds the expression on top of the posed image, so poses
                 need a backend with the instruction edit mode (ComfyUI) either way.
+                settings["expression_overrides"] ({expression: {"prompt", "settings"}}, see overrides)
+                gives single expressions their own prompt and settings.
 
         Yields:
             tuple[str, Image.Image]: Expression name and the generated image.
@@ -94,33 +96,28 @@ class ExpressionGenerator:
         family = resolve_flavor(flavor, settings.get("ad_checkpoint"), is_realistic)
         defaults = expression_sets.family_defaults(family)
         poses = self._poses(settings)
+        custom = overrides.normalize(settings.pop("expression_overrides", None))
 
         if method == instruction_edit.INSTRUCT:
-            yield from self._iter_instruction_edits(b64_image, settings, only, output_dir, is_realistic, defaults, poses)
+            yield from self._iter_instruction_edits(b64_image, settings, only, output_dir, is_realistic, defaults, poses, custom)
             return
         if poses is not None:
             self._require_edit_mode("Poses need")
 
         self.family = family
-        intensity = expression_intensity.resolve(settings.get("expression_intensity", defaults["intensity"]))
-        settings.pop("expression_intensity", None)
-        lora_prompt = expression_intensity.scale_lora_tags(lora_prompt, intensity)
+        default_intensity = defaults["intensity"]
         base_denoise = settings.get("ad_denoising_strength")
         if base_denoise is None:
             base_denoise = find_nested_key(load_payload(), "ad_denoising_strength")
-        if base_denoise is not None:
-            settings["ad_denoising_strength"] = round(min(1.0, float(base_denoise) * expression_intensity.denoise_scale(intensity)), 3)
         expressions = expression_sets.load_family(family)["expressions"]
         if only:
             wanted = {name.strip().lower() for name in only if name and name.strip()}
             expressions = {name: tags for name, tags in expressions.items() if name in wanted}
 
-        base_prompt = expression_sets.join_prompt(settings.get("ad_prompt", ""), lora_prompt)
-        settings["ad_negative_prompt"] = expression_sets.build_negative(
-            settings.get("ad_negative_prompt", ""), family
+        log.info(
+            f"Using {family} expression prompts at intensity "
+            f"{expression_intensity.resolve(settings.get('expression_intensity', default_intensity)):g}."
         )
-        log.info(f"Using {family} expression prompts at intensity {intensity:g}.")
-
         output_dir = self._prepare_output(output_dir)
 
         for expression_name in expressions:
@@ -128,13 +125,24 @@ class ExpressionGenerator:
                 log.info("Interrupted by user. Stopping..")
                 return
 
+            override = custom.get(expression_name)
+            local = overrides.apply(settings, override)
+            if override:
+                log.info(f"Using the saved prompt and settings for {expression_name}: {override}")
+            intensity = expression_intensity.resolve(local.pop("expression_intensity", default_intensity))
+            denoise = local.get("ad_denoising_strength") if override and "ad_denoising_strength" in override.get("settings", {}) else base_denoise
+            if denoise is not None:
+                local["ad_denoising_strength"] = round(min(1.0, float(denoise) * expression_intensity.denoise_scale(intensity)), 3)
+            base_prompt = expression_sets.join_prompt(local.get("ad_prompt", ""), expression_intensity.scale_lora_tags(lora_prompt, intensity))
+            local["ad_negative_prompt"] = expression_sets.build_negative(local.get("ad_negative_prompt", ""), family)
+
             source = b64_image
             if poses is not None and poses.get(expression_name):
                 log.info(f"Posing the character for {expression_name}.")
                 posed = self.backend.instruction_edit(
                     b64_image,
-                    instruction_edit.build_pose_instruction(expression_name, poses[expression_name], style=self._pose_style(settings, is_realistic, defaults)),
-                    dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), pose=True),
+                    instruction_edit.build_pose_instruction(expression_name, poses[expression_name], style=self._pose_style(local, is_realistic, defaults)),
+                    dataclasses.replace(instruction_edit.EditSettings.from_settings(local), pose=True),
                 )
                 if posed is None:
                     log.error(f"Pose edit failed for {expression_name}, stopping.")
@@ -142,8 +150,10 @@ class ExpressionGenerator:
                 source = pil_to_b64(posed)
 
             log.info(f"Generating image for {expression_name} expression.")
-            settings["ad_prompt"] = expression_sets.build_prompt(base_prompt, expression_name, family, intensity=intensity)
-            payload = build_expression_payload(source, settings)
+            local["ad_prompt"] = expression_sets.build_prompt(
+                base_prompt, expression_name, family, intensity=intensity, expression_prompt=(override or {}).get("prompt")
+            )
+            payload = build_expression_payload(source, local)
             result = self.backend.img2img(payload)
 
             if result is None:
@@ -180,18 +190,16 @@ class ExpressionGenerator:
         return instruction_edit.PHOTO if is_realistic else defaults["edit_style"]
 
     def _iter_instruction_edits(
-        self, b64_image: str, settings: dict, only, output_dir, is_realistic=False, defaults=None, poses=None
+        self, b64_image: str, settings: dict, only, output_dir, is_realistic=False, defaults=None, poses=None, custom=None
     ) -> Iterator[tuple[str, Image.Image]]:
         self._require_edit_mode()
         self.family = instruction_edit.INSTRUCT
         instructions = instruction_edit.get_instructions(only)
         defaults = defaults or expression_sets.FALLBACK_DEFAULTS
+        custom = custom or {}
         style = self._pose_style(settings, is_realistic, defaults)
-        default_intensity = defaults["intensity"]
-        if style == instruction_edit.PHOTO and defaults["edit_style"] != instruction_edit.PHOTO:
-            default_intensity = min(default_intensity, expression_intensity.PHOTO_DEFAULT)
+        default_intensity = instruction_default_intensity(style, defaults)
         intensity = expression_intensity.resolve(settings.get("expression_intensity", default_intensity))
-        edit_settings = instruction_edit.EditSettings.from_settings(settings)
         extra = settings.get("edit_instruction", "")
         # Animated sprites keep the mouth closed, see instruction_edit.build_instruction.
         closed_mouth = bool(settings.pop("closed_mouth", False))
@@ -203,9 +211,17 @@ class ExpressionGenerator:
                 log.info("Interrupted by user. Stopping..")
                 return
             log.info(f"Editing the expression to {expression_name}.")
-            value = instruction_edit.expression_intensity_for(expression_name, intensity, style)
+            override = custom.get(expression_name)
+            local = overrides.apply(settings, override)
+            if override:
+                log.info(f"Using the saved prompt and settings for {expression_name}: {override}")
+            edit_settings = instruction_edit.EditSettings.from_settings(local)
+            own_intensity = expression_intensity.resolve(local.get("expression_intensity", intensity))
+            value = instruction_edit.expression_intensity_for(expression_name, own_intensity, style)
             pose = (poses or {}).get(expression_name) or None
-            instruction = instruction_edit.build_instruction(expression_name, extra, style, value, pose=pose, closed_mouth=closed_mouth)
+            instruction = (override or {}).get("prompt") or instruction_edit.build_instruction(
+                expression_name, extra, style, value, pose=pose, closed_mouth=closed_mouth
+            )
             result = self.backend.instruction_edit(
                 b64_image, instruction, dataclasses.replace(edit_settings, intensity=value, photo=style == instruction_edit.PHOTO, pose=bool(pose))
             )
@@ -230,3 +246,41 @@ class ExpressionGenerator:
     def generate(self, *args, **kwargs) -> dict[str, Image.Image]:
         """Same as iter_generate but returns every result at once."""
         return dict(self.iter_generate(*args, **kwargs))
+
+
+def instruction_default_intensity(style: str, defaults: dict) -> float:
+    """The instruction edit intensity when none is set: the family's, but gentler for photos of a drawn-style family."""
+    value = defaults["intensity"]
+    if style == instruction_edit.PHOTO and defaults["edit_style"] != instruction_edit.PHOTO:
+        value = min(value, expression_intensity.PHOTO_DEFAULT)
+    return value
+
+
+def default_expression_prompt(
+    expression: str,
+    method: str = instruction_edit.INPAINT,
+    family: str = DEFAULT_FLAVOR,
+    checkpoint: str | None = None,
+    intensity: float | None = None,
+    style: str | None = None,
+    is_realistic: bool = False,
+    pose: bool = False,
+    extra: str = "",
+) -> str:
+    """
+    What a run would use for one expression's own part of the prompt, the text a per-expression
+    override replaces: the weighted expression tags for face inpainting, the whole edit instruction
+    for the instruction edit mode. Raises KeyError for an unknown expression.
+    """
+    resolved = resolve_flavor(family, checkpoint, is_realistic)
+    defaults = expression_sets.family_defaults(resolved)
+    expression = expression.strip().lower()
+    if method == instruction_edit.INSTRUCT:
+        style = style if style in instruction_edit.STYLES else (instruction_edit.PHOTO if is_realistic else defaults["edit_style"])
+        value = expression_intensity.resolve(intensity if intensity is not None else instruction_default_intensity(style, defaults))
+        value = instruction_edit.expression_intensity_for(expression, value, style)
+        gesture = instruction_edit.get_poses().get(expression) if pose else None
+        return instruction_edit.build_instruction(expression, extra, style, value, pose=gesture or None)
+    tags = expression_sets.load_family(resolved)["expressions"][expression]
+    value = expression_intensity.resolve(intensity if intensity is not None else defaults["intensity"])
+    return expression_intensity.weight_expression(tags, value, natural_language=resolved == "natural_language")
