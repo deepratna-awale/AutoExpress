@@ -372,7 +372,7 @@ MODELS = (
         ),
         0.85,
         required=False,
-        pattern=r"qwen.*lightning.*8.?step",
+        pattern=r"qwen.*lightning.*8(.?steps?)?([-_.]|$)",
     ),
 )
 MODEL_BY_ROLE = {model.role: model for model in MODELS}

@@ -397,3 +397,10 @@ def test_find_model_skips_the_layered_vae():
     choices = ["qwen_image_layered_vae.safetensors", "qwen_image_vae.safetensors", "pixel_space"]
     assert instruction_edit.find_model("vae", choices) == "qwen_image_vae.safetensors"
     assert instruction_edit.find_model("vae", ["qwen_image_layered_vae.safetensors"]) is None
+
+
+def test_find_model_takes_a_short_lightning_lora_name():
+    from autoexpress_core.instruction_edit import find_model
+    choices = ["qwen-2511-multiple-angles.safetensors", "qwen-edit-lightning-8.safetensors"]
+    assert find_model("lightning_lora", choices) == "qwen-edit-lightning-8.safetensors"
+    assert find_model("lightning_lora", ["qwen-image-lightning-4steps.safetensors"]) is None
