@@ -37,6 +37,7 @@ FORMAT = "AutoExpress Puppet"
 VERSION = 1
 SUFFIX = ".puppet.model.json"
 PLAYER = pathlib.Path(__file__).resolve().parent.parent / "resources" / "puppet.js"
+HUMANOID_IK = PLAYER.with_name("humanoid_ik.js")  # the full-body IK solver the player imports
 
 # The parameters the player understands (Live2D's standard ids, so expressions and motions carry over).
 PARAMETERS = [
@@ -294,7 +295,7 @@ def build_puppet(
     for group, group_info in zip(reversed(tree), reversed(manifest["groups"])):
         for layer, info in zip(reversed(group.children), reversed(group_info["layers"])):
             image = layer.image.convert("RGBA")
-            bbox = image.getchannel("A").getbbox()
+            bbox = _solid_bbox(image.getchannel("A"))
             if bbox is None:
                 continue
             pad = 2
@@ -1208,6 +1209,22 @@ def write_outfits(folder, entries: list[dict]) -> list[dict]:
     return result
 
 
+def _solid_bbox(alpha: Image.Image):
+    """
+    The box of a layer's drawing without stray specks (a split can leave a few faint pixels in the
+    canvas corners, which would make the layer, and with a face the head, as big as the canvas).
+    Pixels outside it are cropped away. None when the layer is empty.
+    """
+    plain = alpha.getbbox()
+    if plain is None:
+        return None
+    solid = alpha.point(lambda v: 255 if v > 24 else 0).filter(ImageFilter.MinFilter(5)).getbbox()
+    if solid is None:
+        return plain
+    grow = 3
+    return (max(plain[0], solid[0] - grow), max(plain[1], solid[1] - grow), min(plain[2], solid[2] + grow), min(plain[3], solid[3] + grow))
+
+
 def _box(entry) -> tuple[int, int, int, int]:
     return entry["X"], entry["Y"], entry["X"] + entry["Width"], entry["Y"] + entry["Height"]
 
@@ -1624,6 +1641,8 @@ def write_preview(folder, name: str) -> None:
     folder = pathlib.Path(folder)
     if PLAYER.exists():
         shutil.copyfile(PLAYER, folder / "puppet.js")
+        if HUMANOID_IK.exists():
+            shutil.copyfile(HUMANOID_IK, folder / "humanoid_ik.js")
     page = PREVIEW.format(name=name, suffix=SUFFIX)
     (folder / "preview.html").write_text(page, encoding="utf-8")
     if PLAYER.exists():
@@ -1634,7 +1653,7 @@ def _packed_page(folder: pathlib.Path, page: str) -> str:
     """page with the player and every puppet file inlined (textures as data: URLs)."""
     files: dict = {}
     for path in sorted(folder.rglob("*")):
-        if not path.is_file() or path.name in ("preview.html", "play.html", "puppet.js"):
+        if not path.is_file() or path.name in ("preview.html", "play.html", "puppet.js", "humanoid_ik.js"):
             continue
         relative = path.relative_to(folder).as_posix()
         if path.suffix == ".png":
@@ -1642,7 +1661,10 @@ def _packed_page(folder: pathlib.Path, page: str) -> str:
         elif path.suffix == ".json":
             files[relative] = json.loads(path.read_text(encoding="utf-8"))
     data = json.dumps(files, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-    player = PLAYER.read_text(encoding="utf-8").replace("</script", "<\\/script")
+    player = PLAYER.read_text(encoding="utf-8").replace("import './humanoid_ik.js';", "")
+    if HUMANOID_IK.exists():
+        player = HUMANOID_IK.read_text(encoding="utf-8") + "\n" + player
+    player = player.replace("</script", "<\\/script")
     page = page.replace('import { PuppetModel } from "./puppet.js";', player)
     return page.replace('<script type="module">', f"<script>window.AUTOEXPRESS_PUPPET_FILES = {data};</script>\n<script type=\"module\">", 1)
 
