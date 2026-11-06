@@ -23,6 +23,9 @@ import {
   type AnimationInfo,
   type CharacterCard,
   type IdleSource,
+  type LoginInput,
+  type LoginSummary,
+  stripCredentials,
 } from "@/lib/api";
 import { FAMILY_DEFAULTS, detectFamily, reconcileSelections, type Adjustment } from "@/lib/model-defaults";
 
@@ -73,6 +76,15 @@ const REMOVE_BACKGROUND_KEY = "autoexpress-remove-background";
 const POSE_KEY = "autoexpress-pose";
 const ANIMATE_KEY = "autoexpress-animate";
 
+const AUTH_ERROR = "backend_auth";
+
+/** The code of a {code, message} error object, "" for anything else. */
+function errorCode(error: unknown): string {
+  return error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : "";
+}
+
 function remember(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
@@ -106,7 +118,12 @@ interface AutoExpressState {
   apiUrl: string;
   setApiUrl: (url: string) => void;
   connection: ConnectionStatus;
-  connect: () => Promise<void>;
+  /** Connect with the URL; login fields that are passed replace the ones in use. */
+  connect: (login?: LoginInput) => Promise<boolean>;
+  /** The login the server uses for the WebUI (no secrets), null before the first answer. */
+  login: LoginSummary | null;
+  /** True when the WebUI refused the last request for want of a login. */
+  loginNeeded: boolean;
   /** The WebUI that answered the last connect, e.g. the one "auto" detected. */
   connectedBackend: { id: string; name: string } | null;
   options: Options;
@@ -257,6 +274,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const [backend, setBackendState] = useState("a1111");
   const [apiUrl, setApiUrl] = useState("");
   const [connection, setConnection] = useState<ConnectionStatus>("idle");
+  const [login, setLogin] = useState<LoginSummary | null>(null);
+  const [loginNeeded, setLoginNeeded] = useState(false);
   const [connectedBackend, setConnectedBackend] = useState<{ id: string; name: string } | null>(null);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [checkingCapabilities, setCheckingCapabilities] = useState(false);
@@ -448,7 +467,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     let savedBackend: string | undefined;
     try {
       const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
-      if (saved?.apiUrl) setApiUrl(saved.apiUrl);
+      if (saved?.apiUrl) setApiUrl(stripCredentials(saved.apiUrl));
       if (saved?.backend && saved.backendChosen) {
         setBackendState(saved.backend);
         savedBackend = saved.backend;
@@ -463,6 +482,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       .then((data) => {
         if (!data) return;
         setBackends(data.backends);
+        if (data.login) setLogin(data.login);
         const listed = (id?: string) => !!id && data.backends.some((b) => b.id === id);
         if (listed(savedBackend)) return;
         if (listed(AUTO_BACKEND)) setBackendState(AUTO_BACKEND);
@@ -483,7 +503,11 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ apiUrl, backend, backendChosen: backendChosenRef.current }));
+      // Never store a user:password@ typed into the URL.
+      localStorage.setItem(
+        SETTINGS_KEY,
+        JSON.stringify({ apiUrl: stripCredentials(apiUrl), backend, backendChosen: backendChosenRef.current })
+      );
     } catch {
       // Storage unavailable
     }
@@ -509,7 +533,9 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
   const checkCapabilities = useCallback(async () => {
     setCheckingCapabilities(true);
     try {
-      setCapabilities(await api.capabilities());
+      const report = await api.capabilities();
+      setCapabilities(report);
+      setLoginNeeded(errorCode(report?.error) === AUTH_ERROR);
     } catch (error) {
       toast.error(`Could not check the WebUI: ${error instanceof Error ? error.message : error}`);
     } finally {
@@ -517,11 +543,13 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     }
   }, []);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (loginInput?: LoginInput): Promise<boolean> => {
     setConnection("connecting");
     setCapabilities(null);
     try {
-      const result = await api.connect(apiUrl.trim(), backends ? backend : undefined);
+      const result = await api.connect(apiUrl.trim(), backends ? backend : undefined, loginInput);
+      if (result?.login) setLogin(result.login);
+      setLoginNeeded(false);
       const found = result?.backend ? { id: result.backend, name: result.name || result.backend } : null;
       setConnectedBackend(found);
       if (result?.url) setApiUrl(result.url);
@@ -543,12 +571,17 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
         toast.success(`Connected${to}: ${models.length} models, ${loras.length} LoRAs`);
       }
       checkCapabilities();
+      return true;
     } catch (error) {
       setConnection("error");
       setConnectedBackend(null);
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof ApiError && error.status !== 400) setCapabilities(connectionReport(message, error.fix));
+      if (error instanceof ApiError && errorCode((error.body as { error?: unknown } | null)?.error) === AUTH_ERROR) {
+        setLoginNeeded(true);
+      }
       toast.error(`Could not connect: ${message}`);
+      return false;
     }
   }, [apiUrl, backend, backends, reconcile, checkCapabilities, loadEditMethods]);
 
@@ -838,6 +871,8 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       setApiUrl,
       connection,
       connect,
+      login,
+      loginNeeded,
       connectedBackend,
       options,
       editMethods,
@@ -897,7 +932,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
       loadImages,
     }),
     [
-      backends, backend, setBackend, apiUrl, connection, connect, connectedBackend, options,
+      backends, backend, setBackend, apiUrl, connection, connect, login, loginNeeded, connectedBackend, options,
       capabilities, checkingCapabilities, checkCapabilities, editMethods, vramNote, method, setMethod, photoStyle, setPhotoStyle, pose, setPose, posesAvailable, intensity, familyDefaults,
       families, family, setFamily,
       isRealistic, setRealistic, params, setParam, adjustments, applyModelDefaults, file, imageDataUrl, rawMetadata, uploading, setFile,

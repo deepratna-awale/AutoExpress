@@ -352,6 +352,7 @@ def test_auto_detects_the_webui_and_reports_capabilities(client, monkeypatch):
         "name": "Fake WebUI",
         "url": "https://pod-7860.proxy.example.net/sd",
         "detected": True,
+        "login": {"username": None, "password": False, "token": False, "headers": []},
     }
     assert seen["url"] == "https://pod-7860.proxy.example.net/sd"
     assert client.get("/backends").get_json()["backends"][0]["id"] == "auto"
@@ -643,3 +644,75 @@ def test_live2d_character_lora_search(client, monkeypatch):
     result = data["results"][0]
     assert result["installed_name"] is None and "civitai.com/models/1" in result["install"]["url"]
     assert client.post("/live2d/character-lora", json={}).status_code == 400
+
+
+def _connected(client, **body):
+    response = client.post("/receive_data", json={"backend": "fake", **body})
+    return response, views.current_backend()
+
+
+def test_login_fields_are_set_and_never_echoed(client):
+    secret = "pa55-" + "x" * 8
+    response, backend = _connected(
+        client, text="https://pod-7860.proxy.example.net", username="deep", password=secret, token="tok-" + secret,
+        headers="CF-Access-Client-Id: id-1\nCF-Access-Client-Secret: " + secret,
+    )
+    assert response.status_code == 200
+    assert secret not in response.get_data(as_text=True)
+    assert response.get_json()["login"] == {
+        "username": "deep", "password": True, "token": True,
+        "headers": ["CF-Access-Client-Id", "CF-Access-Client-Secret"],
+    }
+    assert backend.connection.password == secret and backend.connection.headers["CF-Access-Client-Secret"] == secret
+    assert secret not in client.get("/backends").get_data(as_text=True)
+    assert secret not in repr(backend.connection)
+
+
+def test_login_is_kept_for_the_same_host_only(client):
+    _connected(client, text="https://pod-7860.proxy.example.net", username="deep", password="pw", headers={"X-Key": "k"})
+
+    # Reconnecting to the same host (e.g. from SillyTavern) keeps the login.
+    _, backend = _connected(client, text="https://pod-7860.proxy.example.net/")
+    assert (backend.connection.username, backend.connection.password, backend.connection.headers) == ("deep", "pw", {"X-Key": "k"})
+
+    # A password left out stays; an empty one clears it.
+    _, backend = _connected(client, text="https://pod-7860.proxy.example.net", username="deep")
+    assert backend.connection.password == "pw"
+    _, backend = _connected(client, text="https://pod-7860.proxy.example.net", password="")
+    assert backend.connection.password is None and backend.connection.username == "deep"
+
+    # Another host never receives it.
+    _, backend = _connected(client, text="https://other-host.example.net")
+    assert backend.connection.username is None and backend.connection.headers == {}
+
+
+def test_switching_account_drops_the_old_password_and_forget_clears(client):
+    _connected(client, text="http://10.0.0.9:7860", username="a", password="pw-a", token="t")
+    _, backend = _connected(client, text="http://10.0.0.9:7860", username="b")
+    assert backend.connection.username == "b" and backend.connection.password is None
+    _, backend = _connected(client, text="http://10.0.0.9:7860", forget_login=True)
+    assert backend.connection.username is None and backend.connection.token is None
+
+
+def test_url_credentials_are_split_out(client):
+    response, backend = _connected(client, text="https://bob:s3cr%40t@pod-7860.proxy.example.net")
+    assert response.get_json()["url"] == "https://pod-7860.proxy.example.net"
+    assert (backend.connection.username, backend.connection.password) == ("bob", "s3cr@t")
+    assert "s3cr" not in response.get_data(as_text=True)
+
+
+def test_bad_headers_are_refused_without_echoing_values(client):
+    response, _ = _connected(client, text="http://10.0.0.9:7860", headers="Host: evil")
+    assert response.status_code == 400 and "Host" in response.get_json()["error"]
+    response, _ = _connected(client, text="http://10.0.0.9:7860", headers={"X-Key": "a\r\nInjected: 1"})
+    assert response.status_code == 400 and "Injected" not in response.get_json()["error"]
+
+
+def test_environment_login_only_goes_to_its_own_host(client, monkeypatch):
+    monkeypatch.setattr(views.settings, "backend_url", "https://mine.example.net")
+    monkeypatch.setattr(views.settings, "username", "env-user")
+    monkeypatch.setattr(views.settings, "password", "env-pw")
+    _, backend = _connected(client, text="https://mine.example.net")
+    assert backend.connection.password == "env-pw"
+    _, backend = _connected(client, text="https://elsewhere.example.net")
+    assert backend.connection.username is None and backend.connection.password is None

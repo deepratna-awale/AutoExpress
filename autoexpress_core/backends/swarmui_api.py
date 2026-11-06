@@ -13,6 +13,7 @@ through /API/Login).
 """
 
 import io
+from urllib.parse import urlsplit
 from PIL import Image
 
 from ..images import b64_to_pil, pil_to_b64
@@ -58,7 +59,10 @@ class SwarmUIClient(RemoteBackend):
         self.session.auth = None
         self.session.cookies.clear()
         if self.connection.token:
-            self.session.cookies.set("swarm_token", self.connection.token)
+            # Bound to the WebUI's host, so a redirect elsewhere never carries it.
+            # (the cookie jar matches dotless hosts such as localhost as "<host>.local").
+            host = urlsplit(self._base_url).hostname or ""
+            self.session.cookies.set("swarm_token", self.connection.token, domain=host if "." in host else f"{host}.local")
         self._login = (self.connection.username or url_user, self.connection.password if self.connection.username else url_password)
         self._logged_in = False
 
