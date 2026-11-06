@@ -118,16 +118,20 @@ def _missing_tags(prompt, tags):
     return [t for t in tags if t and t.lower() not in present]
 
 
-def build_prompt(base_prompt, expression, family_id, add_quality_tags=True, intensity=None):
+def build_prompt(base_prompt, expression, family_id, add_quality_tags=True, intensity=None, expression_prompt=None):
     """
     Base prompt plus the family's quality tags (if absent) plus the expression.
 
     intensity (0..1) weights the expression, see intensity.weight_expression; None keeps it as written.
+    expression_prompt replaces the family's tags for the expression (a per-expression override) and is
+    used as written, without the intensity weighting.
     """
     family = _load(family_id)
     quality = _missing_tags(base_prompt, family["quality_tags"]) if add_quality_tags else []
     lora_scale = 1.0 if intensity is None else expression_intensity.lora_scale(intensity)
     base_prompt = expression_loras.apply_expression_weights(base_prompt or "", expression, lora_scale)
+    if expression_prompt:
+        return join_prompt(", ".join(quality), base_prompt, expression_prompt)
     expression_prompt = family["expressions"][expression]
     if intensity is not None:
         expression_prompt = expression_intensity.weight_expression(

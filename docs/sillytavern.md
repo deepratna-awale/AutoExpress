@@ -20,7 +20,7 @@ The WebUI only needs to be reachable from the AutoExpress app, not from SillyTav
 
 1. Open a chat with the character.
 2. Press **Generate expression sprites** in the extensions menu (the magic wand), in **Extensions → AutoExpress**, or **Generate with AutoExpress** in **Character Expressions**. The `/autoexpress` command opens it too.
-3. Pick the character, the image to start from and the expressions. **Missing** selects the expressions the character has no sprite for yet.
+3. Pick the character, the image to start from and the expressions. **Missing** selects the expressions the character has no sprite for yet. To redo one sprite, pick only that expression: a sprite the character already has is made with a new seed, so it comes out different. Prompts and settings saved for single expressions in the AutoExpress app ([Retrying one expression](standalone.md#retrying-one-expression)) apply here too.
 4. Press **Generate**. A progress bar in **Extensions → AutoExpress** shows how far it is, with a **Cancel** button.
 
 | Option | |

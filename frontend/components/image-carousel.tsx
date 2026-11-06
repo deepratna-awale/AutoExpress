@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
 
 import { api, expressionName } from "@/lib/api";
 import { useAutoExpress } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ExpressionSettingsDialog } from "@/components/expression-settings-dialog";
 import {
   Carousel,
   CarouselContent,
@@ -29,6 +30,8 @@ export function ImageCarousel({ isInDrawer = false }: ImageCarouselProps) {
   const { images, galleryDir, galleryVersion, generating, loadImages } = useAutoExpress();
   const [carousel, setCarousel] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
+  const [retryOpen, setRetryOpen] = useState(false);
+  const currentExpression = images[current]?.replace(/\.[^.]+$/, "") ?? null;
 
   useEffect(() => {
     if (!carousel) return;
@@ -77,6 +80,19 @@ export function ImageCarousel({ isInDrawer = false }: ImageCarouselProps) {
           <Badge variant="secondary" className="text-xs">
             {images.length > 0 ? `${current + 1} of ${images.length}` : "0 images"}
           </Badge>
+          {images.length > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setRetryOpen(true)}
+              disabled={generating}
+              aria-label={`Retry ${currentExpression ? expressionName(currentExpression) : "this expression"}`}
+              title={`Retry ${currentExpression ? expressionName(currentExpression) : "this expression"}, optionally with its own prompt and settings`}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => loadImages(galleryDir || undefined)} aria-label="Reload images">
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -129,6 +145,7 @@ export function ImageCarousel({ isInDrawer = false }: ImageCarouselProps) {
           </div>
         )}
       </div>
+      <ExpressionSettingsDialog open={retryOpen} onOpenChange={setRetryOpen} expression={currentExpression} />
     </div>
   );
 }

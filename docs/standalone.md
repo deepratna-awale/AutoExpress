@@ -73,6 +73,15 @@ With a ComfyUI backend, the **Method** dropdown switches between **Face inpainti
 
 **Change pose too** adds a small sprite gesture to each expression, such as hands on the hips for anger or leaning in with the hands behind the back for curiosity, starting from the character's current pose and keeping the outfit and background ([details](comfyui.md#instruction-edit-mode-qwen-image-edit)). It works with either method but needs Qwen-Image-Edit on a ComfyUI backend. Also `"pose": true` on `POST /generate`.
 
+### Retrying one expression
+
+When one expression of a set comes out wrong, press the **Retry** button (the circular arrow) above the gallery while it is on screen. A dialog opens on that expression with its prompt and settings; press **Retry** to make just that one again with a new seed, or change things first:
+
+- **Expression prompt**: the expression's tags in face inpainting (your character prompt, quality tags and LoRAs are still added), or the whole edit instruction in instruction edit mode. **Reset to default** brings the original wording back.
+- **Seed, intensity, denoising, steps, CFG scale, negative prompt** (edit steps and CFG for instruction edit): empty boxes use the shared settings, shown greyed out.
+
+With **Remember** on, the edits are saved with the character in `Output/<name>/autoexpress_overrides.json`, and every later run for that character uses them, the whole set as well as retries. The same dialog for all 28 expressions is under **Advanced: per-expression prompts and settings** at the bottom of the settings. **Export** downloads the file and **Import** loads one, to keep a character's tuned set or share it.
+
 ## Supported WebUIs
 
 Paste the WebUI's address and press connect. The WebUI can run anywhere: on this machine, elsewhere on your network, or on a hosted GPU such as RunPod (`https://<pod-id>-7860.proxy.runpod.net`), behind https, a reverse-proxy sub-path or a login. With **Detect automatically** (the default) AutoExpress asks the address which WebUI it is. Pick one in the **WebUI** dropdown to skip detection.
@@ -131,7 +140,9 @@ Generation runs as a queued job on one worker thread, so several clicks or clien
 | `GET /expression-families`, `POST /expression-family` | Prompt styles and the selected one |
 | `GET /expression-loras`, `POST /expression-loras` | Expression LoRA settings and status, including which source the Civitai key came from |
 | `GET /edit-methods` | Expression methods the selected WebUI supports (`inpaint`, and `instruct` on ComfyUI) |
-| `POST /generate` | Settings from the UI. `"method": "instruct"` uses instruction edit instead of face inpainting. Waits for the result unless `"wait": false`, which returns `202 {"job_id"}`. Optional `"expressions": [...]` picks a subset |
+| `POST /generate` | Settings from the UI. `"method": "instruct"` uses instruction edit instead of face inpainting. Waits for the result unless `"wait": false`, which returns `202 {"job_id"}`. Optional `"expressions": [...]` picks a subset (one name and `"seed": -1` retries one expression). `"overrides": {name: {"prompt", "settings"}}` gives expressions their own prompt and settings, `"save_overrides": true` remembers them, `"use_saved_overrides": false` ignores the saved ones |
+| `GET`/`PUT /expression-overrides` | A character's saved per-expression prompts and settings: `?output_dir=<name>` (`&download=1` exports the file); `PUT {"output_dir", "expressions"}` replaces them (import, or `{}` to clear) |
+| `POST /expression-prompt` | The default wording of expressions, the text a per-expression prompt replaces: `{"expressions", "method", "ad_checkpoint", "family", "expression_intensity", "edit_style", "pose"}` |
 | `GET /animation`, `POST /animate`, `POST /character-card`, `GET`/`POST /llm-settings` | [Animated sprites](animated-sprites.md): whether the WebUI can animate, animating stills already saved, reading a character card and its idle motion, and the LLM that writes idle motions. `POST /generate` takes `"animate": true` and an `"animation"` object |
 | `GET /jobs`, `GET /jobs/<id>` | Status (`queued`, `running`, `completed`, `failed`, `cancelled`), `progress` (`done`, `total`, `fraction`, `current`, and `step` with the sampler's `fraction`, `step`, `steps` and `eta` where the WebUI reports them), `images`, `error`, `notes` (e.g. expression LoRAs to install by hand, with links) |
 | `POST /jobs/<id>/cancel`, `POST /interrupt` | Cancel one job / every queued and running job |

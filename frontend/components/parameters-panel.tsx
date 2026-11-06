@@ -1,6 +1,7 @@
 "use client";
 
-import { Link, Loader2 } from "lucide-react";
+import { Link, Loader2, SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { AUTO_FAMILY, useAutoExpress, type ConnectionStatus } from "@/lib/store";
@@ -14,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { LoraSelect } from "@/components/lora-select";
 import { SliderField } from "@/components/slider-field";
 import { WebUISetup } from "@/components/webui-setup";
+import { ExpressionSettingsDialog } from "@/components/expression-settings-dialog";
 import { AUTO_BACKEND } from "@/lib/api";
 import { FAMILY_DEFAULTS, detectFamily, type Adjustment } from "@/lib/model-defaults";
 import { INPAINT_METHOD } from "@/lib/api";
@@ -63,6 +65,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export function ParametersPanel() {
+  const [perExpressionOpen, setPerExpressionOpen] = useState(false);
   const {
     backends,
     backend,
@@ -384,6 +387,16 @@ export function ParametersPanel() {
             step={0.05}
           />
         </Section>
+
+        <button
+          type="button"
+          onClick={() => setPerExpressionOpen(true)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          Advanced: per-expression prompts and settings
+        </button>
+        <ExpressionSettingsDialog open={perExpressionOpen} onOpenChange={setPerExpressionOpen} />
       </div>
     </ScrollArea>
   );

@@ -206,6 +206,47 @@ export interface GenerateRequest {
   /** Also animate every expression into a looping clip (Wan 2.2 on ComfyUI). */
   animate?: boolean;
   animation?: AnimationSettings;
+  /** Only these expressions (e.g. one, to retry it). */
+  expressions?: string[];
+  /** Per-expression prompt and settings for this run; the ones saved for the character apply too. */
+  overrides?: ExpressionOverrides;
+  /** Remember `overrides` for this character's later runs. */
+  save_overrides?: boolean;
+}
+
+/** Settings one expression can have of its own, on top of the shared ones. */
+export interface ExpressionOverrideSettings {
+  seed?: number;
+  ad_steps?: number;
+  ad_cfg_scale?: number;
+  ad_denoising_strength?: number;
+  expression_intensity?: number;
+  edit_steps?: number;
+  edit_cfg_scale?: number;
+  ad_negative_prompt?: string;
+}
+
+export interface ExpressionOverride {
+  /** Replaces the expression's tags (face inpainting) or its whole edit instruction (instruction edit). */
+  prompt?: string;
+  settings?: ExpressionOverrideSettings;
+}
+
+export type ExpressionOverrides = Record<string, ExpressionOverride>;
+
+export interface ExpressionOverridesFile {
+  version: number;
+  expressions: ExpressionOverrides;
+}
+
+export interface ExpressionPromptRequest {
+  expressions?: string[];
+  method?: string;
+  ad_checkpoint?: string;
+  family?: string;
+  expression_intensity?: number;
+  edit_style?: string;
+  pose?: boolean;
 }
 
 /** What works best for a model family: method, expression intensity and instruction edit wording. */
@@ -463,6 +504,20 @@ export const api = {
         `/expression-defaults?checkpoint=${encodeURIComponent(checkpoint)}&family=${encodeURIComponent(family)}`
       )
     ),
+
+  /** Per-expression prompts and settings saved for a character; null on servers without them. */
+  expressionOverrides: async (dir: string) =>
+    (await optional(request<ExpressionOverridesFile>(`/expression-overrides?output_dir=${encodeURIComponent(dir)}`)))?.expressions ?? null,
+  saveExpressionOverrides: (dir: string, expressions: ExpressionOverrides) =>
+    request<ExpressionOverridesFile>("/expression-overrides", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ output_dir: dir, expressions }),
+    }),
+  exportOverridesUrl: (dir: string) => `/expression-overrides?output_dir=${encodeURIComponent(dir)}&download=1`,
+  /** The default wording a per-expression prompt replaces. */
+  expressionPrompts: (data: ExpressionPromptRequest) =>
+    optional(postJson<{ prompts: Record<string, string>; kind: "tags" | "instruction" }>("/expression-prompt", data)),
 
   live2d: () => optional(request<Live2DInfo>("/live2d")),
   live2dCheck: (images: string[]) =>

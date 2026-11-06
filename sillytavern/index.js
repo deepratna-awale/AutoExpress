@@ -528,6 +528,10 @@ async function generate({ character, file, expressions }) {
             expressions,
             wait: false,
         };
+        // Redoing a sprite the character already has: a new seed, or the image's seed would draw the same face again.
+        // Prompts and settings saved per expression in AutoExpress (Output/<folder>) still apply, seeds included.
+        const have = new Set((await existingSprites(folder)).map((x) => x.label));
+        if (expressions.some((name) => have.has(name))) body.seed = -1;
         if (s.prompt) body.ad_prompt = s.prompt;
         if (s.checkpoint) body.ad_checkpoint = s.checkpoint;
         if (s.method) body.method = s.method;
