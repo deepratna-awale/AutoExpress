@@ -646,15 +646,20 @@ def test_live2d_character_lora_search(client, monkeypatch):
     assert client.post("/live2d/character-lora", json={}).status_code == 400
 
 
+def made_up() -> str:
+    """A throwaway login value made up per run, only known to the fake WebUI."""
+    return secrets.token_hex(8)
+
+
 def _connected(client, **body):
     response = client.post("/receive_data", json={"backend": "fake", **body})
     return response, views.current_backend()
 
 
 def test_login_fields_are_set_and_never_echoed(client):
-    secret = "pa55-" + "x" * 8
+    secret = made_up()
     response, backend = _connected(
-        client, text="https://pod-7860.proxy.example.net", username="deep", password=secret, token="tok-" + secret,
+        client, text="https://pod-7860.proxy.example.net", username="deep", password=secret, token=made_up(),
         headers="CF-Access-Client-Id: id-1\nCF-Access-Client-Secret: " + secret,
     )
     assert response.status_code == 200
@@ -669,15 +674,16 @@ def test_login_fields_are_set_and_never_echoed(client):
 
 
 def test_login_is_kept_for_the_same_host_only(client):
-    _connected(client, text="https://pod-7860.proxy.example.net", username="deep", password="pw", headers={"X-Key": "k"})
+    password, key = made_up(), made_up()
+    _connected(client, text="https://pod-7860.proxy.example.net", username="deep", password=password, headers={"X-Key": key})
 
     # Reconnecting to the same host (e.g. from SillyTavern) keeps the login.
     _, backend = _connected(client, text="https://pod-7860.proxy.example.net/")
-    assert (backend.connection.username, backend.connection.password, backend.connection.headers) == ("deep", "pw", {"X-Key": "k"})
+    assert (backend.connection.username, backend.connection.password, backend.connection.headers) == ("deep", password, {"X-Key": key})
 
     # A password left out stays; an empty one clears it.
     _, backend = _connected(client, text="https://pod-7860.proxy.example.net", username="deep")
-    assert backend.connection.password == "pw"
+    assert backend.connection.password == password
     _, backend = _connected(client, text="https://pod-7860.proxy.example.net", password="")
     assert backend.connection.password is None and backend.connection.username == "deep"
 
@@ -687,7 +693,7 @@ def test_login_is_kept_for_the_same_host_only(client):
 
 
 def test_switching_account_drops_the_old_password_and_forget_clears(client):
-    _connected(client, text="http://10.0.0.9:7860", username="a", password="pw-a", token="t")
+    _connected(client, text="http://10.0.0.9:7860", username="a", password=made_up(), token=made_up())
     _, backend = _connected(client, text="http://10.0.0.9:7860", username="b")
     assert backend.connection.username == "b" and backend.connection.password is None
     _, backend = _connected(client, text="http://10.0.0.9:7860", forget_login=True)
@@ -695,10 +701,11 @@ def test_switching_account_drops_the_old_password_and_forget_clears(client):
 
 
 def test_url_credentials_are_split_out(client):
-    response, backend = _connected(client, text="https://bob:s3cr%40t@pod-7860.proxy.example.net")
+    secret = made_up()
+    response, backend = _connected(client, text=f"https://bob:{secret}%40x@pod-7860.proxy.example.net")
     assert response.get_json()["url"] == "https://pod-7860.proxy.example.net"
-    assert (backend.connection.username, backend.connection.password) == ("bob", "s3cr@t")
-    assert "s3cr" not in response.get_data(as_text=True)
+    assert (backend.connection.username, backend.connection.password) == ("bob", f"{secret}@x")
+    assert secret not in response.get_data(as_text=True)
 
 
 def test_bad_headers_are_refused_without_echoing_values(client):
@@ -710,9 +717,10 @@ def test_bad_headers_are_refused_without_echoing_values(client):
 
 def test_environment_login_only_goes_to_its_own_host(client, monkeypatch):
     monkeypatch.setattr(views.settings, "backend_url", "https://mine.example.net")
+    secret = made_up()
     monkeypatch.setattr(views.settings, "username", "env-user")
-    monkeypatch.setattr(views.settings, "password", "env-pw")
+    monkeypatch.setattr(views.settings, "password", secret)
     _, backend = _connected(client, text="https://mine.example.net")
-    assert backend.connection.password == "env-pw"
+    assert backend.connection.password == secret
     _, backend = _connected(client, text="https://elsewhere.example.net")
     assert backend.connection.username is None and backend.connection.password is None

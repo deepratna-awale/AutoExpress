@@ -234,10 +234,12 @@ def test_extra_headers_are_sent_and_dropped_on_a_redirect_to_another_host(server
 
 
 def test_auth_headers_cover_basic_bearer_and_extra():
-    backend = A1111Client(url="https://h.example", username="u", password="p", headers={"X-K": "v"})
-    assert backend.auth_headers() == {"Authorization": "Basic dTpw", "X-K": "v"}
-    backend = A1111Client(url="https://h.example", token="t")
-    assert backend.auth_headers() == {"Authorization": "Bearer t"}
+    password, token, key = secrets.token_hex(8), secrets.token_hex(8), secrets.token_hex(8)
+    backend = A1111Client(url="https://h.example", username="u", password=password, headers={"X-K": key})
+    basic = "Basic " + base64.b64encode(f"u:{password}".encode()).decode()
+    assert backend.auth_headers() == {"Authorization": basic, "X-K": key}
+    backend = A1111Client(url="https://h.example", token=token)
+    assert backend.auth_headers() == {"Authorization": f"Bearer {token}"}
     assert backend.auth_summary() == {"username": None, "password": False, "token": True, "headers": []}
 
 
@@ -246,19 +248,21 @@ def test_swarm_token_cookie_stays_on_its_host():
     from autoexpress_core.backends.swarmui_api import SwarmUIClient
 
     for host in ("localhost", "pod-7801.proxy.example.net"):
-        backend = SwarmUIClient(url=f"http://{host}:7801", token="tok")
+        token = secrets.token_hex(8)
+        backend = SwarmUIClient(url=f"http://{host}:7801", token=token)
         mine = backend.session.prepare_request(requests.Request("GET", f"http://{host}:7801/API/x"))
         other = backend.session.prepare_request(requests.Request("GET", "http://elsewhere.example/API/x"))
-        assert mine.headers.get("Cookie") == "swarm_token=tok" and "Cookie" not in other.headers
+        assert mine.headers.get("Cookie") == f"swarm_token={token}" and "Cookie" not in other.headers
 
 
 def test_secret_helpers():
-    assert redact_url("https://u:pw@host:7860/x") == "https://***@host:7860/x"
-    assert redact_url("u:pw@host:7860") == "***@host:7860"
+    secret = secrets.token_hex(8)
+    assert redact_url(f"https://u:{secret}@host:7860/x") == "https://***@host:7860/x"
+    assert redact_url(f"u:{secret}@host:7860") == "***@host:7860"
     assert redact_url("https://host/x") == "https://host/x"
     with pytest.raises(ValueError) as error:
-        normalize_url("ftp://u:hunter2@host", "http://d")
-    assert "hunter2" not in str(error.value)
+        normalize_url(f"ftp://u:{secret}@host", "http://d")
+    assert secret not in str(error.value)
     assert same_origin("https://h.example", "https://H.example:443/sub") and not same_origin("http://h.example", "https://h.example")
     assert parse_headers("A: 1\n\nB-2: x:y") == {"A": "1", "B-2": "x:y"}
     assert parse_headers('{"A": "1"}') == {"A": "1"}
