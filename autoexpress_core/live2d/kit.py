@@ -339,6 +339,16 @@ ARMS_OUT = (
     "background between each arm (sleeve included) and her body and clothes all the way from the armpit to the hand; "
     "the sleeves do not touch the jacket, the waist or the hips."
 )
+# The default source pose: a T-pose, arms straight out level with the shoulders. Nothing of a sleeve
+# lies behind the chest there, so every sleeve is drawn whole and is cut from the coat along its seam
+# (an A-pose sleeve runs behind the bust, and its cut takes part of the coat's chest panel with it).
+# The rig rests the arms down from it.
+ARM_ANGLE = 90.0
+T_POSE = (
+    " Her arms are held straight out to the sides, level with her shoulders, in a T-pose: palms facing down, fingers "
+    "together and straight, the whole sleeve of each arm clear of the body with white background below it from the "
+    "armpit to the hand."
+)
 NEUTRAL_TRIES = 3
 POSE_GUIDE = (
     "Picture 2 is an OpenPose stick-figure skeleton. Make the character from picture 1 stand in exactly that skeleton's "
@@ -400,6 +410,30 @@ def arms_apart(picture: Image.Image) -> float:
     return apart / max(1, len(band))
 
 
+# A T-pose's arms span at least this share of the figure's height (adult arm span is about its height).
+ARMS_SPREAD = 0.8
+
+
+def arms_spread(picture: Image.Image) -> float:
+    """
+    How far the arms reach out in a full-body picture on white: the widest row of the figure over the
+    shoulders-to-chest band (0.12 to 0.35 of its height), as a share of its height. About 1 in a T-pose.
+    """
+    import numpy as np
+
+    figure = np.asarray(picture.convert("RGB")).astype(np.int16).min(axis=2) < 230
+    rows = np.nonzero(figure.any(axis=1))[0]
+    if len(rows) < 20:
+        return 0.0
+    top, height = rows[0], rows[-1] - rows[0]
+    widest = 0
+    for y in range(int(top + 0.12 * height), int(top + 0.35 * height)):
+        xs = np.nonzero(figure[y])[0]
+        if len(xs) > 1:
+            widest = max(widest, xs[-1] - xs[0])
+    return widest / max(1, height)
+
+
 def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Image.Image | None, str]:
     """
     The character redrawn in the neutral A-pose, full body on white (Qwen-Image-Edit), so every limb
@@ -409,21 +443,25 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
     if INSTRUCT not in getattr(backend, "edit_methods", ()):
         return None, "The neutral pose needs Qwen-Image-Edit on ComfyUI; the puppet keeps the picture's pose."
     image = picture.convert("RGBA")
-    height = max(image.height, round(image.width / NEUTRAL_ASPECT))
-    width = max(image.width, round(height * NEUTRAL_ASPECT))
+    arm_angle = float(settings.get("arm_angle") or ARM_ANGLE)
+    # Arms out to the side need a wider canvas so the hands stay in frame (a T-pose is about square).
+    aspect = max(NEUTRAL_ASPECT, min(1.0, 0.45 + 0.0062 * arm_angle))
+    height = max(image.height, round(image.width / aspect))
+    width = max(image.width, round(height * aspect))
     canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
     canvas.alpha_composite(image, ((width - image.width) // 2, (height - image.height) // 2))
     description = settings.get("character_description", "")
     edit = dataclasses.replace(instruction_edit.EditSettings.from_settings(settings), keep_size=True, photo=False, intensity=1.0)
-    log("Redrawing the character in a neutral A-pose, full body (Qwen-Image-Edit).")
+    log(f"Redrawing the character in a neutral {'T' if arm_angle >= 75 else 'A'}-pose, full body (Qwen-Image-Edit).")
     best, best_score = None, (-1, -1.0)  # (checks passed, how near each came)
     feet_together = arms_close = False
-    guide = pil_to_b64(skeleton.pose_picture(skeleton.a_pose_points(canvas.size), canvas.size)) if getattr(backend, "takes_reference", False) else None
+    guide = pil_to_b64(skeleton.pose_picture(skeleton.a_pose_points(canvas.size, arm_angle=arm_angle), canvas.size)) if getattr(backend, "takes_reference", False) else None
     detect = getattr(backend, "pose_keypoints", None) if guide is not None else None
     for _ in range(NEUTRAL_TRIES):
         # The legs are straightened first, so the 2.5D rig only turns them a little from there; the
         # arms hang clear of the body, so each sleeve is cut whole from the coat it hangs beside.
-        instruction = NEUTRAL_POSE + (FEET_APART if feet_together else "") + (ARMS_OUT if arms_close else "")
+        arms = T_POSE if arm_angle >= 75 else (ARMS_OUT if arms_close else "")
+        instruction = NEUTRAL_POSE + (FEET_APART if feet_together else "") + arms
         if guide is not None:
             # A stick figure in the A-pose to follow (Qwen-Image-Edit takes it as picture 2): words
             # alone leave a blazer's sleeves lying against its sides.
@@ -436,12 +474,17 @@ def neutral_pose(backend, picture: Image.Image, settings: dict, log) -> tuple[Im
         posed = posed.convert("RGB")
         if posed.size != canvas.size:
             posed = posed.resize(canvas.size, Image.Resampling.LANCZOS)
-        gap, apart = feet_gap(posed), arms_apart(posed)
-        feet_ok, arms_ok = gap >= FEET_GAP, apart >= ARMS_APART
+        gap = feet_gap(posed)
+        if arm_angle >= 75:
+            # Arms straight out: judged by how far they reach, not by a gap below them.
+            apart, need = arms_spread(posed), ARMS_SPREAD
+        else:
+            apart, need = arms_apart(posed), ARMS_APART
+        feet_ok, arms_ok = gap >= FEET_GAP, apart >= need
         # The elbows, where a pose detector can find them: Qwen likes to bend a blazer's sleeves.
         bend = skeleton.elbow_bend(skeleton.keypoint_points(detect(pil_to_b64(posed)))) if detect is not None else 0.0
         elbows_ok = bend <= ELBOW_BEND
-        score = (feet_ok + arms_ok + elbows_ok, min(gap / FEET_GAP, 1.0) + min(apart / ARMS_APART, 1.0) + min(ELBOW_BEND / max(bend, 1.0), 1.0))
+        score = (feet_ok + arms_ok + elbows_ok, min(gap / FEET_GAP, 1.0) + min(apart / need, 1.0) + min(ELBOW_BEND / max(bend, 1.0), 1.0))
         if score > best_score:
             best, best_score = posed, score
         if feet_ok and arms_ok and elbows_ok:

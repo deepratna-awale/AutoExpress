@@ -1151,9 +1151,37 @@ def test_expression_art_becomes_switchable_layers_and_strong_emotions_use_it():
     assert model_files.expression_parameters("grief")["ParamTear"] == 1.0
 
 
+A_POSE = {"arm_angle": 22}
+
+
+def t_posed(spread: bool) -> Image.Image:
+    image = Image.new("RGB", (1000, 1000), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((450, 50, 550, 550), fill=(80, 60, 50))  # head and body
+    reach = (80, 920) if spread else (380, 620)
+    draw.rectangle((reach[0], 200, reach[1], 240), fill=(90, 70, 60))  # arms held out level
+    draw.polygon([(450, 550), (490, 550), (470, 950), (420, 950)], fill=(60, 40, 35))
+    draw.polygon([(510, 550), (550, 550), (580, 950), (530, 950)], fill=(60, 40, 35))
+    return image
+
+
+def test_neutral_pose_defaults_to_a_t_pose_and_asks_again_until_the_arms_reach_out():
+    class Short(FakeBackend):
+        def instruction_edit(self, image_b64, instruction, settings):
+            self.calls.append(("edit", instruction))
+            return t_posed(len(self.calls) > 1)
+
+    assert kit.arms_spread(t_posed(True)) >= kit.ARMS_SPREAD > kit.arms_spread(t_posed(False))
+    backend = Short()
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    edits = [call[1] for call in backend.calls if call[0] == "edit"]
+    assert note == "" and len(edits) == 2 and "T-pose" in edits[0]
+    assert posed.size[0] == posed.size[1]
+
+
 def test_neutral_pose_redraws_the_character_full_body_on_a_portrait_canvas():
     backend = FakeBackend()
-    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), A_POSE, lambda _: None)
     assert note == "" and posed.size[0] / posed.size[1] == pytest.approx(kit.NEUTRAL_ASPECT, abs=0.01)
     instruction = backend.calls[-1][1]
     assert "neutral A-pose" in instruction and "full body" in instruction
@@ -1189,7 +1217,7 @@ def test_neutral_pose_asks_again_when_the_feet_stay_together():
             return standing("planted apart" in instruction)
 
     backend = Together()
-    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), A_POSE, lambda _: None)
     edits = [call[1] for call in backend.calls if call[0] == "edit"]
     assert note == "" and len(edits) == 2 and "planted apart" in edits[1]
     assert kit.feet_gap(posed) >= kit.FEET_GAP
@@ -1206,7 +1234,7 @@ def test_neutral_pose_asks_again_when_the_arms_lie_against_the_body():
             return standing(True, "thirty degrees" in instruction)
 
     backend = Close()
-    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), A_POSE, lambda _: None)
     edits = [call[1] for call in backend.calls if call[0] == "edit"]
     assert note == "" and len(edits) == 2 and "thirty degrees" in edits[1] and "planted apart" not in edits[1]
     assert kit.arms_apart(posed) >= kit.ARMS_APART
@@ -1234,7 +1262,7 @@ def test_neutral_pose_follows_an_a_pose_skeleton_when_the_backend_takes_one():
             return standing(True, True)
 
     backend = Guided()
-    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), A_POSE, lambda _: None)
     edits = [call for call in backend.calls if call[0] == "edit"]
     assert note == "" and len(edits) == 1
     assert "OpenPose" in edits[0][1] and edits[0][2]
@@ -1571,7 +1599,7 @@ def test_neutral_pose_asks_again_when_an_elbow_is_bent():
             return [{"pose_keypoints_2d": [v for x, y in points for v in (x, y, 1.0)]}]
 
     backend = Bending()
-    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), {}, lambda _: None)
+    posed, note = _REAL_NEUTRAL_POSE(backend, character((400, 300)), A_POSE, lambda _: None)
     assert posed is not None and note == "" and backend.tries == 2
 
 
