@@ -17,12 +17,13 @@
  * Constraints: "hinge" (one axis, min..max degrees: elbows, knees, finger joints), "cone" (swing within a cone of
  * max degrees about the rest direction, with twist limits: shoulders, hips, wrists, thumb base), "fixed".
  *
- * Works in a browser (window.HumanoidIK) and in Node (module.exports).
+ * Works in a browser (globalThis.HumanoidIK, also when imported as an ES module for its side effect) and in Node
+ * (module.exports).
  */
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory();
+    if (typeof module === 'object' && module && module.exports) module.exports = factory();
     else root.HumanoidIK = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : typeof self !== 'undefined' ? self : this, function () {
     'use strict';
     const DEG = Math.PI / 180;
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -131,7 +132,7 @@
         }
         has(name) { return name in this.byName; }
         rest(name) { return this.joints[this.byName[name]].rest; }
-        reset() { this.pos = this.joints.map(jt => jt.rest.slice()); return this; }
+        reset() { this.pos = this.joints.map(jt => jt.rest.slice()); this._headTurn = this._eyeTurn = this._lookDir = null; return this; }
         get(name) { return this.pos[this.byName[name]]; }
         /** Move a joint and carry its whole subtree with it (a rigid move). */
         _moveSubtree(i, delta) {
@@ -417,6 +418,7 @@
                 out.head.lookX = Math.atan2(d[0], d[2]) / DEG;
                 out.head.lookY = Math.atan2(-d[1], d[2]) / DEG;
                 out.head.eyes = this._eyeTurn / DEG;
+                out.head.lookDir = this._lookDir.slice();
             }
             return out;
         }

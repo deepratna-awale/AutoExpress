@@ -76,3 +76,32 @@ def test_parameters_from_a_mapping():
     r = run("""const rep = sk.solve({handR: {x: 400, y: 900}});
 console.log(JSON.stringify(IK.toParameters(rep, {ParamArmRA: {joint: 'upperArmR', field: 'turn', min: -90, max: 150}, ParamHandView: {joint: 'handR', field: 'view.index'}})))""")
     assert -90 <= r["ParamArmRA"] < -10 and isinstance(r["ParamHandView"], int)
+
+
+def test_look_is_cleared_by_the_next_solve_and_reports_its_direction():
+    out = run("""const a = sk.solve({look: {x: 400, y: 0}}); const b = sk.solve({});
+console.log(JSON.stringify({dir: a.head.lookDir, x: a.head.lookX, after: b.head.lookX === undefined}))""")
+    assert out["dir"][0] < 0 and out["x"] < 0 and out["after"]
+
+
+def test_the_puppet_page_ships_the_solver_and_play_html_inlines_it(tmp_path):
+    from autoexpress_core.live2d import puppet
+
+    puppet.write_preview(tmp_path, "mira")
+    assert (tmp_path / "humanoid_ik.js").exists() and (tmp_path / "puppet.js").exists()
+    page = (tmp_path / "play.html").read_text(encoding="utf-8")
+    assert "HumanoidIK" in page and "import './humanoid_ik.js'" not in page
+    assert "pose(goals = {})" in page
+
+
+def test_stray_specks_do_not_make_a_layer_as_big_as_the_canvas():
+    from PIL import Image, ImageDraw
+
+    from autoexpress_core.live2d import puppet
+
+    alpha = Image.new("L", (400, 400), 0)
+    ImageDraw.Draw(alpha).ellipse((150, 100, 250, 220), fill=255)
+    alpha.putpixel((0, 0), 30)
+    alpha.putpixel((399, 399), 200)
+    box = puppet._solid_bbox(alpha)
+    assert box[0] >= 145 and box[1] >= 95 and box[2] <= 255 and box[3] <= 225

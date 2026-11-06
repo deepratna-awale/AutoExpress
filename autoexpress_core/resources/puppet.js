@@ -14,8 +14,9 @@
  * mesh is bent from them: head turn with depth parallax, features, hair and cloth sway, soft
  * body jiggle (bust and hips) and the pull of the mouse when cloth, hair or a soft part is dragged.
  *
- * Needs window.PIXI (v6). Nothing else.
+ * Needs window.PIXI (v6). Full-body poses (pose()) use the humanoid IK solver imported next to it.
  */
+import './humanoid_ik.js';
 
 const FORMAT = 'AutoExpress Puppet';
 const SUFFIX = '.puppet.model.json';
@@ -1195,6 +1196,62 @@ function definePuppetClass(PIXI) {
                 set(L.end.param, r3); set(L.end.SwingParam, w3);
             }
             return true;
+        }
+
+        /**
+         * Pose the whole body at once with the humanoid IK solver (humanoid_ik.js): goals is
+         * {handL, handR: {x, y, z?, pole?, palm?, grip?}, footL, footR: {x, y, z?, pole?}, look: {x, y, z?}, lean, reach}
+         * in canvas pixels. The solver works out the whole skeleton in 3D with every joint's limits
+         * (shoulder cones, elbow and knee hinges, wrist cone, finger hinges), bends the spine toward a
+         * hand goal out of reach, keeps hands out of the torso and head, and turns head and eyes to
+         * look. Each limb is then put on the rig with ik() (the solved elbow or knee as its hint),
+         * the spine's lean and the look go on the torso bones and the head angle. Returns the
+         * solver's report (per joint: pos, depth, turn; hands: palm and the nearest drawn hand view),
+         * or null without a skeleton. A rig with ParamHandView<side> shows the matching drawn hand.
+         */
+        pose(goals = {}) {
+            const IK = globalThis.HumanoidIK;
+            if (!IK || !this._boneByName || !this._limb('arm L') && !this._limb('arm R')) return null;
+            const B = n => this._boneByName.get(n);
+            const head = b => b ? [b.Head[0], b.Head[1], b.HeadZ || 0] : null;
+            const J = {};
+            const put = (key, p) => { if (p) J[key] = p; };
+            put('neck', head(B('Neck')) || head(B('Head')));
+            const hb = B('Head');
+            if (hb) put('nose', [hb.Head[0] + (hb.Tail[0] - hb.Head[0]) * 0.45, hb.Head[1] + (hb.Tail[1] - hb.Head[1]) * 0.45, hb.HeadZ || 0]);
+            for (const [s, k] of [['L', 'l'], ['R', 'r']]) {
+                const arm = this._limb(`arm ${s}`), leg = this._limb(`leg ${s}`);
+                if (arm) { put(`${k}_sho`, head(arm.upper)); put(`${k}_elb`, this._boneTip(arm.upper)); put(`${k}_wri`, this._boneTip(arm.lower)); }
+                if (leg) { put(`${k}_hip`, head(leg.upper)); put(`${k}_knee`, this._boneTip(leg.upper)); put(`${k}_ank`, this._boneTip(leg.lower)); }
+            }
+            const sk = this._humanoid && this._humanoidKey === JSON.stringify(J) ? this._humanoid : IK.skeletonFromJoints(J, { depth: true });
+            this._humanoid = sk; this._humanoidKey = JSON.stringify(J);
+            const report = sk.solve(goals);
+            const set = (id, value) => {
+                const i = id && Number.isFinite(value) ? this.core.getParameterIndex(id) : -1;
+                if (i >= 0) this._pose.set(id, clamp(value, this.core.mins[i], this.core.maxs[i]) - this.core.defaults[i]);
+            };
+            // The spine's bend (lean, or a reach past the arm) on the torso bones, split as the solver did.
+            for (const [joint, bone] of [['spine', 'Spine'], ['chest', 'Chest']]) {
+                const b = B(bone);
+                if (b && report[joint]) set(b.param, report[joint].turn);
+            }
+            const P = j => ({ x: j.pos[0], y: j.pos[1], z: j.pos[2] });
+            for (const s of ['L', 'R']) {
+                if (goals[`hand${s}`] && report[`hand${s}`] && this._limb(`arm ${s}`)) this.ik(`arm ${s}`, P(report[`hand${s}`]), P(report[`forearm${s}`]));
+                if (goals[`foot${s}`] && report[`foot${s}`] && this._limb(`leg ${s}`)) this.ik(`leg ${s}`, P(report[`foot${s}`]), P(report[`shin${s}`]));
+                const view = report[`hand${s}`] && report[`hand${s}`].view;
+                if (view) set(`ParamHandView${s}`, view.index);
+            }
+            if (goals.look && report.head) {
+                // The neck takes its share of the look on the Neck bone; the head's share is the head angle.
+                if (B('Neck') && report.neck) set(B('Neck').param, report.neck.turn);
+                if (report.head.lookX !== undefined) { set('ParamAngleX', report.head.lookX); set('ParamAngleY', report.head.lookY); }
+                // The eyes take what the head and neck could not: toward the goal, up to full at 15 degrees.
+                const d = report.head.lookDir, e = Math.min(1, (report.head.eyes || 0) / 15), l = d ? Math.hypot(d[0], d[1]) || 1 : 1;
+                if (d && e > 0) { set('ParamEyeBallX', d[0] / l * e); set('ParamEyeBallY', -d[1] / l * e); }
+            }
+            return report;
         }
 
         /** Move the elbow's or knee's hint point and bend the limb towards it again (its hand or foot stays put). */
