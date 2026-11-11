@@ -9,7 +9,7 @@ COPY frontend/ .
 RUN pnpm build
 
 # Use the official Python image and specify a version (e.g., 3.9-slim for a lighter image)
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 # Run as an unprivileged user with uid 1000,
 # so the app, its Output/uploads folders and the rembg model cache are writable
