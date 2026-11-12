@@ -333,6 +333,8 @@ def validate_live2d(data, max_pixels: int) -> dict:
     # Swappable clothing (autoexpress_core.live2d.outfits): only with an explicit adult confirmation.
     settings["outfit_layers"] = raw.get("outfit_layers") is True
     settings["adult_confirmed"] = raw.get("adult_confirmed") is True
+    # The undress chain (autoexpress_core.live2d.undress): the clothing in the picture's pose, opt-in.
+    settings["undress_chain"] = raw.get("undress_chain") is True
     if "safe_mode" in raw:
         settings["safe_mode"] = raw.get("safe_mode") is not False
     if "clothing_slots" in raw:

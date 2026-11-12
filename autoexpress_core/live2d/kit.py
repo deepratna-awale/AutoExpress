@@ -43,7 +43,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from .. import instruction_edit
 from ..images import pil_to_b64
 from ..payload import build_expression_payload
-from . import DECOMPOSE, guidance, layers, model_files, outfits, prompt_data, psd, puppet, skeleton
+from . import DECOMPOSE, fixed_pose, garments, guidance, layers, model_files, outfits, prompt_data, psd, puppet, skeleton, undress
 
 MAX_SIDE = 2048
 EYES_CLOSED = "eyes_closed"
@@ -781,6 +781,83 @@ def make_slot_edits(backend, picture: Image.Image, settings: dict, made: dict, l
     return edits, notes
 
 
+UNDRESS_DIR = "undress"
+MANIFEST_FILE = "garment_manifest.json"
+# See-through's layers the undress chain keeps: the head and what isn't clothing. Its clothes, arms and
+# neck are replaced by the chain's garment layers over the body.
+HEAD_TAGS = (
+    "front hair", "back hair", "hair", "headwear", "eyewear", "eyebrow", "brow", "nose", "face", "ears", "earwear", "eyes", "eye",
+    "mouth", "eyelash", "irides", "eyewhite", "tail", "wings", "objects",
+)
+# The parts that lie in front of the body: cut out of the chain's body layer, so a turning head shows no second face.
+FRONT_OF_BODY = ("face", "front hair", "headwear", "ears", "earwear", "eyewear")
+
+
+def build_undress(backend, picture: Image.Image, settings: dict, name: str, folder: pathlib.Path, log, check_cancel, progress) -> tuple[list, dict]:
+    """
+    The undress chain for picture (see garments.py and undress.py): the garments tagged by the
+    vision model, one garment off per Qwen edit, each state aligned, colour-locked, pixel-locked and
+    skin-locked, then the garment, half-state, inner wear and body layers. Writes the manifest and the
+    states into the kit (undress/, with every image that shows inner wear or less named INTERNAL_).
+    Returns (the chain's layers, {"summary", "notes"}).
+    """
+    notes: list[str] = []
+    if INSTRUCT not in getattr(backend, "edit_methods", ()):
+        return [], {"notes": ["The undress chain needs Qwen-Image-Edit on ComfyUI; the clothes stay as See-through splits them."]}
+    allowed, reason = outfits.check({**settings, "outfit_layers": True}, picture, name)
+    if not allowed:
+        notes.append(f"Only the outer layers come off: {reason}")
+    check_cancel()
+    progress("tagging the clothes", 0.05)
+    manifest = garments.tag_garments(backend, picture, allowed, name, log=log)
+    if manifest is None:
+        return [], {"notes": ["The undress chain needs a vision language model on ComfyUI (Qwen3-VL through TextGenerate); the clothes stay as See-through splits them."]}
+    out = folder / UNDRESS_DIR
+    out.mkdir(exist_ok=True)
+    (out / MANIFEST_FILE).write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if len(manifest["states"]) < 2:
+        return [], {"notes": [*notes, "Nothing to take off: the clothes stay as See-through splits them."], "summary": {"order": []}}
+    chain = undress.run_chain(backend, picture, manifest, settings, log, check_cancel, progress, (0.06, 0.3))
+    notes.extend(chain.notes)
+    files = {s["name"]: s["file"] for s in manifest["states"]}
+    for state in chain.order:
+        Image.fromarray(chain.states[state]).save(out / files[state])
+    for half in manifest["half_states"]:
+        if half["name"] in chain.halves:
+            chain.halves[half["name"]].save(out / half["file"])
+    found = undress.chain_layers(chain, manifest)
+    summary = {
+        "order": chain.order[1:],
+        "states": [{"name": n, "file": files[n]} for n in chain.order],
+        "half_states": sorted(chain.halves),
+        "layer_count": manifest["layer_count"],
+        "blocked": manifest["blocked"],
+        "metrics": chain.metrics,
+        "stack_error_px": undress.check_stack(chain, found),
+        "layers": [{"tag": c.tag, "file": c.name, "internal": c.internal} for c in found],
+    }
+    log(f"Undress chain: {len(chain.order) - 1} garments off, {len(chain.halves)} half states, {len(found)} layers.")
+    return found, {"summary": summary, "notes": notes}
+
+
+def undress_parts(parts: list, chain_layers: list, box, canvas_size) -> list:
+    """See-through's head parts with the chain's layers (on the split's canvas) in place of its clothes and body."""
+    import numpy as np
+
+    kept = [p for p in parts if layers.parse_tag(p.tag)[0] in HEAD_TAGS]
+    front = layers._alpha_union(kept, canvas_size, FRONT_OF_BODY).point(lambda v: 255 if v > 200 else 0)
+    front = np.asarray(front.filter(ImageFilter.MinFilter(5))) > 0
+    result = list(kept)
+    for layer in chain_layers:
+        image = to_canvas(layer.image, box, canvas_size)
+        if layer.tag == undress.BODY_TAG and front.any():
+            alpha = np.asarray(image.getchannel("A")).copy()
+            alpha[front] = 0
+            image.putalpha(Image.fromarray(alpha))
+        result.append(layers.Part(layer.tag, image, 0, 0, layer.depth, internal=layer.internal))
+    return result
+
+
 def to_canvas(picture: Image.Image, box: tuple[int, int, int, int], size: tuple[int, int]) -> Image.Image:
     """picture scaled into box on a transparent canvas of size (See-through's square canvas)."""
     canvas = Image.new("RGBA", size, (0, 0, 0, 0))
@@ -887,7 +964,10 @@ def build_kit(
       low_vram), the usual face inpainting / instruction edit settings (ad_*, edit_*), and for
       swappable clothing outfit_layers, adult_confirmed, character_description, inner_wear (outfits.py),
       outfit_prompt (dress the character in this before the split) and use_prompt_data (default on:
-      read the clothing from the picture's prompt metadata, see prompt_data.py).
+      read the clothing from the picture's prompt metadata, see prompt_data.py). undress_chain
+      (off by default) builds the clothing from the undress chain instead (see build_undress): the
+      picture's own pose, a fixed-pose puppet and runtime; inner wear and the body need
+      adult_confirmed and pass the same checks as swappable clothing.
     character_lora: {"entry": LoRA entry, "installed_name": name on the WebUI} from character_lora, or None.
     """
     settings = dict(settings or {})
@@ -932,6 +1012,10 @@ def build_kit(
         if note:
             notes.append(note)
     posed = False
+    undress_mode = bool(settings.get("undress_chain"))
+    if undress_mode:
+        # The chain keeps the picture's pose, and its layers replace the coat and outfit edits.
+        settings.update(neutral_pose=False, clothing_slots=False, outfit_layers=False)
     if settings.get("neutral_pose", True) is not False:
         # Every edit after this one, and the split, see the character in the A-pose.
         check_cancel()
@@ -955,6 +1039,12 @@ def build_kit(
     if posed and detect is not None:
         progress("finding the joints", 0.045)
         people = detect(pil_to_b64(picture))
+
+    chain_layers: list = []
+    chain_state: dict = {}
+    if undress_mode:
+        chain_layers, chain_state = build_undress(backend, picture, settings, name, folder, log, check_cancel, progress)
+        notes.extend(chain_state.get("notes", []))
 
     # 3. Eyes closed / mouth open.
     lora_installed = bool(character_lora and character_lora.get("installed_name"))
@@ -1046,6 +1136,8 @@ def build_kit(
     parts = layers.settle_lash_strays(parts, canvas_size)
     parts = layers.trim_neck(parts, canvas_size)
     underlay = layers.hair_underlay(parts, canvas_size)
+    if chain_layers:
+        parts = undress_parts(parts, chain_layers, box, canvas_size)
 
     # 5. Extra art, crop to the picture, write.
     progress("writing the kit", 0.9)
@@ -1130,23 +1222,26 @@ def build_kit(
     psd.write_psd(folder / f"{name}_seethrough.psd", flat_nodes, size, composite)
 
     (folder / "layers").mkdir()
-    for group in tree:
-        for layer in group.children:
+    for group, group_info in zip(tree, manifest["groups"]):
+        for layer, info in zip(group.children, group_info["layers"]):
             canvas = Image.new("RGBA", size, (0, 0, 0, 0))
             canvas.paste(layer.image.convert("RGBA"), (layer.left, layer.top))
-            safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in f"{group.name} - {layer.name}")
-            canvas.save(folder / "layers" / f"{safe}.png")
+            canvas.save(folder / "layers" / layers.layer_file(group.name, info))
     if depth_maps:
         puppet.save_depth(folder / "depth", depth_maps)
     composite.save(folder / "preview.png")
-    sheet_parts = parts + [layers.Part(o.name, o.image, o.left, o.top) for o in overlays]
+    # The contact sheet stays safe for work: no inner wear or body layers.
+    sheet_parts = [p for p in parts if not (p.internal or p.tag in layers.INTERNAL_TAGS)] + [layers.Part(o.name, o.image, o.left, o.top) for o in overlays]
     contact_sheet(sheet_parts).save(folder / "sheet.jpg", quality=90)
 
     runtime = folder / "runtime"
-    written = model_files.write_model_files(runtime)
-    (runtime / model_files.SETTINGS_FILE).write_text(
-        json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
-    )
+    if chain_layers:
+        fixed_pose.write_runtime(runtime)
+    else:
+        written = model_files.write_model_files(runtime)
+        (runtime / model_files.SETTINGS_FILE).write_text(
+            json.dumps(model_files.sillytavern_settings(motions=set(written["Motions"])), indent=2) + "\n", encoding="utf-8"
+        )
 
     # The joints in the kit's pixels: the skeleton sits on the drawn limbs instead of anime proportions.
     if people:
@@ -1167,6 +1262,7 @@ def build_kit(
         depth_maps=depth_maps,
         people=people,
         sleeve_map=sleeve_map,
+        fixed_pose=bool(chain_layers),
     )
 
     switches = ", ".join(o.name for o in overlays) or "none"
@@ -1181,6 +1277,8 @@ def build_kit(
             "split": dataclasses.asdict(split),
             "outfits": outfit_state,
             "neutral_pose": posed,
+            "fixed_pose": bool(chain_layers),
+            "undress": chain_state.get("summary") if undress_mode else None,
             "clothing": clothing_info,
             "notes": notes,
         }
