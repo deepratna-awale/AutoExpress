@@ -6,9 +6,11 @@ Live2D model kits from the command line.
     python -m autoexpress_core.live2d kit --url http://127.0.0.1:8188 --name hinata picture.png [more.png ...]
         Build a model kit with a ComfyUI that has the See-through nodes (and Qwen-Image-Edit for the
         eyes-closed / mouth-open art). --outfits --adult adds swappable clothing (drawn adult characters only).
-    python -m autoexpress_core.live2d attach path/to/exported_model_folder
+        --undress builds the clothing from the undress chain in the picture's own pose (fixed pose).
+    python -m autoexpress_core.live2d attach path/to/exported_model_folder [--fixed-pose]
         Add the 28 emotions' expressions and motions to a rigged model (a folder with a .model3.json)
-        and write sillytavern_settings.json for the SillyTavern Live2D extension.
+        and write sillytavern_settings.json for the SillyTavern Live2D extension. --fixed-pose writes
+        head-and-body reactions only, two idle loops and the boop, pat, poke and tap touch reactions.
     python -m autoexpress_core.live2d puppet path/to/kit_folder [--output folder]
         Make the ready-to-play puppet from a kit folder (for kits made before puppets, or after
         editing the layer PNGs).
@@ -56,6 +58,8 @@ def _kit(args) -> int:
     if args.outfit:
         settings["outfit_prompt"] = args.outfit
         settings.setdefault("adult_confirmed", args.adult)
+    if args.undress:
+        settings.update(undress_chain=True, adult_confirmed=args.adult, character_description=args.description or "")
     if args.outfits:
         settings.update(
             outfit_layers=True,
@@ -71,7 +75,7 @@ def _kit(args) -> int:
 def _attach(args) -> int:
     from .model_files import attach_to_model
 
-    print(json.dumps(attach_to_model(args.folder, backup=not args.no_backup), indent=2))
+    print(json.dumps(attach_to_model(args.folder, backup=not args.no_backup, fixed_pose=args.fixed_pose), indent=2))
     return 0
 
 
@@ -119,11 +123,13 @@ def main(argv=None) -> int:
     kit.add_argument("--no-clothing-slots", action="store_true", help="don't put the coat on its own layer (saves an edit)")
     kit.add_argument("--no-neutral-pose", action="store_true", help="keep the picture's pose instead of redrawing the character in a neutral A-pose with a full-body skeleton")
     kit.add_argument("--no-expression-art", action="store_true", help="don't draw angry brows, a grin and teary eyes for the strongest emotions (saves three edits)")
+    kit.add_argument("--undress", action="store_true", help="build the clothing layers from the undress chain (tagged by a vision model, one garment off per edit, pixel-locked) and keep the picture's pose; inner wear and the body need --adult (drawn adults only)")
     kit.set_defaults(run=_kit)
 
     attach = commands.add_parser("attach", help="add the 28 emotions to a rigged model folder")
     attach.add_argument("folder")
     attach.add_argument("--no-backup", action="store_true", help="don't keep a .bak copy of the .model3.json")
+    attach.add_argument("--fixed-pose", action="store_true", help="the fixed-pose runtime: no arm motion, touch reactions on the nose, cheeks, head and body")
     attach.set_defaults(run=_attach)
 
     puppet = commands.add_parser("puppet", help="make the ready-to-play puppet from a kit folder")

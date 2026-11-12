@@ -31,6 +31,7 @@ import shutil
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 
+from . import fixed_pose as fixed_runtime
 from . import layers, model_files, skeleton
 
 FORMAT = "AutoExpress Puppet"
@@ -260,6 +261,7 @@ def build_puppet(
     neutral_pose: bool = False,
     depth_maps: dict | None = None,
     sleeve_map=None,
+    fixed_pose: bool = False,
 ) -> dict:
     """
     Write a puppet for the kit's layer tree (top to bottom, as build_tree returns it) into folder.
@@ -276,7 +278,10 @@ def build_puppet(
     canvas}, "" for the nearest surface; see layers.depth_canvases) give every mesh point a depth
     ("Z"), so turning the head or the body shows real parallax. sleeve_map (RGB, canvas size; see
     skeleton.sleeve_map_masks) marks the outer garment's sleeves, so each comes off whole with its
-    arm. Returns the puppet document.
+    arm. fixed_pose keeps the picture's pose: no skeleton and no arm parameters, the fixed-pose
+    runtime (fixed_pose.py: 28 emotions with head and body reactions, breathing and sway, and the
+    boop, pat, poke and tap touch reactions on the nose, head, cheeks and body). Returns the puppet
+    document.
     """
     folder = pathlib.Path(folder)
     if folder.exists():
@@ -304,6 +309,8 @@ def build_puppet(
             left, top = layer.left + bbox[0], layer.top + bbox[1]
             role, side = role_of(group.name, layer.name)
             file_id = _safe(f"{group.name}_{layer.name}")
+            if info.get("internal") or role in ("inner", "nude_body"):
+                file_id = layers.INTERNAL_PREFIX + file_id  # shows inner wear or less
             while file_id in used:
                 file_id += "_"
             used.add(file_id)
@@ -361,6 +368,12 @@ def build_puppet(
     if rig.get("Mouth"):
         rig["Mouth"]["Jaw"] = jaw_line(folder, entries, rig["Mouth"]["Box"])
     radii, arm_alpha = None, {}
+    if fixed_pose:
+        # The picture's pose stays: no arm to swing, no skeleton to pose.
+        joints = people = None
+        neutral_pose = False
+        rig["Arms"] = {}
+        rig["FixedPose"] = True
     if joints is None and people:
         detected = skeleton.from_keypoints(people, rig["Head"]["Box"], size)
         if detected:
@@ -381,7 +394,7 @@ def build_puppet(
             hand.paste(0, (0, 0, size[0], max(0, int(joints[f"wrist_{side}"][1] - face_h * 0.15))))
             arm_alpha[side] = hand
     bones = skeleton.bones(joints, rig["Head"]["Box"], radii) if joints else None
-    parameters = list(PARAMETERS)
+    parameters = [p for p in PARAMETERS if not (fixed_pose and p[0].startswith(fixed_runtime.POSE_PREFIXES))]
     if bones:
         # Posed by the bones: the arms bend with them, and the body layers get finer meshes to bend smoothly.
         rig["Skeleton"] = bones
@@ -396,19 +409,19 @@ def build_puppet(
                 entry["Grid"] = grid_for(entry["Width"], entry["Height"], step=20, most=64)
     if depth_maps:
         rig["Depth"] = add_depth(entries, depth_maps, rig)
-    written = model_files.write_model_files(folder)
+    areas = hit_areas(rig, size, entries, fixed_pose)
+    ids = {p[0] for p in parameters}
+    if fixed_pose:
+        written = fixed_runtime.write_runtime(folder, ids, [a["Name"] for a in areas], settings=False)
+        reactions = {a["Name"]: fixed_runtime.HIT_AREAS.get(a["Name"], "Tap") for a in areas}
+        st = fixed_runtime.sillytavern_settings(written["Motions"], ids, [a["Name"] for a in areas])
+    else:
+        written = model_files.write_model_files(folder)
+        reactions = dict(REACTIONS)
+        st = model_files.sillytavern_settings(motions=set(written["Motions"]), parameters=ids, reactions={k: v for k, v in REACTIONS.items() if k != "Drag"})
     outfits = write_outfits(folder, entries)
     written["Expressions"] = written["Expressions"] + outfits
-    (folder / model_files.SETTINGS_FILE).write_text(
-        json.dumps(
-            model_files.sillytavern_settings(
-                motions=set(written["Motions"]), parameters={p[0] for p in parameters}, reactions={k: v for k, v in REACTIONS.items() if k != "Drag"}
-            ),
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    (folder / model_files.SETTINGS_FILE).write_text(json.dumps(st, indent=2) + "\n", encoding="utf-8")
     document = {
         "Type": FORMAT,
         "Version": VERSION,
@@ -417,8 +430,8 @@ def build_puppet(
         "Parameters": [{"Id": pid, "Min": low, "Max": high, "Default": default} for pid, low, high, default in parameters],
         "Layers": entries,
         "Rig": rig,
-        "HitAreas": hit_areas(rig, size),
-        "Reactions": dict(REACTIONS),
+        "HitAreas": areas,
+        "Reactions": reactions,
         "Outfits": [item["Name"] for item in outfits if item["Name"].startswith("outfit_")],
         "FileReferences": {"Expressions": written["Expressions"], "Motions": written["Motions"]},
         "Groups": [
@@ -1403,20 +1416,31 @@ def _depth(entries, role):
     return round(sum(values) / len(values), 4) if values else 0.5
 
 
-def hit_areas(rig: dict, size) -> list[dict]:
+def hit_areas(rig: dict, size, entries: list[dict] | None = None, fixed_pose: bool = False) -> list[dict]:
     """
     Where a tap lands, most specific first (the extension takes the first area it has a mapping
-    for): the face (a boop), the top of the head (a pat), the bust, the hips, then the body.
+    for): the face (a boop), the top of the head (a pat), the bust, the hips, then the body. A
+    fixed-pose puppet has the nose (a boop) and the cheeks (a poke) first, and no bust or hips.
     """
     head = [round(v, 1) for v in rig["Head"]["Box"]]
     body = rig["Body"]["Box"]
     face_h = head[3] - head[1]
-    face = [head[0] + (head[2] - head[0]) * 0.15, head[1] + face_h * 0.35, head[2] - (head[2] - head[0]) * 0.15, head[3]]
-    areas = [
+    face_w = head[2] - head[0]
+    face = [head[0] + face_w * 0.15, head[1] + face_h * 0.35, head[2] - face_w * 0.15, head[3]]
+    areas = []
+    if fixed_pose:
+        nose = _union([_box(e) for e in entries or [] if e["Role"] == "nose"])
+        cx, cy = (nose[0] + nose[2]) / 2 if nose else (head[0] + head[2]) / 2, (nose[1] + nose[3]) / 2 if nose else head[1] + face_h * 0.68
+        r = face_w * 0.07
+        areas.append({"Name": "Nose", "Id": "HitAreaNose", "Box": [round(cx - r, 1), round(cy - r, 1), round(cx + r, 1), round(cy + r, 1)]})
+        top, bottom = head[1] + face_h * 0.6, head[1] + face_h * 0.88
+        for side, (x0, x1) in (("R", (0.12, 0.34)), ("L", (0.66, 0.88))):
+            areas.append({"Name": "Cheek", "Id": f"HitAreaCheek{side}", "Box": [round(head[0] + face_w * x0, 1), round(top, 1), round(head[0] + face_w * x1, 1), round(bottom, 1)]})
+    areas += [
         {"Name": "Face", "Id": "HitAreaFace", "Box": [round(v, 1) for v in face]},
         {"Name": "Head", "Id": "HitAreaHead", "Box": head},
     ]
-    for name, area in (("Bust", "Chest"), ("Hips", "Hips")):
+    for name, area in () if fixed_pose else (("Bust", "Chest"), ("Hips", "Hips")):
         region = rig.get(name)
         if region and region.get("Radius", [0])[0] > 0:
             rx, ry = region["Radius"]
@@ -1699,8 +1723,7 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
     for group in manifest["groups"]:
         children = []
         for info in group["layers"]:
-            safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in f"{group['name']} - {info['name']}")
-            path = kit_folder / "layers" / f"{safe}.png"
+            path = kit_folder / "layers" / layers.layer_file(group["name"], info)
             if not path.exists():
                 continue
             with Image.open(path) as image:
@@ -1724,5 +1747,6 @@ def from_kit(kit_folder, output=None) -> pathlib.Path:
         depth_maps=load_depth(kit_folder / "depth") or None,
         people=people,
         sleeve_map=sleeve_map,
+        fixed_pose=bool(manifest.get("fixed_pose")),
     )
     return output

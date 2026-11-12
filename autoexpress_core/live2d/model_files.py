@@ -246,9 +246,13 @@ def write_model_files(folder: pathlib.Path, parameters: set[str] | None = None) 
     return {"Expressions": expressions, "Motions": motions}
 
 
-def attach_to_model(folder, backup: bool = True) -> dict:
+def attach_to_model(folder, backup: bool = True, fixed_pose: bool = False) -> dict:
     """
     Add the 28 emotions to a rigged model folder and map them for the SillyTavern Live2D extension.
+
+    fixed_pose writes the fixed-pose runtime instead (fixed_pose.py: head and body reactions only,
+    two idle loops, the Boop, Pat, Poke and Tap touch reactions for the model's hit areas named
+    Nose, Cheek, Face, Head and Body), for a model that keeps its picture's pose.
 
     Existing expressions and motions with other names are kept; ours replace ones with the same name.
     Returns a summary: model file, number of expressions and motions, parameters used.
@@ -257,7 +261,13 @@ def attach_to_model(folder, backup: bool = True) -> dict:
     model_path = find_model3(folder)
     model3 = json.loads(model_path.read_text(encoding="utf-8"))
     parameters = model_parameters(folder, model3)
-    written = write_model_files(folder, parameters)
+    if fixed_pose:
+        from . import fixed_pose as runtime
+
+        areas = [area.get("Name") for area in model3.get("HitAreas", []) if area.get("Name")] or None
+        written = runtime.write_runtime(folder, parameters, areas, settings=False)
+    else:
+        written = write_model_files(folder, parameters)
 
     references = model3.setdefault("FileReferences", {})
     ours = {item["Name"] for item in written["Expressions"]}
@@ -282,7 +292,10 @@ def attach_to_model(folder, backup: bool = True) -> dict:
         if not backup_path.exists():
             shutil.copy2(model_path, backup_path)
     _write_json(model_path, model3)
-    settings = sillytavern_settings(motions=set(written["Motions"]), parameters=parameters)
+    if fixed_pose:
+        settings = runtime.sillytavern_settings(written["Motions"], parameters, areas)
+    else:
+        settings = sillytavern_settings(motions=set(written["Motions"]), parameters=parameters)
     _write_json(folder / SETTINGS_FILE, settings)
     return {
         "model": model_path.name,

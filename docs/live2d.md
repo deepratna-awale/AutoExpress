@@ -143,6 +143,58 @@ photos. The adult confirmation and the child check always run.
 
 When they aren't made, the kit says why and the clothes stay one layer.
 
+### Undress chain: the clothes from the picture, in its own pose
+
+The kit can also build the clothing the other way round: instead of drawing the body and then
+dressing it, it takes the garments off the picture one at a time. Turn on **Undress chain,
+picture's pose** (`"undress_chain": true`, `--undress` on the command line). It is off by default:
+it keeps the picture's pose, so the puppet has no arm motion, and it takes one edit per garment.
+
+1. **Tagging.** The vision language model on ComfyUI (Qwen3-VL through ComfyUI's TextGenerate node,
+   in the RunPod setup script) looks at the picture: the visible garments outermost first, each
+   with a slot (outer wear, top, dress, waist, bottom, legwear, footwear, gloves), its colour, the
+   body regions it covers and what it lies over; a close look at each item's box checks the
+   accessories (a collarbone line is not a necklace) and whether a front is open; and, for an adult
+   character, the inner wear it would have under them (a matching inner top and inner bottom). The
+   rest is worked out in code, so it is the same every time: the undress order, the states, a
+   half-worn state for each garment that has one (the jacket slipped off the shoulders, the shirt
+   open, the skirt lifted) and how many layers that makes. A character without outer wear simply
+   gets fewer states and layers. Accessories and headwear stay on. The result is
+   `undress/garment_manifest.json` in the kit.
+2. **The chain.** State 0 is the picture. Each next state is a Qwen-Image-Edit run on the one
+   before that takes exactly one garment off, and is then made consistent with it: lined up with it
+   (Qwen hands edits back a little zoomed and shifted), its colours fitted to it, and **pixel
+   locked**: outside the removed garment's region (its mask from SAM 3, grown 5 px, never the head
+   or the hands, plus the garment's own cast shadow) every pixel is copied from the state before,
+   so nothing else can change. Skin that comes into view is colour-locked to the face's lit skin
+   (in Lab, to a CIEDE2000 difference under 3). The half states are drawn from the state in which
+   the garment is outermost, and only the garment's own pixels are kept, over the next state.
+3. **Layers.** A garment's layer is the state before its removal inside the garment's outline, the
+   body is the last state, and stacked over the body the layers give the picture back (the kit's
+   manifest records how many pixels miss: `undress.stack_error_px`). The inner top and the inner
+   bottom are layers of their own over the skin, each with its switch (`ParamInnerTop`,
+   `ParamInnerBottom`), along with the outfit expressions above. The head, hair and face stay
+   See-through's layers, so they still turn, blink and talk.
+
+The puppet is a **fixed-pose puppet**: it rests in the picture's pose with no skeleton and no arm
+parameters, breathes, sways a little, follows the cursor with its head, body and eyes, plays the 28
+emotions as distinct expressions with head-and-body reactions, and reacts to touch: a **boop** on
+the nose, a **pat** on the head, a **poke** on a cheek and a **tap** on the body (hit areas `Nose`,
+`Cheek`, `Face`, `Head`, `Body`; expressions and motion groups `Boop`, `Pat`, `Poke` and `Tap`,
+mapped in `sillytavern_settings.json`). The kit's `runtime/` holds the same files for a Cubism
+model built from the PSD, and `attach --fixed-pose` adds them to an exported model. The PSD has
+every final layer in draw order with the half-off and expression art hidden.
+
+Inner wear and the body are only drawn for **drawn adult characters**, with the same checks as
+swappable clothing, and the vision model has to see an adult too; otherwise the chain stops after
+the outer layers. Every image of a state or layer that shows inner wear or less is named with an
+`INTERNAL_` prefix (in `undress/`, `layers/` and the puppet's textures) and is never put in a
+preview or the contact sheet.
+
+The chain needs Qwen-Image-Edit and a vision language model on ComfyUI; SAM 3 for the garment
+masks and the head and hands is strongly recommended (without it a garment's region is what the
+edit changed).
+
 ### Clean-up after the split
 
 See-through leaves a few things a hand-made model wouldn't have, which the kit fixes before it
@@ -348,7 +400,9 @@ Their output is not a Live2D model, so the SillyTavern Live2D extension can't lo
 python -m autoexpress_core.live2d check picture.png more.png        # check pictures and print the advice
 python -m autoexpress_core.live2d kit --url http://127.0.0.1:8188 --name mira picture.png
 python -m autoexpress_core.live2d lora "Mira" --arch illustrious     # look for a character LoRA
+python -m autoexpress_core.live2d kit --url http://127.0.0.1:8188 --name mira --undress --adult picture.png   # the undress chain, picture's pose
 python -m autoexpress_core.live2d attach path/to/model_folder        # add the 28 emotions to a rigged model
+python -m autoexpress_core.live2d attach --fixed-pose path/to/model_folder   # the fixed-pose runtime: no arm motion, touch reactions
 python -m autoexpress_core.live2d puppet path/to/kit_folder          # make the ready-to-play puppet from a kit
 ```
 
@@ -357,7 +411,7 @@ python -m autoexpress_core.live2d puppet path/to/kit_folder          # make the 
 | `GET /live2d` | Whether the connected WebUI can make kits, what's missing (with the fix), defaults, and the picture advice |
 | `POST /live2d/check` | `{"images": [base64 ...]}`: a report per picture and the best one |
 | `POST /live2d/character-lora` | `{"name", "checkpoint"}` or a character card as `image`: Civitai matches, whether the WebUI has each, and how to install it |
-| `POST /live2d` | `{"images", "name", "settings": {resolution, steps, seed, low_vram, base_index, variants, remove_background}, "character_lora"}`: a job; when it completes `job.live2d` has the links to the kit, the PSDs, the puppet zip (`puppet_zip`) and its preview page (`puppet_preview`) |
+| `POST /live2d` | `{"images", "name", "settings": {resolution, steps, seed, low_vram, base_index, variants, remove_background, undress_chain, adult_confirmed}, "character_lora"}`: a job; when it completes `job.live2d` has the links to the kit, the PSDs, the puppet zip (`puppet_zip`) and its preview page (`puppet_preview`) |
 
 Kits are saved under the output folder in `live2d/<name>/`, with `live2d/<name>_live2d_kit.zip`.
 

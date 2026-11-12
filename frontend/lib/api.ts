@@ -400,6 +400,7 @@ export interface Live2DRequest {
     clothing_slots?: boolean;
     expression_art?: boolean;
     neutral_pose?: boolean;
+    undress_chain?: boolean;
   };
   character_lora?: { entry: CharacterLoraEntry; installed_name: string | null } | null;
 }

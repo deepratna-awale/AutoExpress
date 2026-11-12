@@ -56,6 +56,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const [lowVram, setLowVram] = useState(false);
   const [variants, setVariants] = useState(true);
   const [outfitLayers, setOutfitLayers] = useState(false);
+  const [undressChain, setUndressChain] = useState(false);
   const [adultConfirmed, setAdultConfirmed] = useState(false);
   const [description, setDescription] = useState("");
   const [innerWear, setInnerWear] = useState("");
@@ -149,15 +150,16 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           low_vram: lowVram,
           variants: variants ? "auto" : "none",
           outfit_layers: outfitLayers,
-          adult_confirmed: outfitLayers && adultConfirmed,
-          ...(outfitLayers && description.trim() ? { character_description: description.trim() } : {}),
+          undress_chain: undressChain,
+          adult_confirmed: (outfitLayers || undressChain) && adultConfirmed,
+          ...((outfitLayers || undressChain) && description.trim() ? { character_description: description.trim() } : {}),
           ...(outfitLayers && innerWear.trim() ? { inner_wear: innerWear.trim() } : {}),
           ...(outfitPrompt.trim() ? { outfit_prompt: outfitPrompt.trim() } : {}),
           ...(clothingSlots && outerGarment.trim() ? { outer_garment: outerGarment.trim() } : {}),
           use_prompt_data: usePromptData,
           clothing_slots: clothingSlots,
           expression_art: expressionArt,
-          neutral_pose: neutralPose,
+          neutral_pose: neutralPose && !undressChain,
           ...(chosen !== null ? { base_index: chosen } : {}),
         },
         character_lora: lora ? { entry: lora.entry, installed_name: lora.installed_name } : null,
@@ -356,7 +358,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               </div>
               <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
                 <Label htmlFor="live2d-neutral-pose">Neutral pose, full-body skeleton</Label>
-                <Switch id="live2d-neutral-pose" checked={neutralPose} onCheckedChange={setNeutralPose} />
+                <Switch id="live2d-neutral-pose" checked={neutralPose && !undressChain} disabled={undressChain} onCheckedChange={setNeutralPose} />
               </div>
               <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
                 <Label htmlFor="live2d-expression-art">Angry brows, grin and tears</Label>
@@ -410,9 +412,20 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                     or all at once. Drawn adult characters only, never photos.
                   </p>
                 </div>
-                <Switch id="live2d-outfits" checked={outfitLayers} onCheckedChange={setOutfitLayers} />
+                <Switch id="live2d-outfits" checked={outfitLayers && !undressChain} disabled={undressChain} onCheckedChange={setOutfitLayers} />
               </div>
-              {outfitLayers && (
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <Label htmlFor="live2d-undress">Undress chain, picture&apos;s pose</Label>
+                  <p className="text-xs text-muted-foreground">
+                    A vision model tags the clothes and each garment comes off in its own edit, every other pixel kept. The puppet keeps
+                    the picture&apos;s pose (no arm motion) with 28 emotions and touch reactions. Inner wear and the body need the adult
+                    confirmation; without it only the outer layers come off.
+                  </p>
+                </div>
+                <Switch id="live2d-undress" checked={undressChain} onCheckedChange={setUndressChain} />
+              </div>
+              {(outfitLayers || undressChain) && (
                 <div className="space-y-2">
                   <label className="flex items-start gap-2 text-sm">
                     <input

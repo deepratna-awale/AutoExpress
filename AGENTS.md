@@ -155,6 +155,7 @@ Command line equivalents for the Live2D tools:
 python -m autoexpress_core.live2d check picture.png                     # picture advice
 python -m autoexpress_core.live2d kit --url <ComfyUI URL> --name mira picture.png
 python -m autoexpress_core.live2d kit --url <ComfyUI URL> --name mira --outfits --adult picture.png   # swappable clothing (drawn adults only)
+python -m autoexpress_core.live2d kit --url <ComfyUI URL> --name mira --undress --adult picture.png   # undress chain, picture's pose (fixed-pose puppet)
 python -m autoexpress_core.live2d puppet path/to/kit_folder              # puppet from a kit
 python -m autoexpress_core.live2d attach path/to/cubism_model_folder     # 28 emotions on a rigged model
 python -m autoexpress_core.live2d lora "Character Name" --arch illustrious
@@ -217,6 +218,7 @@ Conventions:
 - The standalone app is meant to run on the user's machine or a private network. Don't publish it as a
   public online service.
 - Swappable clothing in Live2D kits draws nudity, so it only runs for drawn adult characters with an
-  explicit adult confirmation (`outfit_layers` + `adult_confirmed`); photos and child-coded names or
+  explicit adult confirmation (`outfit_layers` or `undress_chain`, + `adult_confirmed`); photos and child-coded names or
   descriptions are refused in `autoexpress_core/live2d/outfits.py`. Keep those checks, and use SFW
-  characters for tests and public examples.
+  characters for tests and public examples. Images that show inner wear or less are named
+  `INTERNAL_` and never go in previews or contact sheets.

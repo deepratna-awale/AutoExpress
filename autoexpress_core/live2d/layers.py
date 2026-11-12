@@ -105,6 +105,17 @@ EXPECTED = {
 }
 
 
+# Layers that always show inner wear or less.
+INTERNAL_TAGS = ("inner wear", "inner top", "inner bottom", "nude body")
+INTERNAL_PREFIX = "INTERNAL_"
+
+
+def layer_file(group: str, info: dict) -> str:
+    """The PNG name of a kit layer (manifest group name and layer info): INTERNAL_ in front for internal ones."""
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in f"{group} - {info['name']}")
+    return (INTERNAL_PREFIX if info.get("internal") else "") + f"{safe}.png"
+
+
 @dataclasses.dataclass
 class Part:
     """
@@ -119,6 +130,9 @@ class Part:
     top: int = 0
     depth: float = 1.0
     depth_map: Image.Image | None = None
+    # Shows inner wear or less (the undress chain's inner wear and body, the swappable clothing's):
+    # its files are named INTERNAL_ and it is left out of previews and contact sheets.
+    internal: bool = False
 
 
 def parse_tag(tag: str) -> tuple[str, str | None]:
@@ -176,9 +190,14 @@ def build_tree(parts: list[Part], overlays: list[Overlay] | None = None) -> tupl
     """
     parts = _clean_parts(parts)
     grouped: dict[str, list[tuple[int, float, Layer, str]]] = {}
+    internal = set()
     for part in parts:
         group, name, order = classify(part.tag)
-        grouped.setdefault(group, []).append((order, part.depth, Layer(name, part.image, part.left, part.top), part.tag))
+        # Half-off art is switched on by the outfit, so it starts hidden like the blink and mouth art.
+        layer = Layer(name, part.image, part.left, part.top, visible=not part.tag.endswith(" half"))
+        if part.internal or part.tag in INTERNAL_TAGS:
+            internal.add(id(layer))
+        grouped.setdefault(group, []).append((order, part.depth, layer, part.tag))
 
     # Two layers can end up with one name (two "Other" tags); keep names unique for Cubism.
     seen: dict[str, int] = {}
@@ -227,6 +246,7 @@ def build_tree(parts: list[Part], overlays: list[Overlay] | None = None) -> tupl
                         "tag": tag,
                         "visible": layer.visible,
                         "box": [layer.left, layer.top, layer.left + layer.image.width, layer.top + layer.image.height],
+                        **({"internal": True} if id(layer) in internal else {}),
                     }
                     for _, _, layer, tag in entries
                 ],
