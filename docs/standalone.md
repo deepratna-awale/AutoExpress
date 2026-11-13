@@ -3,7 +3,7 @@
 The standalone app is a small web server that talks to a WebUI over its API, locally or on a remote GPU (RunPod, a home server, and so on). Use it when you'd rather keep AutoExpress out of your WebUI, or when the WebUI runs somewhere else.
 
 <p align="center">
-  <img src="../.github/readme/nextjs_ui.jpg" alt="The AutoExpress web interface with the WebUI selector, prompt style, the dropped image and the generated expressions" width="100%">
+  <img src="../.github/readme/nextjs_ui.jpg" alt="The AutoExpress web interface: the WebUI connection with its setup checklist, the generation settings, the dropped image with its prompt, and the generated expressions" width="100%">
 </p>
 
 It gives matching results whichever WebUI does the work:
@@ -75,6 +75,10 @@ With a ComfyUI backend, the **Method** dropdown switches between **Face inpainti
 
 ### Retrying one expression
 
+<p align="center">
+  <img src="../.github/readme/ui_retry.jpg" alt="The per-expression settings dialog open on Joy, with its expression prompt, seed, intensity, denoising, steps and CFG, and the Retry Joy button" width="70%">
+</p>
+
 When one expression of a set comes out wrong, press the **Retry** button (the circular arrow) above the gallery while it is on screen. A dialog opens on that expression with its prompt and settings; press **Retry** to make just that one again with a new seed, or change things first:
 
 - **Expression prompt**: the expression's tags in face inpainting (your character prompt, quality tags and LoRAs are still added), or the whole edit instruction in instruction edit mode. **Reset to default** brings the original wording back.
@@ -106,6 +110,10 @@ After connecting, AutoExpress checks over the WebUI's API that everything it nee
 ### Protected or remote WebUIs
 
 Open **Login** under the WebUI URL (it opens by itself when the WebUI refuses the request):
+
+<p align="center">
+  <img src="../.github/readme/ui_login.jpg" alt="The Login section under the WebUI URL with username, password, token and extra headers fields" width="40%">
+</p>
 
 - **Username and password**: A1111/Forge started with `--api-auth` get them as basic auth, SwarmUI logs in with them, and InvokeAI (multi-user mode) trades its email and password for a token and renews it when it expires. Putting them in the URL (`https://user:pass@host:7860`) works too; they are taken out of it before it is saved or logged.
 - **Token**: sent as `Authorization: Bearer ...` (for a reverse proxy that wants one), or as SwarmUI's `swarm_token` cookie.

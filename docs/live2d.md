@@ -48,6 +48,10 @@ The setup checklist in the app shows whether the nodes are there, with the comma
 
 In the web app, open the sidebar and choose **Tools > Live2D model kit**.
 
+<p align="center">
+  <img src="../.github/readme/ui_live2d.jpg" alt="The Live2D model kit dialog with a scored picture and its checks, the character name with Find LoRA, layer resolution, the art and pose switches, and the clothing options" width="70%">
+</p>
+
 1. **Add pictures** of the character (up to 8). Each one gets a score and a list of checks. The
    best one is used, or click another to use it instead.
 2. **Character name**, then **Find LoRA**: AutoExpress looks for the character's LoRA on Civitai,
@@ -55,8 +59,8 @@ In the web app, open the sidebar and choose **Tools > Live2D model kit**.
    mouth-open edits are made with face inpainting and that LoRA, so they stay on model. Without
    one, Qwen-Image-Edit makes them from the picture alone. A LoRA the WebUI doesn't have is listed
    with its download link: put it in ComfyUI's `models/loras` folder and search again.
-3. Optional: **Swappable clothing** (see below).
-4. **Build the kit.** It takes a few minutes: two edits (four with swappable clothing), then See-through.
+3. Optional: **Swappable clothing** or the **Undress chain** (see below).
+4. **Build the kit.** It takes a few minutes: the Qwen-Image-Edit runs (the neutral pose redraw, blink and mouth art, the expression art and any clothing edits), then See-through.
 
 When it's done you get the reassembled character, every layer side by side, what's missing, and
 downloads for the puppet (zip), the kit (zip), the Cubism PSD and the See-through PSD. **Try the
@@ -263,13 +267,15 @@ python -m http.server 8000      # then open http://localhost:8000/preview.html
 | `ParamArmLA`, `ParamArmRA` | Turn an arm at its joint (posing): the shoulder, or the wrist when the arm layer is only a hand. |
 | `ParamBone<Name>` | Puppets with a skeleton: rotate one bone (degrees, clockwise) within its joint limits. The bones are `Hips`, `Spine`, `Chest`, `Neck`, `Head` and, per side (`L`/`R`), `UpperArm`, `Forearm`, `Hand`, `Thigh`, `Shin`, `Foot`. |
 
-**Skeleton.** By default the kit first redraws the character standing in a neutral A-pose, full
-body, with Qwen-Image-Edit (`--no-neutral-pose` or the **Neutral pose** switch off keeps the
-picture's pose). With ComfyUI's TextEncodeQwenImageEditPlus the redraw follows an OpenPose A-pose
-stick figure given as a second picture. The legs come out straight and apart, the knees over the ankles, and the arms
-hang clear of the body: when the redraw keeps the feet together or crossed (a model's walk often
+**Skeleton.** By default the kit first redraws the character standing in a neutral T-pose, full
+body, with Qwen-Image-Edit: the arms straight out level with the shoulders, so no sleeve runs
+behind the chest and the sleeves come off the coat cleanly. `--arm-angle` sets how far the arms are
+held out (90, the default, is the T-pose; about 22 is an A-pose), and `--no-neutral-pose` or the
+**Neutral pose** switch off keeps the picture's pose. With ComfyUI's TextEncodeQwenImageEditPlus the
+redraw follows an OpenPose stick figure in that pose given as a second picture. The legs come out
+straight and apart, the knees over the ankles, and the arms are held clear of the body: when the redraw keeps the feet together or crossed (a model's walk often
 survives it), or a sleeve lies against the jacket from the armpit to the waist (it would then be
-cut from the jacket too narrow), the kit asks again, up to three times. With DWPose it also asks
+cut from the jacket too narrow), or a T-pose's arms span much less than the figure is tall, the kit asks again, up to three times. With DWPose it also asks
 again when an arm bends more than about 18 degrees at the elbow: the clothing edits draw the arms
 straight, and a sleeve bent in one picture and straight in another doesn't line up. When ComfyUI has DWPose ([comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux),
 installed by the RunPod setup script), the joints come from it and are kept in `pose.json` in the
@@ -325,6 +331,24 @@ the character's puppet with the Live2D extension's mapping.
 The bust and hip regions are placed from the head size with anime proportions. If they're off for
 a character, change `Rig.Bust` and `Rig.Hips` (`Centers`, `Radius`) in the puppet file; a radius of
 0 turns one off, and `Rig.Strength.bust`, `hips`, `cloth` and `drag` scale each effect.
+
+### Scripting the puppet
+
+The player (`puppet.js`) gives the model a small API, for pages that drive the puppet themselves
+(the preview page uses it):
+
+| Call | What it does |
+| --- | --- |
+| `model.expression(name)`, `model.motion(group)` | Play one of the puppet's expressions or motion groups, the same names the Live2D extension uses. |
+| `model.react(area)` | Play the reaction for a hit area (`Head`, `Face`, `Body` ...), then go back to the emotion from before. |
+| `model.poke(x, y, strength)` | Poke the soft parts at a canvas point; they bounce. |
+| `model.focus(x, y)` | Look towards a point (the cursor follow). |
+| `model.ik(limb, target, hint)` | Two-bone IK for `arm L`, `arm R`, `leg L` or `leg R`: the hand or foot goes to `target` (`{x, y, z?}` in canvas pixels) and the elbow or knee bends towards `hint`. `model.ikHint(limb, hint)` moves only the elbow or knee. |
+| `model.pose(goals)` | Pose the whole body with the humanoid IK solver (`humanoid_ik.js`): `{handL, handR, footL, footR, look, lean, reach}`. It bends the spine towards a hand goal out of reach, keeps the hands out of the torso and head, turns the head and eyes to look, and keeps every joint (shoulder and wrist cones, elbow, knee and finger hinges) within its limits. |
+| `model.resetPose()` | Back to the rest pose. |
+| `model.viseme(name, weight)`, `model.speak(text)` | Show one of the 15 TTS visemes (teeth and tongue included), or mouth a line of text. |
+
+Posing and IK need a puppet with a skeleton; a fixed-pose puppet (undress chain) has none.
 
 ### The format
 
