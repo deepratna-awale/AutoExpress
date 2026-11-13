@@ -32,6 +32,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/frontend_settings.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/multi_select.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/capabilities.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='stylesheet/features.css') }}" />
   <link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon-rounded.png') }}" />
 
   <meta name="theme-color" content="#14151f">
@@ -63,10 +64,26 @@
         <div class="input-container slider-container">
           <label for="ip-input">API URL</label>
           <input id="ip-input" name="ip-input" type="text" placeholder="http://host:7860 or https://pod-7860.proxy.runpod.net" />
-          <button class="sd-connect">
+          <button class="sd-connect" type="button" aria-label="Connect" title="Connect">
             <div class="icon-link-2"></div>
           </button>
         </div>
+        <!-- Login for protected WebUIs -->
+        <details id="login-details" class="login-details">
+          <summary>Login <span id="login-set" class="ok-text" hidden>(set)</span> <span id="login-needed" class="warn-text" hidden>(needed)</span></summary>
+          <p class="muted">For a WebUI with a login (A1111/Forge <code>--api-auth</code>, SwarmUI or InvokeAI accounts) or behind a login proxy. It is only sent to this address, kept on the AutoExpress server, and never shown again.</p>
+          <div class="field-grid">
+            <div class="field"><label for="login-username">Username or email</label><input id="login-username" type="text" autocomplete="username" /></div>
+            <div class="field"><label for="login-password">Password</label><input id="login-password" type="password" autocomplete="current-password" /></div>
+          </div>
+          <div class="field"><label for="login-token">Token</label><input id="login-token" type="password" autocomplete="off" /></div>
+          <div class="field"><label for="login-headers">Extra headers</label><textarea id="login-headers" rows="2" spellcheck="false" autocomplete="off" class="mono"></textarea></div>
+          <div class="button-row">
+            <button type="button" id="login-connect" class="primary-button">Connect with login</button>
+            <button type="button" id="login-forget" hidden>Forget login</button>
+          </div>
+        </details>
+        <p id="detected-backend" class="muted small" hidden>Detected <b></b></p>
 
         <!-- What the WebUI has, and how to fix what's missing -->
         <div id="capabilities" class="capabilities" hidden>
@@ -84,6 +101,8 @@
             <!-- Add more options as needed -->
           </select>
         </div>
+        <button type="button" id="model-defaults" class="link-button align-right" hidden></button>
+        <p id="model-adjustment" class="warn-text small" role="status" hidden></p>
 
         <!-- Sampler Dropdown -->
         <div class="input-container select-container">
@@ -92,6 +111,7 @@
             <!-- Add more options as needed -->
           </select>
         </div>
+        <p id="sampler-adjustment" class="warn-text small" role="status" hidden></p>
 
         <!-- Scheduler Dropdown -->
         <div class="input-container select-container">
@@ -100,6 +120,7 @@
             <!-- Add more options as needed -->
           </select>
         </div>
+        <p id="scheduler-adjustment" class="warn-text small" role="status" hidden></p>
 
         <!-- Lora Dropdown -->
         <div class="input-container select-container">
@@ -177,6 +198,25 @@
             <option value="inpaint">Face inpainting</option>
           </select>
         </div>
+        <div id="edit-style-row" class="toggle-row centered" hidden>
+          <span>Illustration</span>
+          <label class="switch"><input type="checkbox" id="edit-style-toggle" aria-label="Photo wording" /><span class="slider round"></span></label>
+          <span>Photo</span>
+        </div>
+        <p id="edit-method-note" class="muted small" hidden></p>
+        <!-- Change the pose along with each expression -->
+        <div class="toggle-row">
+          <label class="switch"><input type="checkbox" id="pose-toggle" disabled /><span class="slider round"></span></label>
+          <label for="pose-toggle">Change pose too</label>
+        </div>
+        <p id="pose-note" class="muted small">Needs Qwen-Image-Edit on a ComfyUI backend.</p>
+        <!-- Expression intensity -->
+        <div class="input-container slider-container">
+          <label for="intensity-slider">Intensity</label>
+          <input type="range" id="intensity-slider" min="0" max="1" step="0.05" value="0.5" />
+          <input type="number" id="intensity-input" min="0" max="1" step="0.05" value="0.5" />
+        </div>
+        <p class="muted small"><span id="intensity-note"></span><button type="button" id="intensity-reset" class="link-button" hidden></button></p>
 
         <!-- Expression Prompt Style -->
         <div class="input-container select-container">
@@ -200,9 +240,13 @@
           </div>
         </div>
 
+        <button type="button" id="per-expression-open" class="link-button">Advanced: per-expression prompts and settings</button>
         <div class="sidebar-add-space"></div>
-        <!-- Settings cog icon -->
-        <span class="icon-settings settings-cog" onclick="openModal()"></span>
+        <!-- Tools -->
+        <div class="sidebar-tools">
+          <button type="button" id="live2d-open" title="Split a character into the layers of a Live2D model">Live2D model kit</button>
+          <span class="icon-settings settings-cog" onclick="openModal()" title="GUI settings" role="button" aria-label="GUI settings"></span>
+        </div>
         
         <!-- Modal overlay and content -->
         <div id="modalOverlay" class="modal-overlay">
@@ -245,25 +289,36 @@
         <div class="input-container drop-zone">
           <div class="drop-zone-prompt">
             <div class="icon-upload"></div>
-            <span id="upload-file-drop-zone">Drop file here or click to upload image</span>
+            <span id="upload-file-drop-zone">Drop file here, click to upload, or paste with Ctrl/⌘+V</span>
           </div>
           <input type="file" name="image" id="drop-zone-input-field" />
           <!-- Info icon at bottom right -->
+          <button type="button" id="image-remove" class="image-remove" aria-label="Remove image" title="Remove image" hidden>×</button>
           <div class="info-icon-overlay">
             <span class="icon-info info-icon" id="info-icon" 
               title="Drop image and click on this icon or hover over the image to see the raw generation data. This can help you fill in the missing parameters manually if not autodetected."></span>
           </div>
           <div class="tooltip" id="tooltip"></div>
         </div>
+        <p id="image-file-info" class="muted small" hidden></p>
         <div class="button-container">
-          <button type="submit" class="generate-button" data-lucide="image-play">
+          <button type="button" class="generate-button" data-lucide="image-play">
             <div class="generate-icon icon-image-play"></div>
-            Generate
+            <span class="generate-label">Generate</span>
           </button>
-          <button class="interrupt-button" data-lucide="triangle-alert">
+          <button type="button" class="interrupt-button" data-lucide="triangle-alert">
             <div class="interrupt-icon icon-triangle-alert"></div>
             Interrupt
           </button>
+        </div>
+        <div id="job-progress" class="job-progress" aria-live="polite" hidden>
+          <div class="progress-track"><div class="progress-fill"></div></div>
+          <p class="progress-text muted small"></p>
+        </div>
+        <div id="job-notes" class="job-notes" role="status" hidden>
+          <span class="notes-summary"></span>
+          <button type="button" id="notes-details" class="link-button">Details</button>
+          <button type="button" id="notes-dismiss" aria-label="Dismiss">×</button>
         </div>
         <div class="input-container">
           <textarea type="text" id="prompt-textfield" name="prompt-textfield"
@@ -273,19 +328,53 @@
           <textarea type="text" id="negative-prompt-textfield" name="negative-prompt-textfield"
             placeholder="Negative prompt..."></textarea>
         </div>
+        <!-- Background removal -->
+        <div id="remove-background-row" class="option-block" hidden>
+          <div class="toggle-row">
+            <label class="switch"><input type="checkbox" id="remove-background-toggle" /><span class="slider round"></span></label>
+            <label for="remove-background-toggle">Remove background</label>
+          </div>
+          <p id="remove-background-note" class="muted small"></p>
+        </div>
+        <!-- Animated sprites -->
+        <div id="animation-row" class="option-block" hidden>
+          <div class="toggle-row">
+            <label class="switch"><input type="checkbox" id="animate-toggle" /><span class="slider round"></span></label>
+            <label for="animate-toggle">Animate sprites</label>
+          </div>
+          <p id="animation-note" class="muted small"></p>
+          <div id="animation-settings" class="panel-box" hidden>
+            <label id="idle-label" for="idle-motion">Idle animation</label>
+            <textarea id="idle-motion" rows="3"></textarea>
+            <div class="button-row">
+              <button type="button" data-idle-source="card">From the card</button>
+              <button type="button" data-idle-source="web">Card + wiki</button>
+              <button type="button" data-idle-source="llm">Ask the LLM</button>
+              <span id="idle-busy" class="muted small" hidden>Working...</span>
+            </div>
+            <div id="animation-formats" class="button-row small"></div>
+            <label class="inline-check small" title="Wan 2.2's 4-step LoRAs: about 6x faster, but the mouth may move as if talking."><input type="checkbox" id="animation-fast" /> Fast (4 steps, lower quality)</label>
+            <p id="animation-vram" class="muted small"></p>
+          </div>
+        </div>
     </div>
     </div>
     <div class="right-pane">
       <div class="image-output-container">
         <div class="input-container">
           <input type="text" class="output-directory" id="output-directory" name="output-directory"
-            placeholder="Character_Name" onkeypress="loadImagesInput(event)" />
-          <button class="load-images" onclick="loadImages()">
+            placeholder="Character_Name" title="Expressions are saved to Output/&lt;this name&gt;" onkeypress="loadImagesInput(event)" />
+          <button type="button" class="load-images" aria-label="Load images" title="Load images">
             <div class="icon-refresh-cw"></div>
           </button>
         </div>
+        <div class="gallery-header">
+          <span id="gallery-dir" class="muted small"></span>
+          <span id="gallery-count" class="badge">0 images</span>
+          <button type="button" id="retry-button" class="retry-button" hidden>Retry</button>
+        </div>
         <div class="display-container">
-          <button class="nav-left" onclick="navigate(-1)">
+          <button type="button" class="nav-left" aria-label="Previous expression">
             <div class="nav-icon icon-circle-chevron-left"></div>
           </button>
           <div class="image-name-column-container">
@@ -295,7 +384,7 @@
             </div>
             <div id="expression-image-name"></div>
           </div>
-          <button class="nav-right" onclick="navigate(1)">
+          <button type="button" class="nav-right" aria-label="Next expression">
             <div class="nav-icon icon-circle-chevron-right"></div>
           </button>
         </div>
@@ -303,18 +392,22 @@
     </div>
   </div>
   </div>
-  <!DOCTYPE html>
-
+  {% include "dialogs.html" %}
+  <script src="{{ url_for('static', filename='js/common.js') }}"></script>
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/model_defaults.js') }}"></script>
   <script src="{{ url_for('static', filename='js/capabilities.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/multi_select.js') }}"></script>
   <script src="{{ url_for('static', filename='js/connect.js') }}"></script>
   <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/image_drag_and_drop.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/generate.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/image_viewer.js') }}"></script>
   <script src="{{ url_for('static', filename='js/expression_family.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/options.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/image_drag_and_drop.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/image_viewer.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/generate.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/expression_settings.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/live2d.js') }}"></script>
   <script src="{{ url_for('static', filename='js/frontend_settings.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/multi_select.js') }}"></script>
 </body>
 
 </html>

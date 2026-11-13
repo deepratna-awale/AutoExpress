@@ -46,6 +46,8 @@ function loadEditMethods() {
   fetch("/edit-methods")
     .then((response) => response.json())
     .then((data) => {
+      AE.editMethods = data.methods;
+      AE.vramNote = data.vram_note || "";
       const selected = editMethodSelect.value;
       editMethodSelect.innerHTML = "";
       data.methods.forEach((method) => {
@@ -61,6 +63,7 @@ function loadEditMethods() {
       editMethodSelect.dispatchEvent(new Event("change"));
     })
     .catch((error) => {
+      AE.editMethods = null;
       console.error("Could not load edit methods:", error);
     });
 }
