@@ -5,6 +5,7 @@ All notable changes to AutoExpress are listed here, newest first.
 ## Unreleased
 
 ### Docs
+- **README and docs brought up to date, with new screenshots.** The README lists login for protected WebUIs, retrying one expression, the Live2D undress chain, touch reactions and the talking mouth, and drops a roadmap item that already shipped (poses). New screenshots of the current web interface, the Login section, the per-expression Retry dialog and the Live2D model kit dialog. The Live2D guide says the kit redraws the character in a T-pose by default (`--arm-angle`) and documents the puppet's scripting API (expressions, reactions, IK, `pose()`, visemes).
 - **Animated sprites in the README and docs.** The README has an Animated sprites section with looping examples, and [docs/animated-sprites.md](docs/animated-sprites.md) shows more clips, frames from two loops, and how the endlessly looping WebP files keep playing in SillyTavern, browsers and other tools. The SillyTavern and RunPod guides explain where the looping sprites go, and the HTTP API table lists `lightning` with the current sampling defaults (20 steps, cfg 3.5).
 
 ### Fixed

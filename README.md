@@ -21,10 +21,12 @@ AutoExpress repaints a character's face with 28 different emotions and keeps eve
 - **Sprites straight into SillyTavern.** The SillyTavern extension makes a character's expression sprites from its avatar and puts them in Character Expressions as they finish.
 - **Prompts tuned per model family.** Separate expression prompts for Danbooru-tag anime models, Pony, Illustrious/NoobAI, SDXL and natural-language models such as Flux. **Auto** picks the family from the checkpoint name.
 - **Expression LoRAs.** It downloads and applies the right expression LoRA for the checkpoint, reusing a Civitai key you already have set up.
+- **Login for protected WebUIs.** Username and password, a token or extra headers (such as Cloudflare Access) for a WebUI behind a login. They stay on the AutoExpress server and never reach the page or the log.
+- **Retry one expression.** Make a single expression again with a new seed, or with its own prompt, intensity and settings, and save those with the character for every later run.
 - **Two ways to edit.** Face inpainting uses ADetailer or FaceDetailer. Instruction editing uses Qwen-Image-Edit on ComfyUI, which also works on photos.
 - **Animated sprites.** Every expression can become a seamless looping animation that keeps playing for as long as it's shown (Wan 2.2 image to video on ComfyUI), transparent if you like, with an idle animation written from the character card. [Examples](#animated-sprites).
-- **Live2D models from pictures.** A ready-to-play puppet for the SillyTavern Live2D extension, and a layered PSD to rig a full Live2D model in Cubism Editor. The puppet blinks, turns its head with depth, follows the cursor and plays the 28 expressions, gliding from one to the next. Its hair, skirts and ribbons sway, and the bust and hips jiggle. You can drag hair, clothes and soft parts with the mouse or poke them. Layers are split at 2048 px and cleaned up: skin is solid and the hair colour is painted under the bangs.
-- **Swappable clothing for Live2D puppets.** Optional, and only for drawn adult characters. The body, the inner wear and the outer clothes become separate layers, and outfit switches change between them.
+- **Live2D models from pictures.** A ready-to-play puppet for the SillyTavern Live2D extension, and a layered PSD to rig a full Live2D model in Cubism Editor. The puppet blinks, breathes, turns its head with depth, follows the cursor and plays the 28 expressions, gliding from one to the next, and reacts to touch (a boop on the nose, a pat on the head). Its mouth has separate teeth and tongue for 15 TTS visemes. Its hair, skirts and ribbons sway, and the bust and hips jiggle. You can drag hair, clothes and soft parts with the mouse or poke them. Layers are split at 2048 px and cleaned up: skin is solid and the hair colour is painted under the bangs.
+- **Swappable clothing for Live2D puppets.** Optional, and only for drawn adult characters. The body, the inner wear and the outer clothes become separate layers, and outfit switches change between them. The **undress chain** builds them from the picture itself: a vision model tags the clothes, each garment comes off in its own edit with every other pixel kept, and the puppet stays in the picture's pose.
 - **One intensity slider** sets how far each expression is pushed.
 - **Ready for sprites.** Files are named after their expression, and each run can save a labelled sprite sheet.
 
@@ -95,6 +97,10 @@ Fooocus has no extension system, so it isn't supported.
   <tr>
     <td colspan="2"><a href="docs/standalone.md"><img src=".github/readme/nextjs_ui.jpg" alt="The standalone AutoExpress web interface"></a><br><sub>Standalone web interface</sub></td>
   </tr>
+  <tr>
+    <td width="50%"><a href="docs/standalone.md#retrying-one-expression"><img src=".github/readme/ui_retry.jpg" alt="Retrying one expression with its own prompt and settings"></a><br><sub>Retry one expression with its own prompt and settings</sub></td>
+    <td width="50%"><a href="docs/live2d.md#making-a-kit"><img src=".github/readme/ui_live2d.jpg" alt="The Live2D model kit dialog"></a><br><sub>Live2D model kit</sub></td>
+  </tr>
 </table>
 
 ## Expressions
@@ -118,15 +124,12 @@ The full documentation is in [docs/](docs/README.md):
 - Setup guides: [A1111 / Forge / SD.Next](docs/a1111.md), [ComfyUI](docs/comfyui.md), [InvokeAI](docs/invokeai.md), [Standalone app](docs/standalone.md)
 - [Prompt styles and expression intensity](docs/prompt-styles.md)
 - [Expression LoRAs and your Civitai key](docs/expression-loras.md)
-- [Instruction edit mode (Qwen-Image-Edit)](docs/comfyui.md#instruction-edit-mode-qwen-image-edit)
+- [Instruction edit mode (Qwen-Image-Edit)](docs/comfyui.md#instruction-edit-mode-qwen-image-edit), with [a pose per expression](docs/standalone.md#using-it)
+- [Retrying one expression](docs/standalone.md#retrying-one-expression) and [logging in to protected WebUIs](docs/standalone.md#protected-or-remote-webuis)
 - [Animated sprites and character cards](docs/animated-sprites.md)
 - [Live2D model kits](docs/live2d.md)
 - [Running ComfyUI on RunPod](docs/runpod.md)
 - [Using the results with SillyTavern](docs/sillytavern.md)
-
-## Roadmap
-
-- Change the pose along with the expression while keeping clothes and background consistent.
 
 ## Contributing
 
