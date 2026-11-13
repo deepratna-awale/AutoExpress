@@ -130,6 +130,7 @@ The full documentation is in [docs/](docs/README.md):
 - [Live2D model kits](docs/live2d.md)
 - [Running ComfyUI on RunPod](docs/runpod.md)
 - [Using the results with SillyTavern](docs/sillytavern.md)
+- [MCP server and the AI assistant skill](docs/mcp.md): let any AI assistant make sprites for you
 
 ## Contributing
 

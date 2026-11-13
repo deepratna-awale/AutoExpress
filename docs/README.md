@@ -9,6 +9,7 @@
 | [InvokeAI](invokeai.md) | The Expression Prompts node |
 | [Standalone app](standalone.md) | The web app that drives any supported WebUI over its API, plus its configuration and HTTP API |
 | [Running on RunPod](runpod.md) | The pod image, GPUs, models (NSFW-capable ones too) and a script that sets up ComfyUI with everything AutoExpress uses |
+| [MCP server](mcp.md) | Letting any MCP-capable assistant or agent make sprites: setup for common clients, the tools, HTTP mode |
 | [SillyTavern](sillytavern.md) | The SillyTavern extension that makes a character's expression sprites, and using results by hand |
 
 ## Guides
@@ -22,6 +23,7 @@
 
 - [Contributing](../CONTRIBUTING.md)
 - [Guide for AI agents](../AGENTS.md): running, deploying and automating AutoExpress
+- [AutoExpress skill](../skills/autoexpress/SKILL.md): the workflow guide any AI assistant can load to use AutoExpress for someone
 - [Changelog](../CHANGELOG.md)
 - [Security policy](../SECURITY.md)
 

@@ -18,6 +18,10 @@ RELEASE_README.md
 # The standalone app's lockfile; the nodes need only pyproject.toml's dependencies
 uv.lock
 
+# MCP server and the assistant skill
+autoexpress_mcp/
+skills/
+
 # Other WebUIs
 manifest.json
 sillytavern/

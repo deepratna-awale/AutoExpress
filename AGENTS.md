@@ -36,7 +36,9 @@ Pick by where the WebUI is and what the user wants:
 | Inside InvokeAI | The Expression Prompts node in `invokeai_nodes/` | InvokeAI users |
 | Standalone app | `python -m autoexpress` (or a release zip, or Docker), web UI and HTTP API on port 5000, drives any supported WebUI anywhere | Automation, remote GPUs, SillyTavern, every newer feature (animation, Live2D) |
 
-For automation, use the standalone app and its HTTP API.
+For automation, use the standalone app and its HTTP API, or the [MCP server](docs/mcp.md)
+(`python -m autoexpress_mcp`) on top of it. To use AutoExpress for someone rather than change its code, follow
+[skills/autoexpress/SKILL.md](skills/autoexpress/SKILL.md).
 
 ### Standalone app
 
@@ -181,6 +183,8 @@ puppets: put a puppet folder in `data/<user>/assets/live2d` and pick its `.puppe
 | `invokeai_nodes/` | InvokeAI node |
 | `sillytavern/` | The SillyTavern extension (`manifest.json` at the repo root points to it) |
 | `scripts/runpod/` | Pod creation and ComfyUI setup |
+| `autoexpress_mcp/` | The MCP server, a client of the standalone app's HTTP API (a new route usually wants a tool) |
+| `skills/autoexpress/` | The assistant skill (keep it in step with the tools and routes) |
 | `tests/` | pytest, with mocked WebUI APIs (no GPU needed); `tests/live/` needs a real ComfyUI |
 
 Checks before a change is done:
