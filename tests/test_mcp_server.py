@@ -173,7 +173,8 @@ def test_unreachable_app_says_how_to_start_it():
 def test_describe_error_keeps_fix_steps():
     body = {"status": "Failed", "message": "ComfyUI is missing the Impact Pack.", "error": {"code": "backend_not_ready", "fix": {"steps": ["Install it"], "commands": ["git clone x"], "links": [{"label": "Pack", "url": "https://example.com"}]}}}
     text = describe_error(409, body, "")
-    assert "backend_not_ready" in text and "Install it" in text and "$ git clone x" in text and "https://example.com" in text
+    lines = text.splitlines()
+    assert "backend_not_ready" in lines[0] and "- Install it" in lines and "  $ git clone x" in lines and "  https://example.com" in lines
 
 
 def test_guide_resource_is_the_skill(mcp):
