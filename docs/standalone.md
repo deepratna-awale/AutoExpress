@@ -57,7 +57,7 @@ pnpm install
 pnpm build
 ```
 
-Flask then serves it at [http://127.0.0.1:5000](http://127.0.0.1:5000). Without a build or a download (offline), the original interface is served instead, and it's always available at [/classic](http://127.0.0.1:5000/classic). See [frontend/README.md](../frontend/README.md) for development.
+Flask then serves it at [http://127.0.0.1:5000](http://127.0.0.1:5000). Without a build or a download (offline), the original interface is served instead, and it's always available at [/classic](http://127.0.0.1:5000/classic). The original interface has the same features: login, model defaults, edit style, poses, intensity, background removal, animation, live progress, Retry with per-expression settings, and the Live2D model kit. See [frontend/README.md](../frontend/README.md) for development.
 
 ## Using it
 

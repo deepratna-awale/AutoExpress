@@ -186,6 +186,11 @@ class MultiSelect {
      */
     _updateSelected() {
         const headerElement = this.element.querySelector('.multi-select-header');
+        // Keep the strengths already typed in when the selection changes.
+        const strengths = {};
+        headerElement.querySelectorAll('.multi-select-header-option-row').forEach(row => {
+            strengths[row.querySelector('.lora-name').textContent] = row.querySelector('.lora-strength').value;
+        });
         headerElement.innerHTML = ''; // Clear previous selections
 
         if (this.selectedValues.length > 0) {
@@ -212,7 +217,8 @@ class MultiSelect {
                 loraStrengthSelector.type = 'number';
                 loraStrengthSelector.classList.add('lora-strength');
                 loraStrengthSelector.name = 'lora-strength';
-                loraStrengthSelector.value = '0.8';
+                loraStrengthSelector.value = strengths[item.text] ?? '0.8';
+                loraStrengthSelector.addEventListener('click', event => event.stopPropagation());
                 loraStrengthSelector.step = '0.05';
                 loraStrengthSelector.style.marginLeft = '8px';
                 loraStrengthSelector.style.marginRight = '4px'; // Space between text and close icon
@@ -320,9 +326,10 @@ class MultiSelect {
         this._updateSelected();
 
         // Set the strength value
-        const strengthInput = this.element.querySelector(`.lora-strength[data-value="${CSS.escape(dataItem.value)}"]`);
-        if (strengthInput) {
-            strengthInput.value = strength;
+        const row = Array.from(this.element.querySelectorAll('.multi-select-header-option-row'))
+            .find(r => r.querySelector('.lora-name').textContent === dataItem.text);
+        if (row) {
+            row.querySelector('.lora-strength').value = strength;
         }
     }
 

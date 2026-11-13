@@ -1,0 +1,127 @@
+  <!-- The image's raw generation data -->
+  <dialog id="metadata-dialog" class="ae-dialog">
+    <div class="dialog-head">
+      <h2>Generation data</h2>
+      <button type="button" class="dialog-close" onclick="closeDialog('metadata-dialog')" aria-label="Close">×</button>
+    </div>
+    <pre id="metadata-text" class="metadata-text"></pre>
+  </dialog>
+
+  <!-- Notes from the last run -->
+  <dialog id="notes-dialog" class="ae-dialog">
+    <div class="dialog-head">
+      <h2>Missing expression LoRAs</h2>
+      <button type="button" class="dialog-close" onclick="closeDialog('notes-dialog')" aria-label="Close">×</button>
+    </div>
+    <p class="muted">The expressions were generated without these. Download each into the WebUI's LoRA folder, refresh its LoRA list, then generate again.</p>
+    <ul id="notes-list" class="notes-list"></ul>
+  </dialog>
+
+  <!-- Per-expression prompts and settings, and retrying one expression -->
+  <dialog id="expression-settings-dialog" class="ae-dialog ae-dialog-wide">
+    <div class="dialog-head">
+      <h2>Per-expression settings</h2>
+      <button type="button" class="dialog-close" onclick="closeDialog('expression-settings-dialog')" aria-label="Close">×</button>
+    </div>
+    <p class="muted">Give single expressions their own prompt and settings. They are saved with the character in <span id="es-dir"></span> and used on every run; empty fields use the shared settings.</p>
+    <div class="es-body">
+      <ul id="es-list" class="es-list"></ul>
+      <div id="es-editor" class="es-editor"></div>
+    </div>
+    <div class="dialog-foot">
+      <a id="es-export" class="button-link" download>Export</a>
+      <button type="button" id="es-import">Import</button>
+      <input type="file" id="es-import-file" accept="application/json,.json" hidden />
+      <span class="spacer"></span>
+      <label class="inline-check small"><input type="checkbox" id="es-remember" checked /> Remember</label>
+      <button type="button" id="es-retry">Retry</button>
+      <button type="button" id="es-save" class="primary-button" disabled>Save</button>
+      <button type="button" id="es-close">Close</button>
+    </div>
+  </dialog>
+
+  <!-- Live2D model kit -->
+  <dialog id="live2d-dialog" class="ae-dialog ae-dialog-wide">
+    <div class="dialog-head">
+      <h2>Live2D model kit</h2>
+      <button type="button" class="dialog-close" onclick="closeDialog('live2d-dialog')" aria-label="Close">×</button>
+    </div>
+    <p class="muted">Split a character into the layers of a Live2D model: a Cubism-ready PSD with blink and mouth art, plus expressions for the SillyTavern Live2D extension.</p>
+    <div id="l2-not-ready" class="warning-box" hidden></div>
+
+    <section class="l2-section">
+      <div class="dialog-row">
+        <span class="strong">Pictures of the character (up to 8)</span>
+        <button type="button" id="l2-add">Add</button>
+        <input type="file" id="l2-files" accept="image/*" multiple hidden />
+      </div>
+      <div id="l2-pictures" class="l2-pictures"></div>
+      <ul id="l2-checks" class="l2-checks"></ul>
+      <details id="l2-advice" class="l2-advice" hidden></details>
+    </section>
+
+    <section class="l2-section">
+      <label for="l2-name">Character name</label>
+      <div class="dialog-row">
+        <input type="text" id="l2-name" placeholder="Hinata Hyuga" />
+        <button type="button" id="l2-find-lora">Find LoRA</button>
+      </div>
+      <div id="l2-loras"></div>
+    </section>
+
+    <section class="l2-section l2-settings">
+      <div class="field">
+        <label for="l2-resolution">Layer resolution</label>
+        <select id="l2-resolution">
+          <option value="1024">1024 px</option>
+          <option value="1280">1280 px</option>
+          <option value="1536">1536 px</option>
+          <option value="2048" selected>2048 px</option>
+        </select>
+      </div>
+      <label class="inline-check"><input type="checkbox" id="l2-variants" checked /> Draw blink and mouth art</label>
+      <label class="inline-check"><input type="checkbox" id="l2-neutral-pose" checked /> Neutral pose, full-body skeleton</label>
+      <label class="inline-check"><input type="checkbox" id="l2-expression-art" checked /> Angry brows, grin and tears</label>
+      <label class="inline-check"><input type="checkbox" id="l2-low-vram" /> Low VRAM (8-12 GB)</label>
+    </section>
+
+    <section class="l2-section panel-box">
+      <div class="field">
+        <label for="l2-outfit">Outfit (optional)</label>
+        <input type="text" id="l2-outfit" maxlength="300" placeholder="Keep the picture's clothes, or e.g. a black blazer and a pleated skirt" />
+      </div>
+      <label class="inline-check"><input type="checkbox" id="l2-clothing-slots" checked /> Coat on its own layer, with a drawn half-off state (two more edits)</label>
+      <div id="l2-outer-row" class="field">
+        <label for="l2-outer">Outer garment (optional)</label>
+        <input type="text" id="l2-outer" maxlength="60" placeholder="e.g. dark green haori, or none. Empty: from the card, prompt or a vision model" />
+      </div>
+      <label class="inline-check"><input type="checkbox" id="l2-prompt-data" checked /> Read the clothing from the picture's prompt data when a field is empty</label>
+      <label class="inline-check"><input type="checkbox" id="l2-outfits" /> <span><b>Swappable clothing</b><br /><span class="muted small">Body, inner wear (top and bottom) and outer clothes as separate layers the puppet can switch, one piece at a time or all at once. Drawn adult characters only, never photos.</span></span></label>
+      <label class="inline-check"><input type="checkbox" id="l2-undress" /> <span><b>Undress chain, picture's pose</b><br /><span class="muted small">A vision model tags the clothes and each garment comes off in its own edit, every other pixel kept. The puppet keeps the picture's pose (no arm motion) with 28 emotions and touch reactions. Inner wear and the body need the adult confirmation; without it only the outer layers come off.</span></span></label>
+      <div id="l2-adult-box" hidden>
+        <label class="inline-check"><input type="checkbox" id="l2-adult" /> This character is an adult (18 or older) and the picture is a drawing, not a photo of a real person.</label>
+        <div class="field">
+          <label for="l2-description">Character description (optional)</label>
+          <textarea id="l2-description" rows="2" maxlength="2000" placeholder="Build, skin, anything the body layer should match"></textarea>
+        </div>
+        <div id="l2-inner-row" class="field">
+          <label for="l2-inner">Inner wear (optional)</label>
+          <input type="text" id="l2-inner" maxlength="200" placeholder="From the prompt data, else matching lace lingerie" />
+        </div>
+      </div>
+    </section>
+
+    <p id="l2-error" class="error-text" hidden></p>
+    <div class="dialog-row">
+      <button type="button" id="l2-build" class="primary-button">Build the kit</button>
+      <button type="button" id="l2-cancel" hidden>Cancel</button>
+      <span id="l2-busy" class="muted small"></span>
+      <span class="spacer"></span>
+      <button type="button" id="l2-close">Close</button>
+    </div>
+    <div id="l2-progress" class="job-progress" hidden>
+      <div class="progress-track"><div class="progress-fill"></div></div>
+      <p class="progress-text muted small"></p>
+    </div>
+    <section id="l2-result" class="l2-section" hidden></section>
+  </dialog>
