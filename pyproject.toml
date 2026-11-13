@@ -24,6 +24,8 @@ standalone = [
     "pillow>=13.0.0",
     "requests>=2.34.2",
     "loguru>=0.7.3",
+    # The WebUI API clients (detection, auth, transport and each WebUI's request steps)
+    "sdmux==0.2.0",
     # Production server for "python -m autoexpress"
     "waitress>=3.0.2",
     # Optional: live step progress from ComfyUI

@@ -9,17 +9,17 @@ the expression prompt.
 
 When SwarmUI requires accounts, pass a Swarm auth token (sent as the
 swarm_token cookie, as SwarmUI expects) or a username and password (logged in
-through /API/Login).
+through /API/Login). The sdmux client handles the cookie, the login and the
+session.
 """
 
 import io
-from urllib.parse import urlsplit
+
 from PIL import Image
 
 from ..images import b64_to_pil, pil_to_b64
 from ..log import log
 from .base import (
-    BackendAuthError,
     BackendError,
     BackendNotReady,
     BackendRejected,
@@ -29,13 +29,9 @@ from .base import (
     RemoteBackend,
     listed,
     match_choice,
+    sdmux_errors,
 )
 from .comfyui_api import SAMPLERS, SCHEDULERS, pick
-
-
-def _value(option: str) -> str:
-    """Swarm lists some values as 'id///Display Name'."""
-    return option.split("///", 1)[0]
 
 
 class SwarmUIClient(RemoteBackend):
@@ -44,72 +40,22 @@ class SwarmUIClient(RemoteBackend):
     label = "SwarmUI"
     default_url = "http://127.0.0.1:7801"
 
-    def __init__(self, url: str | None = None, timeout: float | None = None, **options) -> None:
-        self._session_id: str | None = None
-        self._params: dict[str, dict] | None = None
-        self._server: dict = {}
-        self._logged_in = False
-        super().__init__(url, timeout, **options)
-
-    def _apply_auth(self, url_user: str | None, url_password: str | None) -> None:
-        super()._apply_auth(url_user, url_password)
-        # SwarmUI reads its auth token from a cookie, not the Authorization header,
-        # and does its own login, so neither goes out as HTTP auth.
-        self.session.headers.pop("Authorization", None)
-        self.session.auth = None
-        self.session.cookies.clear()
-        if self.connection.token:
-            # Bound to the WebUI's host, so a redirect elsewhere never carries it.
-            # (the cookie jar matches dotless hosts such as localhost as "<host>.local").
-            host = urlsplit(self._base_url).hostname or ""
-            self.session.cookies.set("swarm_token", self.connection.token, domain=host if "." in host else f"{host}.local")
-        self._login = (self.connection.username or url_user, self.connection.password if self.connection.username else url_password)
-        self._logged_in = False
-
-    def on_url_changed(self) -> None:
-        self._session_id = None
-        self._params = None
-        self._server = {}
+    # The swarm_token cookie (bound to the WebUI's host), the /API/Login step and the session renewal
+    # are done by the sdmux client.
 
     # API helpers ----------------------------------------------------------
-    def _log_in(self) -> None:
-        username, password = self._login
-        if not username or self._logged_in or self.connection.token:
-            return
-        result = self._post_json("/API/Login", {"username": username, "password": password or ""})
-        if result.get("error_id") or result.get("error"):
-            raise BackendAuthError(f"SwarmUI login failed: {result.get('error_id') or result.get('error')}")
-        self._logged_in = True
-
-    def _new_swarm_session(self) -> str:
-        self._log_in()
-        result = self._post_json("/API/GetNewSession", {})
-        if "session_id" not in result:
-            raise BackendAuthError(f"SwarmUI did not open a session: {result.get('error') or result.get('error_id') or result}")
-        self._server = {key: result.get(key) for key in ("version", "server_id", "user_id")}
-        self._session_id = result["session_id"]
-        return self._session_id
-
     def _call(self, route: str, body: dict | None = None, timeout: float | None = None) -> dict:
         """POST to /API/<route> with a session, renewing it once if the server dropped it."""
-        for attempt in range(2):
-            session_id = self._session_id or self._new_swarm_session()
-            result = self._post_json(f"/API/{route}", {"session_id": session_id, **(body or {})}, timeout=timeout)
-            if result.get("error_id") == "invalid_session_id" and attempt == 0:
-                self._session_id = None
-                continue
-            if "error" in result or "error_id" in result:
-                raise BackendRejected(f"SwarmUI: {result.get('error') or result.get('error_id')}")
-            return result
-        raise BackendAuthError("SwarmUI keeps rejecting the session.")
+        with sdmux_errors():
+            return self.client.call(route, body, timeout)
 
-    def params(self) -> dict[str, dict]:
-        if self._params is None:
-            self._params = {param["id"]: param for param in self._call("ListT2IParams").get("list", [])}
-        return self._params
+    def params(self, refresh: bool = False) -> dict[str, dict]:
+        with sdmux_errors():
+            return self.client.params(refresh)
 
     def param_values(self, param_id: str) -> list[str]:
-        return [_value(v) for v in (self.params().get(param_id, {}).get("values") or [])]
+        with sdmux_errors():
+            return self.client.param_values(param_id)
 
     def _list_models(self, subtype: str) -> list[str]:
         result = self._call("ListModels", {"path": "", "depth": 10, "subtype": subtype})
@@ -133,15 +79,12 @@ class SwarmUIClient(RemoteBackend):
         return self._safe_list("schedulers", lambda: self.param_values("scheduler"))
 
     def ensure_ready(self) -> None:
-        self._session_id = None
-        self._params = None
+        self.params(refresh=True)
         if not self._list_models("Stable-Diffusion"):
             raise BackendNotReady("SwarmUI has no Stable Diffusion models.")
 
     def capabilities(self) -> list[Capability]:
-        self._session_id = None
-        self._params = None
-        self._new_swarm_session()
+        self.params(refresh=True)
         items = [Capability("api", "SwarmUI API", True)]
         items.append(
             listed(
@@ -188,9 +131,9 @@ class SwarmUIClient(RemoteBackend):
         return items
 
     def server_info(self) -> dict:
-        if not self._server:
-            self._new_swarm_session()
-        return dict(self._server)
+        with sdmux_errors():
+            info = self.client.info()
+        return {key: info.get(key) for key in ("version", "server_id", "user_id")}
 
     def refresh_loras(self) -> bool:
         try:
@@ -279,6 +222,7 @@ class SwarmUIClient(RemoteBackend):
 
     def interrupt(self) -> None:
         try:
-            self._call("InterruptAll", {"other_sessions": False}, timeout=10)
+            with sdmux_errors():
+                self.client.interrupt()
         except BackendError as e:
             log.error(f"Interrupt failed: {e}")

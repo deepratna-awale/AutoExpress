@@ -8,5 +8,6 @@ Backends run the img2img request bodies built by the core.
 - invokeai_api: queues a face mask inpainting graph on an InvokeAI server.
 - a1111_inprocess: runs inside A1111 / Forge / reForge / SD.Next, no --api needed.
 
-The HTTP backends are listed in registry.REMOTE_BACKENDS for the standalone app.
+The HTTP backends drive sdmux clients (detection, transport, logins and each WebUI's request
+steps) and are listed in registry.REMOTE_BACKENDS for the standalone app.
 """

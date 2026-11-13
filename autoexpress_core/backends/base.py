@@ -7,62 +7,27 @@ settings back out of that body with FaceEditRequest and translate them into
 their own request format.
 """
 
-import base64
 import dataclasses
 import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from urllib.parse import unquote, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.exceptions import ReadTimeoutError
-from urllib3.util.retry import Retry
+import sdmux
+from sdmux.backends import BACKENDS as SDMUX_BACKENDS
+from sdmux.backends.base import Backend as SdmuxBackend
+from sdmux.names import extract_loras, lora_stem, match_choice  # noqa: F401
+from sdmux.transport import Options as ConnectionOptions
+from sdmux.transport import RESERVED_HEADERS, normalize_url, redact_url, split_credentials  # noqa: F401
+from sdmux.transport import parse_headers as _parse_headers
 
 from ..animation import ANIMATE
 from ..instruction_edit import INPAINT, INSTRUCT, METHODS
 from ..live2d import DECOMPOSE
 from ..payload import SAME_CHECKPOINT, find_nested_key
 from ..log import log
-
-LORA_PATTERN = re.compile(r"<\s*lora\s*:([^:<>]+)(?::([^:<>]*))?>", re.IGNORECASE)
-
-
-def normalize_url(url: str | None, default: str) -> str:
-    """Turn what the user typed (host:port, full URL, trailing slash, nothing) into a base URL."""
-    url = (url or "").strip()
-    if not url:
-        return default
-    if not re.match(r"^[a-z][a-z0-9+.-]*://", url, re.IGNORECASE):
-        url = "http://" + url
-    parts = urlsplit(url)
-    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
-        raise ValueError(f"Not a valid http(s) URL: {redact_url(url)}")
-    return url.rstrip("/")
-
-
-def split_credentials(url: str) -> tuple[str, str | None, str | None]:
-    """Move user:password@ out of a URL so it can be sent as basic auth instead."""
-    parts = urlsplit(url)
-    if parts.username is None:
-        return url, None, None
-    netloc = parts.hostname + (f":{parts.port}" if parts.port else "")
-    clean = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
-    return clean, unquote(parts.username), unquote(parts.password or "")
-
-
-def redact_url(url: str | None) -> str:
-    """The URL with any user:password@ replaced, safe to log or show."""
-    url = url or ""
-    try:
-        parts = urlsplit(url if "://" in url else f"//{url}")
-    except ValueError:
-        return re.sub(r"[^/@]*@", "***@", url)
-    if "@" not in parts.netloc:
-        return url
-    host = parts.netloc.rsplit("@", 1)[1]
-    return url.replace(parts.netloc, f"***@{host}", 1)
-
 
 def same_origin(a: str | None, b: str | None) -> bool:
     """True when two URLs point at the same scheme, host and port (credentials ignored)."""
@@ -80,11 +45,6 @@ def same_origin(a: str | None, b: str | None) -> bool:
     return first is not None and first == second
 
 
-# Headers the transport manages itself; a custom header may not replace them.
-RESERVED_HEADERS = frozenset({"host", "content-length", "content-type", "transfer-encoding", "connection", "upgrade", "te", "trailer"})
-_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
-
-
 class HeaderError(ValueError):
     """Extra headers that can't be sent as written."""
 
@@ -98,101 +58,10 @@ def parse_headers(value) -> dict[str, str]:
     Raises:
         HeaderError: A malformed or reserved header, or a value with a line break.
     """
-    import json
-
-    if value is None or value == "":
-        return {}
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return {}
-        if text.startswith("{"):
-            try:
-                value = json.loads(text)
-            except ValueError as e:
-                raise HeaderError("Extra headers look like JSON but don't parse as a JSON object.") from e
-        else:
-            pairs = {}
-            for line in text.splitlines():
-                if not line.strip():
-                    continue
-                name, sep, header_value = line.partition(":")
-                if not sep:
-                    raise HeaderError("Write each extra header as Name: value, one per line.")
-                pairs[name.strip()] = header_value.strip()
-            value = pairs
-    if not isinstance(value, dict):
-        raise HeaderError("Extra headers must be Name: value lines or a JSON object.")
-    headers = {}
-    for name, header_value in value.items():
-        name = str(name).strip()
-        header_value = "" if header_value is None else str(header_value).strip()
-        if not _HEADER_NAME.match(name):
-            raise HeaderError(f"{name!r} is not a valid header name.")
-        if name.lower() in RESERVED_HEADERS:
-            raise HeaderError(f"The {name} header is set by AutoExpress and can't be replaced.")
-        if any(ch in header_value for ch in "\r\n\0"):
-            raise HeaderError(f"The {name} header's value has a line break in it.")
-        headers[name] = header_value
-    return headers
-
-
-class _AuthSession(requests.Session):
-    """A session that also drops the custom auth headers when a redirect leaves the WebUI's host."""
-
-    secret_headers: tuple[str, ...] = ()
-
-    def rebuild_auth(self, prepared_request, response):
-        if self.secret_headers and self.should_strip_auth(response.request.url, prepared_request.url):
-            for name in self.secret_headers:
-                prepared_request.headers.pop(name, None)
-        super().rebuild_auth(prepared_request, response)
-
-
-def lora_stem(name: str) -> str:
-    """'SDXL/detail_tweaker.safetensors' -> 'detail_tweaker', the name A1111 style prompts use."""
-    name = name.replace("\\", "/").rsplit("/", 1)[-1]
-    return re.sub(r"\.(safetensors|ckpt|pt|pth|bin)$", "", name, flags=re.IGNORECASE)
-
-
-def extract_loras(prompt: str) -> tuple[str, list[tuple[str, float]]]:
-    """
-    Pull A1111 style <lora:name:weight> tags out of a prompt.
-
-    Returns:
-        tuple[str, list[tuple[str, float]]]: The prompt without the tags, and each lora name with its weight.
-    """
-    loras = []
-    for name, weight in LORA_PATTERN.findall(prompt or ""):
-        try:
-            loras.append((name.strip(), float(weight) if weight.strip() else 1.0))
-        except ValueError:
-            loras.append((name.strip(), 1.0))
-    cleaned = LORA_PATTERN.sub("", prompt or "")
-    # Drop the empty entries left behind by removed tags.
-    parts = [part.strip() for part in cleaned.split(",")]
-    return ", ".join(part for part in parts if part), loras
-
-
-def match_choice(value: str | None, choices: list[str]) -> str | None:
-    """
-    Find value in a list of names a WebUI offers, ignoring folders, file extensions and case.
-
-    "animagine.safetensors", "SDXL/animagine.safetensors" and "animagine [hash]" all match "animagine".
-    """
-    if not value or not choices:
-        return None
-    if value in choices:
-        return value
-
-    def stem(name: str) -> str:
-        name = re.sub(r"\s*\[[0-9a-fA-F]+\]\s*$", "", name)
-        name = name.replace("\\", "/").rsplit("/", 1)[-1]
-        name = re.sub(r"\.(safetensors|ckpt|pt|pth|bin|gguf|sft)$", "", name, flags=re.IGNORECASE)
-        return name.strip().lower()
-
-    wanted = stem(value)
-    return next((choice for choice in choices if stem(choice) == wanted), None)
+    try:
+        return _parse_headers(value)
+    except ValueError as e:
+        raise HeaderError(str(e).replace("sdmux", "AutoExpress")) from e
 
 
 def _number(value, cast, default):
@@ -347,6 +216,36 @@ class GenerationCancelled(BackendError):
     http_status = 409
 
 
+# sdmux raises its own typed errors; the app and UI switch on these codes instead.
+_FROM_SDMUX = (
+    (sdmux.Unreachable, BackendUnavailable),
+    (sdmux.TimedOut, BackendTimeout),
+    (sdmux.AuthRefused, BackendAuthError),
+    (sdmux.NotReady, BackendNotReady),
+    (sdmux.Rejected, BackendRejected),
+    (sdmux.Cancelled, GenerationCancelled),
+)
+
+
+def backend_error(error: Exception) -> BackendError:
+    """The BackendError for an sdmux error (or any other failure talking to a WebUI)."""
+    if isinstance(error, BackendError):
+        return error
+    cls = next((ours for theirs, ours in _FROM_SDMUX if isinstance(error, theirs)), BackendError)
+    translated = cls(str(error))
+    translated.__cause__ = error
+    return translated
+
+
+@contextmanager
+def sdmux_errors():
+    """Re-raise sdmux errors as BackendErrors."""
+    try:
+        yield
+    except sdmux.SdmuxError as e:
+        raise backend_error(e) from e
+
+
 # Capabilities -----------------------------------------------------------------
 @dataclass
 class Fix:
@@ -428,31 +327,17 @@ def connection_fix(error: "BackendError", label: str = "the WebUI") -> Fix:
 
 
 # Base backend -----------------------------------------------------------------
-@dataclass
-class ConnectionOptions:
-    """How to reach a WebUI. Every field has a sensible default for a local install."""
-
-    username: str | None = None
-    # Secrets stay out of repr() so they never reach a log line.
-    password: str | None = field(default=None, repr=False)
-    token: str | None = field(default=None, repr=False)
-    headers: dict[str, str] = field(default_factory=dict, repr=False)
-    connect_timeout: float = 5.0
-    timeout: float = 30.0
-    job_timeout: float = 1800.0
-    retries: int = 2
-    verify_tls: bool = True
-
-
 class RemoteBackend:
     """
     Base for backends that reach a WebUI over HTTP.
 
-    Gives every backend the same transport: connect/read timeouts, retries with
-    backoff on connection errors (and on 502/503/504 for reads), basic or
-    bearer auth, and typed errors. Subclasses implement img2img, interrupt,
-    check_ready and the model listings. Listings return an empty list when the
-    server cannot be reached, so the UI shows nothing instead of failing.
+    The connection itself is an sdmux client (self.client): its transport gives every backend
+    connect/read timeouts, retries with backoff on connection errors (and on 502/503/504 for
+    reads), basic or bearer auth, extra headers and typed errors, and it runs each WebUI's
+    session, login, upload, queue and download steps. The backends add what is specific to
+    AutoExpress on top: the face edit, instruction edit, animation and Live2D workflows and the
+    capability checks with fixes. Listings return an empty list when the server cannot be
+    reached, so the UI shows nothing instead of failing.
 
     img2img keeps the core Backend protocol (an image, or None on failure); the
     reason for a failure is kept in last_error for callers that want it.
@@ -461,6 +346,8 @@ class RemoteBackend:
     kind = ""
     label = ""
     default_url = "http://127.0.0.1:7860"
+    # The sdmux client class this backend drives, by sdmux kind (defaults to kind).
+    sdmux_kind: str | None = None
     # Ways this WebUI can change an expression, see instruction_edit.METHODS.
     edit_methods: tuple[str, ...] = (INPAINT,)
     # True when the WebUI can turn a still into a looping clip (Wan 2.2 image to video, see animation).
@@ -469,49 +356,53 @@ class RemoteBackend:
     can_decompose = False
 
     def __init__(self, url: str | None = None, timeout: float | None = None, options: ConnectionOptions | None = None, **option_overrides) -> None:
-        self.connection = dataclasses.replace(options) if options else ConnectionOptions()
-        for key, value in option_overrides.items():
-            if value is not None:
-                setattr(self.connection, key, value)
+        overrides = {key: value for key, value in option_overrides.items() if value is not None}
         if timeout is not None:
-            self.connection.timeout = timeout
+            overrides["timeout"] = timeout
         self.last_error: BackendError | None = None
-        self.session = self._new_session()
-        self._base_url = self.default_url
-        self.set_url(url, notify=False)
+        self.client: SdmuxBackend | None = None
+        self._connect(url, ConnectionOptions.build(options, **overrides))
 
-    # Transport ------------------------------------------------------------
-    def _new_session(self) -> requests.Session:
-        session = _AuthSession()
-        retry = Retry(
-            total=self.connection.retries,
-            connect=self.connection.retries,
-            read=self.connection.retries,
-            status=self.connection.retries,
-            backoff_factor=0.5,
-            status_forcelist=(502, 503, 504),
-            allowed_methods=frozenset({"GET", "HEAD", "OPTIONS"}),
-            raise_on_status=False,
-            respect_retry_after_header=True,
-        )
-        adapter = HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=8)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        session.verify = self.connection.verify_tls
-        session.headers.update({"Accept": "application/json", "User-Agent": "AutoExpress"})
-        return session
+    # Connection -----------------------------------------------------------
+    def _connect(self, url: str | None, options: ConnectionOptions) -> None:
+        """Open a new sdmux client for url (which may carry user:password@) with options."""
+        # A backend sdmux has no client for (a test double, say) still gets sdmux's transport.
+        cls = SDMUX_BACKENDS.get(self.sdmux_kind or self.kind, SdmuxBackend)
+        # defaults="fixed": AutoExpress sends every setting itself and never wants a model profile looked up.
+        self.client = cls(normalize_url(url, self.default_url), options, defaults="fixed")
 
-    def _apply_auth(self, url_user: str | None, url_password: str | None) -> None:
-        username = self.connection.username or url_user
-        password = self.connection.password if self.connection.username else url_password
-        self.session.auth = (username, password or "") if username else None
-        for name in (*getattr(self.session, "secret_headers", ()), "Authorization"):
-            self.session.headers.pop(name, None)
-        if self.connection.token:
-            self.session.headers["Authorization"] = f"Bearer {self.connection.token}"
-        extra = self.connection.headers or {}
-        self.session.headers.update(extra)
-        self.session.secret_headers = tuple(extra)
+    @property
+    def http(self):
+        """The sdmux transport: a requests session bound to the WebUI's base URL."""
+        return self.client.http
+
+    @property
+    def connection(self) -> ConnectionOptions:
+        return self.client.options
+
+    @property
+    def session(self) -> requests.Session:
+        return self.client.http.session
+
+    @session.setter
+    def session(self, session) -> None:
+        self.client.http.session = session
+
+    @property
+    def _base_url(self) -> str:
+        return self.client.url
+
+    @property
+    def poll_interval(self) -> float:
+        return self.connection.poll_interval
+
+    @poll_interval.setter
+    def poll_interval(self, value: float) -> None:
+        self.connection.poll_interval = value
+
+    @property
+    def job_timeout(self) -> float:
+        return self.connection.job_timeout
 
     def auth_headers(self) -> dict[str, str]:
         """
@@ -519,18 +410,7 @@ class RemoteBackend:
 
         Includes basic auth as an Authorization header, a bearer token and any extra headers.
         """
-        headers = {}
-        auth = getattr(self.session, "auth", None)
-        if isinstance(auth, tuple) and auth[0]:
-            pair = f"{auth[0]}:{auth[1] or ''}".encode()
-            headers["Authorization"] = "Basic " + base64.b64encode(pair).decode()
-        for name, value in getattr(self.session, "headers", {}).items():
-            if name.lower() == "authorization" or name in getattr(self.session, "secret_headers", ()):
-                headers[name] = value
-        cookies = "; ".join(f"{c.name}={c.value}" for c in getattr(self.session, "cookies", ()))
-        if cookies:
-            headers["Cookie"] = cookies
-        return headers
+        return self.http.auth_headers()
 
     def auth_summary(self) -> dict:
         """Which login is set, without any secret: safe to send to the browser."""
@@ -543,18 +423,14 @@ class RemoteBackend:
 
     # URL handling ---------------------------------------------------------
     def set_url(self, url: str | None, notify: bool = True) -> None:
-        clean, user, password = split_credentials(normalize_url(url, self.default_url))
-        self._base_url = clean
-        if user and not self.connection.username:
-            # Keep URL credentials with the other options so copies of this backend have them too.
-            self.connection.username, self.connection.password = user, password
-        self._apply_auth(None, None)
+        # Credentials from the previous URL stay with the options, as they did before.
+        self._connect(url, dataclasses.replace(self.connection))
         if notify:
             self.on_url_changed()
 
     def set_credentials(self, username: str | None = None, password: str | None = None, token: str | None = None) -> None:
-        self.connection.username, self.connection.password, self.connection.token = username or None, password or None, token or None
-        self._apply_auth(None, None)
+        options = dataclasses.replace(self.connection, username=username or None, password=password or None, token=token or None)
+        self._connect(self._base_url, options)
         self.on_url_changed()
 
     def get_url(self) -> str:
@@ -578,41 +454,16 @@ class RemoteBackend:
         Args:
             timeout (float | None): Read timeout in seconds; defaults to options.timeout.
         """
-        url = f"{self._base_url}{path}"
-        read_timeout = timeout if timeout is not None else self.connection.timeout
-        try:
-            response = self.session.request(method, url, timeout=(self.connection.connect_timeout, read_timeout), **kwargs)
-        except requests.exceptions.ConnectTimeout as e:
-            raise BackendUnavailable(f"Timed out connecting to {self.label} at {self._base_url}.") from e
-        except requests.exceptions.ReadTimeout as e:
-            raise BackendTimeout(f"{self.label} did not answer {method} {path} within {read_timeout:g}s.") from e
-        except requests.exceptions.SSLError as e:
-            raise BackendUnavailable(f"TLS error talking to {self.label} at {self._base_url}: {e}") from e
-        except requests.exceptions.ConnectionError as e:
-            # Once retries are used up, urllib3 reports a read timeout as a connection error.
-            if isinstance(getattr(e.args[0] if e.args else None, "reason", None), ReadTimeoutError):
-                raise BackendTimeout(f"{self.label} did not answer {method} {path} within {read_timeout:g}s.") from e
-            raise BackendUnavailable(f"Could not reach {self.label} at {self._base_url}. Is it running?") from e
-        except requests.exceptions.RequestException as e:
-            raise BackendError(f"{self.label} request {method} {path} failed: {e}") from e
+        with sdmux_errors():
+            return self.http.request(method, path, timeout, **kwargs)
 
-        if response.status_code in (401, 403):
-            raise BackendAuthError(
-                f"{self.label} refused the request ({response.status_code}). Check the username/password or token."
-            )
-        return response
-
-    @staticmethod
-    def _json(response: requests.Response):
-        try:
-            return response.json()
-        except ValueError as e:
-            raise BackendRejected(f"Expected JSON but got: {response.text[:300]!r}") from e
+    def _json(self, response: requests.Response):
+        with sdmux_errors():
+            return self.http.json(response)
 
     def _check(self, response: requests.Response, what: str) -> requests.Response:
-        if response.status_code >= 400:
-            raise BackendRejected(f"{self.label} {what} failed ({response.status_code}): {response.text[:1000]}")
-        return response
+        with sdmux_errors():
+            return self.http.check(response, what)
 
     def _get_json(self, path: str, **kwargs):
         return self._json(self._check(self._request("GET", path, **kwargs), f"GET {path}"))
@@ -623,13 +474,15 @@ class RemoteBackend:
     def _safe_list(self, what: str, fetch) -> list[str]:
         try:
             return list(fetch())
-        except (BackendError, requests.RequestException, ValueError, KeyError, TypeError) as e:
+        except (BackendError, sdmux.SdmuxError, requests.RequestException, ValueError, KeyError, TypeError) as e:
             log.warning(f"Could not fetch {what} from {self.label} at {self._base_url}: {e}")
             return []
 
     def _fail(self, error: Exception, what: str = "generation"):
         """Record why img2img failed and return None, as the Backend protocol expects."""
-        if not isinstance(error, BackendError):
+        if isinstance(error, sdmux.SdmuxError):
+            error = backend_error(error)
+        elif not isinstance(error, BackendError):
             error = BackendError(f"{what} failed: {error}")
         self.last_error = error
         log.error(f"{self.label} {what} failed: {error}")
@@ -694,7 +547,8 @@ class RemoteBackend:
                 self.ensure_decompose_ready()
             else:
                 self.ensure_edit_ready()
-        except BackendError as e:
+        except (BackendError, sdmux.SdmuxError) as e:
+            e = backend_error(e)
             self.last_error = e
             return False, str(e)
         return True, "ok"
@@ -765,7 +619,8 @@ class RemoteBackend:
         """
         try:
             items = self.capabilities()
-        except BackendError as e:
+        except (BackendError, sdmux.SdmuxError) as e:
+            e = backend_error(e)
             self.last_error = e
             item = Capability("api", f"{self.label} API", False, str(e), fix=self.connection_fix(e))
             if isinstance(e, BackendNotReady):
@@ -783,7 +638,7 @@ class RemoteBackend:
         if ready or (error and error["code"] not in (BackendUnavailable.code, BackendAuthError.code)):
             try:
                 info = self.server_info()
-            except (BackendError, requests.RequestException, ValueError, KeyError, TypeError):
+            except (BackendError, sdmux.SdmuxError, requests.RequestException, ValueError, KeyError, TypeError):
                 info = {}
         return {
             "backend": self.kind,

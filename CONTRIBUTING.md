@@ -54,7 +54,7 @@ The suite doesn't need a GPU or a running WebUI, because the backends are tested
 
 - **Adding a prompt style:** add a JSON file to `autoexpress_core/resources/expressions/`. Copy an existing one and keep the same 28 expression keys.
 - **Adding an expression LoRA:** add an entry to `autoexpress_core/resources/expression_loras.json` with its Civitai version id and SHA-256.
-- **Supporting a new WebUI:** add a backend in `autoexpress_core/backends/` and register it in `registry.py`. Add tests to `tests/test_remote_backends.py`.
+- **Supporting a new WebUI:** the connection itself (detection, transport, logins, request steps) goes into [sdmux](https://github.com/deepratna-awale/sdmux) first. Then add a backend in `autoexpress_core/backends/` that drives the sdmux client and register it in `registry.py`. Add tests to `tests/test_remote_backends.py`.
 
 ## Pull requests
 

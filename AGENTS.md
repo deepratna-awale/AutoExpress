@@ -198,6 +198,8 @@ Conventions:
 
 - Keep the 28 expression keys identical across prompt sets. A new WebUI is a backend in
   `autoexpress_core/backends/` registered in `registry.py`, with tests in `tests/test_remote_backends.py`.
+  The HTTP side (detection, transport, logins, each WebUI's request steps) belongs in
+  [sdmux](https://github.com/deepratna-awale/sdmux); a backend drives an sdmux client (`self.client`).
 - A missing dependency on the WebUI is reported as a capability with step-by-step fixes, not as a
   crash or a silent fallback.
 - Update the docs and add a line to `CHANGELOG.md` (under Unreleased) when users will notice a change.

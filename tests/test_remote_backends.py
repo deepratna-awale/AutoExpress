@@ -34,6 +34,10 @@ class FakeResponse:
 class FakeSession:
     """Routes "METHOD /path" to a body, a FakeResponse, or a callable taking the request kwargs."""
 
+    auth = None
+    cookies = ()
+    secret_headers = ()
+
     def __init__(self, routes):
         self.routes = routes
         self.calls = []
@@ -524,14 +528,17 @@ def test_comfyui_execution_error_and_interrupt(payload):
     assert backend.img2img(payload) is None and backend.last_error.code == "cancelled"
 
 
-def test_comfyui_interrupt_targets_its_own_prompt():
+@pytest.mark.parametrize("state, expected", [("queue_pending", ("POST", "/queue", {"delete": ["p1"]})),
+                                             ("queue_running", ("POST", "/interrupt", {"prompt_id": "p1"}))])
+def test_comfyui_interrupt_targets_its_own_prompt(state, expected):
+    routes = comfy_routes(done_history())
+    routes["GET /queue"] = {"queue_running": [], "queue_pending": [], state: [[0, "p1"], [1, "other"]]}
     backend = ComfyUIClient()
-    backend.session = ComfySession(comfy_routes(done_history()))
-    backend._prompt_id = "p1"
+    backend.session = ComfySession(routes)
+    backend.client._prompt_id = "p1"
     backend.interrupt()
-    calls = [(m, p, kw.get("json")) for m, p, kw in backend.session.calls]
-    assert ("POST", "/queue", {"delete": ["p1"]}) in calls
-    assert ("POST", "/interrupt", {"prompt_id": "p1"}) in calls
+    calls = [(m, p, kw.get("json")) for m, p, kw in backend.session.calls if m == "POST"]
+    assert calls == [expected]
 
 
 def test_comfyui_no_face_detected_is_explained(payload):
@@ -619,7 +626,7 @@ class FlakyViewSession(ComfySession):
 
 
 def test_comfyui_retries_a_dropped_download(payload, monkeypatch):
-    monkeypatch.setattr("autoexpress_core.backends.comfyui_api.time.sleep", lambda s: None)
+    monkeypatch.setattr("sdmux.backends.comfyui.time.sleep", lambda s: None)
     backend = ComfyUIClient(poll_interval=0)
     backend.session = FlakyViewSession(comfy_routes(done_history()), misses=2)
     assert backend.img2img(payload).size == (64, 96)
@@ -627,7 +634,7 @@ def test_comfyui_retries_a_dropped_download(payload, monkeypatch):
 
 
 def test_comfyui_gives_up_on_a_missing_download(payload, monkeypatch):
-    monkeypatch.setattr("autoexpress_core.backends.comfyui_api.time.sleep", lambda s: None)
+    monkeypatch.setattr("sdmux.backends.comfyui.time.sleep", lambda s: None)
     backend = ComfyUIClient(poll_interval=0)
     backend.session = FlakyViewSession(comfy_routes(done_history()), misses=10)
     assert backend.img2img(payload) is None

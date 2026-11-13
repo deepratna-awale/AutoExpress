@@ -19,17 +19,16 @@ is pasted back onto the original.
 """
 
 import dataclasses
-import hashlib
 import io
 import json
 import pathlib
 import random
 import re
-import threading
-import time
 import uuid
 
 from PIL import Image, ImageDraw, ImageFilter
+from sdmux.backends.comfyui import ComfyUI as SdmuxComfyUI
+from sdmux.backends.comfyui import combo_options, input_default
 
 from .. import animation, instruction_edit
 from ..live2d import layers as live2d_layers
@@ -40,14 +39,13 @@ from .base import (
     BackendError,
     BackendNotReady,
     BackendRejected,
-    BackendTimeout,
     Capability,
     FaceEditRequest,
     Fix,
-    GenerationCancelled,
     RemoteBackend,
     listed,
     match_choice,
+    sdmux_errors,
 )
 
 REQUIRED_NODES = ("CheckpointLoaderSimple", "FaceDetailer", "UltralyticsDetectorProvider")
@@ -150,30 +148,6 @@ SCHEDULERS = {
 }
 
 
-def combo_options(spec) -> list[str]:
-    """Options of a combo input from /object_info, in either the old or the newer COMBO format."""
-    if not spec:
-        return []
-    first = spec[0]
-    if isinstance(first, list):
-        return first
-    if first == "COMBO" and len(spec) > 1 and isinstance(spec[1], dict):
-        return list(spec[1].get("options", []))
-    return []
-
-
-def input_default(spec):
-    """Default value of an input from /object_info, or None for links and inputs without one."""
-    options = combo_options(spec)
-    if options:
-        return options[0]
-    if len(spec) > 1 and isinstance(spec[1], dict):
-        return spec[1].get("default")
-    if spec and spec[0] == "STRING":
-        return ""
-    return None
-
-
 def pick(value: str | None, choices: list[str], aliases: dict[str, str], fallback: str) -> str:
     """Use value if the server has it, else its ComfyUI alias, else the fallback (or the first choice)."""
     if not choices:
@@ -196,37 +170,22 @@ class ComfyUIClient(RemoteBackend):
     can_decompose = True
 
     def __init__(self, url: str | None = None, timeout: float | None = None, poll_interval: float = 0.5, **options) -> None:
-        self._object_info: dict[str, dict] = {}
-        self._uploaded: dict[str, str] = {}
-        super().__init__(url, timeout, **options)
-        self.client_id = uuid.uuid4().hex
-        self.poll_interval = poll_interval
-        self._interrupted = threading.Event()
-        self._prompt_id: str | None = None
-        self._progress: dict | None = None
+        super().__init__(url, timeout, poll_interval=poll_interval, **options)
 
     @property
-    def job_timeout(self) -> float:
-        return self.connection.job_timeout
-
-    def on_url_changed(self) -> None:
-        self._object_info.clear()
-        self._uploaded.clear()
+    def client_id(self) -> str:
+        return self.client.client_id
 
     def refresh_loras(self) -> bool:
         """ComfyUI rescans its model folders on every /object_info call, so dropping the cache is enough."""
-        self._object_info.clear()
+        self.client.refresh()
         return True
 
     # Server info ----------------------------------------------------------
     def object_info(self, node: str) -> dict:
         """The /object_info entry of a node class, {} when the server does not have it."""
-        if node not in self._object_info:
-            info = self._get_json(f"/object_info/{node}")
-            if node not in info:
-                return {}
-            self._object_info[node] = info[node]
-        return self._object_info[node]
+        with sdmux_errors():
+            return self.client.object_info(node)
 
     def _input_spec(self, node: str, name: str):
         inputs = self.object_info(node).get("input", {})
@@ -252,7 +211,7 @@ class ComfyUIClient(RemoteBackend):
         return self._safe_list("loras", lambda: self.options("LoraLoader", "lora_name"))
 
     def ensure_ready(self) -> None:
-        self._object_info.clear()
+        self.client.refresh()
         missing = [node for node in REQUIRED_NODES if not self.object_info(node)]
         if missing:
             raise BackendNotReady(
@@ -266,7 +225,7 @@ class ComfyUIClient(RemoteBackend):
 
     def ensure_edit_ready(self) -> None:
         """What the Qwen-Image-Edit workflow needs: recent core nodes and the three model files."""
-        self._object_info.clear()
+        self.client.refresh()
         missing = [node for node in EDIT_NODES if not self.object_info(node)]
         if not any(self.object_info(node) for node in EDIT_ENCODERS):
             missing.append(EDIT_ENCODERS[0])
@@ -297,7 +256,7 @@ class ComfyUIClient(RemoteBackend):
         Each item is {"key", "label", "ok", "detail", "required", "fix": {"steps", "commands", "links"} or None}.
         required is True only when the mode is selected, so the report doesn't block face inpainting.
         """
-        self._object_info.clear()
+        self.client.refresh()
         update_fix = {
             "steps": ["Update ComfyUI to 0.3.60 or newer (ComfyUI Manager > Update ComfyUI, or git pull in the ComfyUI folder).", "Restart ComfyUI."],
             "commands": ["cd ComfyUI && git pull && pip install -r requirements.txt"],
@@ -402,7 +361,7 @@ class ComfyUIClient(RemoteBackend):
 
 
     def capabilities(self) -> list[Capability]:
-        self._object_info.clear()
+        self.client.refresh()
         self._get_json("/system_stats", timeout=10)
         items = [Capability("api", "ComfyUI API", True)]
 
@@ -497,7 +456,7 @@ class ComfyUIClient(RemoteBackend):
 
     def ensure_animate_ready(self) -> None:
         """What animated sprites need: recent core nodes and the Wan 2.2 image to video files."""
-        self._object_info.clear()
+        self.client.refresh()
         missing = [node for node in ANIMATE_NODES if not self.object_info(node)]
         if missing:
             raise BackendNotReady(f"ComfyUI is missing {', '.join(missing)}. Update ComfyUI for Wan 2.2 animated sprites.")
@@ -517,7 +476,7 @@ class ComfyUIClient(RemoteBackend):
 
     def animate_capabilities(self, selected: bool = False) -> list[Capability]:
         """Readiness of animated sprites, one item for the nodes and one for the model files."""
-        self._object_info.clear()
+        self.client.refresh()
         missing_nodes = [node for node in ANIMATE_NODES if not self.object_info(node)]
         items = [
             Capability(
@@ -553,7 +512,7 @@ class ComfyUIClient(RemoteBackend):
 
     def ensure_decompose_ready(self) -> None:
         """What Live2D model kits need: the See-through nodes (their models download on first use)."""
-        self._object_info.clear()
+        self.client.refresh()
         missing = [node for node in SEETHROUGH_NODES if not self.object_info(node)]
         if missing:
             error = BackendNotReady(
@@ -565,7 +524,7 @@ class ComfyUIClient(RemoteBackend):
 
     def decompose_capabilities(self, selected: bool = False) -> list[Capability]:
         """Readiness of Live2D model kits (the See-through layer split)."""
-        self._object_info.clear()
+        self.client.refresh()
         missing = [node for node in SEETHROUGH_NODES if not self.object_info(node)]
         return [
             Capability(
@@ -658,18 +617,13 @@ class ComfyUIClient(RemoteBackend):
         return response.content
 
     # A proxy in front of ComfyUI (RunPod's, for one) now and then answers a download with a 404 or a
-    # 5xx although the file is there: try again a few times before giving up on the whole job.
-    VIEW_TRIES = 4
+    # 5xx although the file is there: the sdmux client tries again a few times before giving up.
+    VIEW_TRIES = SdmuxComfyUI.VIEW_TRIES
 
     def _view(self, params: dict):
         """GET /view for one output file, retried when the answer is a 404 or a server error."""
-        for attempt in range(self.VIEW_TRIES):
-            response = self._request("GET", "/view", params=params, timeout=120)
-            if response.status_code != 404 and response.status_code < 500:
-                return response
-            if attempt + 1 < self.VIEW_TRIES:
-                time.sleep(min(8.0, 1.0 * 2**attempt))
-        return response
+        with sdmux_errors():
+            return self.client._view(params)
 
     # Upscale models for drawn art, best first (the setup script downloads the first).
     UPSCALE_MODELS = ("4x-AnimeSharp", "RealESRGAN_x4plus_anime_6B", "4x_foolhardy_Remacri", "RealESRGAN_x4plus", "4x-UltraSharp")
@@ -691,7 +645,6 @@ class ComfyUIClient(RemoteBackend):
         model = self.upscale_model()
         if model is None:
             return None
-        self._interrupted.clear()
         self.last_error = None
         try:
             workflow = {
@@ -700,14 +653,11 @@ class ComfyUIClient(RemoteBackend):
                 "upscale": {"class_type": "ImageUpscaleWithModel", "inputs": {"upscale_model": ["model", 0], "image": ["image", 0]}},
                 "output": {"class_type": "PreviewImage", "inputs": {"images": ["upscale", 0]}},
             }
-            self._prompt_id = self.queue_prompt(workflow)
-            return self.fetch_image(self.wait_for(self._prompt_id)).convert("RGB")
+            return self.fetch_image(self._run(workflow)).convert("RGB")
         except BackendError as e:
             return self._fail(e, "upscale")
         except (KeyError, ValueError, TypeError, OSError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "upscale")
-        finally:
-            self._prompt_id = None
 
     def pose_keypoints(self, image: str) -> list | None:
         """
@@ -719,7 +669,6 @@ class ComfyUIClient(RemoteBackend):
                 return None
         except BackendError:
             return None
-        self._interrupted.clear()
         try:
             picture = b64_to_pil(image)
             # Saved to a file of its own: ComfyUI caches a repeated picture and then reports nothing
@@ -736,8 +685,7 @@ class ComfyUIClient(RemoteBackend):
                 },
                 "save": {"class_type": "SavePoseKpsAsJsonFile", "inputs": {"pose_kps": ["pose", 1], "filename_prefix": prefix}},
             }
-            self._prompt_id = self.queue_prompt(workflow)
-            self.wait_for(self._prompt_id)
+            self._run(workflow)
             frames = json.loads(self._output_file(f"{prefix}_00001.json"))
             frame = frames[0] if isinstance(frames, list) and frames else frames
             if not isinstance(frame, dict):
@@ -754,8 +702,6 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e, "pose detection")
         except (KeyError, ValueError, TypeError, OSError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "pose detection")
-        finally:
-            self._prompt_id = None
 
     # SAM 3 (ComfyUI's own SAM3_Detect, with the SAM 3.1 checkpoint from Comfy-Org/sam3.1).
     SEGMENT_MODEL_HINT = "sam3"
@@ -778,7 +724,6 @@ class ComfyUIClient(RemoteBackend):
         checkpoint = self.segment_model()
         if checkpoint is None:
             return None
-        self._interrupted.clear()
         try:
             picture = b64_to_pil(image)
             detect = {"model": ["sam", 0], "image": ["image", 0], "conditioning": ["text", 0], "threshold": threshold, "refine_iterations": 5, "individual_masks": False}
@@ -794,16 +739,13 @@ class ComfyUIClient(RemoteBackend):
                 "as_image": {"class_type": "MaskToImage", "inputs": {"mask": ["detect", 0]}},
                 "output": {"class_type": "SaveImage", "inputs": {"images": ["as_image", 0], "filename_prefix": f"autoexpress_mask_{uuid.uuid4().hex[:12]}"}},
             }
-            self._prompt_id = self.queue_prompt(workflow)
-            entry = self.wait_for(self._prompt_id)
+            entry = self._run(workflow)
             mask = self.fetch_image(entry).convert("L")
             return mask.resize(picture.size, Image.Resampling.BILINEAR) if mask.size != picture.size else mask
         except BackendError as e:
             return self._fail(e, "segmentation")
         except (KeyError, ValueError, TypeError, OSError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "segmentation")
-        finally:
-            self._prompt_id = None
 
     # Vision language models ComfyUI's TextGenerate node runs (Qwen2.5-VL, Qwen-Image's text encoder, can't
     # generate), best first, with the CLIPLoader type their templates use.
@@ -837,7 +779,6 @@ class ComfyUIClient(RemoteBackend):
         model = self.vision_model()
         if model is None:
             return None
-        self._interrupted.clear()
         try:
             workflow = {
                 "image": {"class_type": "LoadImage", "inputs": {"image": self.upload_image(image)}},
@@ -845,8 +786,7 @@ class ComfyUIClient(RemoteBackend):
                 "answer": {"class_type": "TextGenerate", "inputs": {"clip": ["vlm", 0], "prompt": prompt, "image": ["image", 0], "max_length": max_length, "sampling_mode": "off"}},
                 "output": {"class_type": "PreviewAny", "inputs": {"source": ["answer", 0]}},
             }
-            self._prompt_id = self.queue_prompt(workflow)
-            entry = self.wait_for(self._prompt_id)
+            entry = self._run(workflow)
             text = entry.get("outputs", {}).get("output", {}).get("text", [""])
             text = text[0] if isinstance(text, list) and text else text
             return str(text).strip() or None
@@ -854,8 +794,6 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e, "description")
         except (KeyError, ValueError, TypeError, AttributeError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "description")
-        finally:
-            self._prompt_id = None
 
     def decompose_layers(self, image: str, settings: "live2d_layers.SplitSettings") -> tuple[list, tuple[int, int]] | None:
         """
@@ -863,16 +801,11 @@ class ComfyUIClient(RemoteBackend):
 
         Returns ([Part ...], canvas size) on See-through's square canvas, or None on failure (reason in last_error).
         """
-        self._interrupted.clear()
         self.last_error = None
-        self._progress = None
-        stop_listening = None
         try:
             prefix = f"autoexpress_live2d_{uuid.uuid4().hex[:10]}"
             workflow = self.build_decompose_workflow(self.upload_image(image), prefix, settings)
-            stop_listening = self._listen_for_progress()
-            self._prompt_id = self.queue_prompt(workflow)
-            self.wait_for(self._prompt_id)
+            self._run(workflow)
             # The save node names its files <prefix>_<time>_<id>_*; its log holds the name of the layer list it wrote last.
             info_name = self._output_file(SEETHROUGH_INFO_LOG).decode("utf-8").strip()
             if not info_name.startswith(prefix):
@@ -905,11 +838,6 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e, "layer split")
         except (KeyError, ValueError, TypeError, OSError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI's See-through nodes: {e}"), "layer split")
-        finally:
-            if stop_listening:
-                stop_listening.set()
-            self._prompt_id = None
-            self._progress = None
 
     def edit_capabilities(self, selected: bool = False) -> list[Capability]:
         """edit_requirements() as Capability items for the readiness report."""
@@ -946,7 +874,15 @@ class ComfyUIClient(RemoteBackend):
         }
 
     def progress(self) -> dict | None:
-        return self._progress
+        try:
+            with sdmux_errors():
+                progress = self.client.progress()
+        except BackendError as e:
+            log.debug(f"ComfyUI progress unavailable: {e}")
+            return None
+        if not progress.active or not progress.steps:
+            return None
+        return {"fraction": progress.fraction, "eta": progress.eta}
 
     def civitai_key_sources(self) -> list[tuple[str, str | None]]:
         """A key saved by ComfyUI LoRA Manager, when ComfyUI runs on this machine."""
@@ -1223,134 +1159,42 @@ class ComfyUIClient(RemoteBackend):
     # Running --------------------------------------------------------------
     def upload_image(self, b64_image: str) -> str:
         """Upload the input image once per server and return the name LoadImage should use."""
-        digest = hashlib.sha1(b64_image.encode("utf-8")).hexdigest()[:16]
-        if digest in self._uploaded:
-            return self._uploaded[digest]
-
-        buffer = io.BytesIO()
-        b64_to_pil(b64_image).save(buffer, format="PNG")
-        response = self._request(
-            "POST",
-            "/upload/image",
-            files={"image": (f"autoexpress_{digest}.png", buffer.getvalue(), "image/png")},
-            data={"type": "input", "overwrite": "true"},
-            timeout=120,
-        )
-        result = self._json(self._check(response, "image upload"))
-        name = f"{result['subfolder']}/{result['name']}" if result.get("subfolder") else result["name"]
-        self._uploaded[digest] = name
-        return name
+        with sdmux_errors():
+            return self.client.upload(b64_to_pil(b64_image))
 
     def queue_prompt(self, workflow: dict) -> str:
-        response = self._request("POST", "/prompt", json={"prompt": workflow, "client_id": self.client_id})
-        if response.status_code != 200:
-            raise BackendRejected(f"ComfyUI rejected the workflow: {self._describe_rejection(response)}")
-        return self._json(response)["prompt_id"]
-
-    @staticmethod
-    def _describe_rejection(response) -> str:
-        """Turn ComfyUI's validation error body into one readable line per failing node input."""
-        try:
-            body = response.json()
-        except ValueError:
-            return response.text[:2000]
-        lines = []
-        error = body.get("error") or {}
-        if isinstance(error, dict) and error.get("message"):
-            lines.append(error["message"])
-        for node_id, node in (body.get("node_errors") or {}).items():
-            for err in node.get("errors", []):
-                lines.append(f"{node.get('class_type', node_id)}: {err.get('message')} {err.get('details', '')}".strip())
-        return "; ".join(lines) or response.text[:2000]
+        with sdmux_errors():
+            return self.client.queue(workflow)
 
     def wait_for(self, prompt_id: str) -> dict:
         """Poll /history until the prompt finished and return its history entry."""
-        deadline = time.monotonic() + self.job_timeout
-        while time.monotonic() < deadline:
-            history = self._get_json(f"/history/{prompt_id}")
-            entry = history.get(prompt_id)
-            if entry:
-                status = entry.get("status", {})
-                if status.get("status_str") == "error" or (status and not status.get("completed", True)):
-                    messages = status.get("messages", [])
-                    if any(m and m[0] == "execution_interrupted" for m in messages) or self._interrupted.is_set():
-                        raise GenerationCancelled("Interrupted.")
-                    details = [m[1] for m in messages if m and m[0] == "execution_error" and len(m) > 1]
-                    detail = details[0] if details else {}
-                    raise BackendRejected(
-                        f"ComfyUI failed in {detail.get('node_type', 'the workflow')}: "
-                        f"{detail.get('exception_message', 'unknown error').strip()}"
-                    )
-                return entry
-            if self._interrupted.is_set():
-                raise GenerationCancelled("Interrupted.")
-            time.sleep(self.poll_interval)
-        raise BackendTimeout(f"ComfyUI job {prompt_id} did not finish within {self.job_timeout:.0f}s.")
+        with sdmux_errors():
+            return self.client.wait(prompt_id)
+
+    def _run(self, workflow: dict) -> dict:
+        """
+        Queue a workflow and return its history entry once it has finished.
+
+        The sdmux client follows step progress on ComfyUI's websocket (with the same login as the
+        HTTP calls) when websocket-client is installed, and stops just this prompt on interrupt().
+        """
+        with sdmux_errors():
+            return self.client._execute(workflow)
 
     def fetch_image(self, entry: dict, node: str = "output") -> Image.Image:
-        images = entry.get("outputs", {}).get(node, {}).get("images", [])
-        if not images:
+        if not entry.get("outputs", {}).get(node, {}).get("images"):
             raise BackendRejected("ComfyUI finished without an output image (was a face detected?).")
-        image = images[0]
-        response = self._view({"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "temp")})
-        self._check(response, "image download")
-        result = Image.open(io.BytesIO(response.content))
-        result.load()
-        return result
-
-    def _listen_for_progress(self) -> "threading.Event | None":
-        """Follow step progress on ComfyUI's websocket. Returns a stop event, or None without websocket-client."""
-        try:
-            import websocket  # websocket-client, optional
-        except ImportError:
-            return None
-
-        ws_url = "ws" + self._base_url[len("http"):] + f"/ws?clientId={self.client_id}"
-        # The same login as the HTTP calls: basic auth, bearer token and extra proxy headers.
-        headers = [f"{k}: {v}" for k, v in self.auth_headers().items()]
-        try:
-            ws = websocket.create_connection(ws_url, timeout=self.connection.connect_timeout, header=headers)
-        except Exception as e:  # progress is optional, never fail the job over it
-            log.debug(f"ComfyUI progress websocket unavailable: {e}")
-            return None
-
-        stop = threading.Event()
-
-        def run():
-            ws.settimeout(1)
-            try:
-                while not stop.is_set():
-                    try:
-                        message = ws.recv()
-                    except websocket.WebSocketTimeoutException:
-                        continue
-                    if not isinstance(message, str):
-                        continue  # binary preview frames
-                    event = json.loads(message)
-                    data = event.get("data") or {}
-                    if event.get("type") == "progress" and data.get("prompt_id") in (None, self._prompt_id) and data.get("max"):
-                        self._progress = {"fraction": data["value"] / data["max"], "eta": None}
-            except Exception as e:
-                log.debug(f"ComfyUI progress websocket closed: {e}")
-            finally:
-                ws.close()
-
-        threading.Thread(target=run, name="comfyui-progress", daemon=True).start()
-        return stop
+        with sdmux_errors():
+            return self.client.fetch(entry, node)[0]
 
     def img2img(self, payload: dict) -> Image.Image | None:
-        self._interrupted.clear()
         self.last_error = None
-        self._progress = None
-        stop_listening = None
         try:
             request = FaceEditRequest.from_payload(payload)
             if request.seed < 0:
                 request = dataclasses.replace(request, seed=random.randint(0, 2**32 - 1))
             workflow = self.build_workflow(request, self.upload_image(request.image))
-            stop_listening = self._listen_for_progress()
-            self._prompt_id = self.queue_prompt(workflow)
-            image = self.fetch_image(self.wait_for(self._prompt_id))
+            image = self.fetch_image(self._run(workflow))
             detailer = workflow["face_detailer"]["inputs"]
             checkpoint = workflow["ckpt"]["inputs"].get("ckpt_name")
             image.info["parameters"] = dataclasses.replace(request, checkpoint=checkpoint).infotext(
@@ -1361,11 +1205,6 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e)
         except (KeyError, ValueError, TypeError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"))
-        finally:
-            if stop_listening:
-                stop_listening.set()
-            self._prompt_id = None
-            self._progress = None
 
     # A second picture (a pose skeleton) can go with an edit, with TextEncodeQwenImageEditPlus.
     takes_reference = True
@@ -1377,17 +1216,12 @@ class ComfyUIClient(RemoteBackend):
 
         Returns the edited image at the input's size, or None on failure (the reason is in last_error).
         """
-        self._interrupted.clear()
         self.last_error = None
-        self._progress = None
-        stop_listening = None
         try:
             if settings.seed < 0:
                 settings = dataclasses.replace(settings, seed=random.randint(0, 2**32 - 1))
             workflow = self.build_edit_workflow(instruction, self.upload_image(image), settings, self.upload_image(reference) if reference else None)
-            stop_listening = self._listen_for_progress()
-            self._prompt_id = self.queue_prompt(workflow)
-            entry = self.wait_for(self._prompt_id)
+            entry = self._run(workflow)
             result = self.fetch_image(entry)
             source = b64_to_pil(image)
             if (settings.keep_size or FACE_MASK_OUTPUT in workflow) and result.size != source.size:
@@ -1415,25 +1249,13 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e, "instruction edit")
         except (KeyError, ValueError, TypeError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "instruction edit")
-        finally:
-            if stop_listening:
-                stop_listening.set()
-            self._prompt_id = None
-            self._progress = None
 
     def fetch_images(self, entry: dict, node: str = "output") -> list[Image.Image]:
         """Every image a node produced (the frames of a clip), in order."""
-        images = entry.get("outputs", {}).get(node, {}).get("images", [])
-        if not images:
+        if not entry.get("outputs", {}).get(node, {}).get("images"):
             raise BackendRejected("ComfyUI finished without any frames.")
-        frames = []
-        for image in images:
-            response = self._view({"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "temp")})
-            self._check(response, "frame download")
-            frame = Image.open(io.BytesIO(response.content))
-            frame.load()
-            frames.append(frame)
-        return frames
+        with sdmux_errors():
+            return self.client.fetch(entry, node)
 
     def animate(self, image: str, prompt: str, negative: str, settings: "animation.AnimationSettings") -> list[Image.Image] | None:
         """
@@ -1441,19 +1263,14 @@ class ComfyUIClient(RemoteBackend):
 
         Returns the frames at the video size (first and last equal to the still when looping), or None on failure.
         """
-        self._interrupted.clear()
         self.last_error = None
-        self._progress = None
-        stop_listening = None
         try:
             if settings.seed < 0:
                 settings = dataclasses.replace(settings, seed=random.randint(0, 2**32 - 1))
             source = b64_to_pil(image)
             size = animation.video_size(*source.size, settings.resolution)
             workflow = self.build_animation_workflow(prompt, negative, self.upload_image(image), size, settings)
-            stop_listening = self._listen_for_progress()
-            self._prompt_id = self.queue_prompt(workflow)
-            frames = self.fetch_images(self.wait_for(self._prompt_id))
+            frames = self.fetch_images(self._run(workflow))
             sampler = workflow["sample_high"]["inputs"]
             params = ", ".join(
                 f"{key}: {value}"
@@ -1474,21 +1291,11 @@ class ComfyUIClient(RemoteBackend):
             return self._fail(e, "animation")
         except (KeyError, ValueError, TypeError) as e:
             return self._fail(BackendRejected(f"Unexpected response from ComfyUI: {e}"), "animation")
-        finally:
-            if stop_listening:
-                stop_listening.set()
-            self._prompt_id = None
-            self._progress = None
 
     def interrupt(self) -> None:
         """Stop this client's prompt: drop it from the queue if it hasn't started, interrupt it if it has."""
-        self._interrupted.set()
-        prompt_id = self._prompt_id
         try:
-            if prompt_id:
-                self._request("POST", "/queue", json={"delete": [prompt_id]}, timeout=10)
-                self._request("POST", "/interrupt", json={"prompt_id": prompt_id}, timeout=10)
-            else:
-                self._request("POST", "/interrupt", timeout=10)
+            with sdmux_errors():
+                self.client.interrupt()
         except BackendError as e:
             log.error(f"Interrupt failed: {e}")
