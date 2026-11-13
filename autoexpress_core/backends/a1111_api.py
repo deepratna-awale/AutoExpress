@@ -19,7 +19,7 @@ from PIL import Image
 from ..civitai_key import webui_config_sources, webui_option_sources
 from ..images import b64_to_pil
 from ..log import log
-from .base import BackendError, BackendNotReady, BackendRejected, Capability, Fix, RemoteBackend, listed
+from .base import BackendError, BackendNotReady, BackendRejected, Capability, Fix, RemoteBackend, listed, sdmux_errors
 
 ADETAILER = "adetailer"
 ADETAILER_REPO = "https://github.com/Bing-su/adetailer"
@@ -65,12 +65,8 @@ class A1111Client(RemoteBackend):
         self._endpoints = {
             "img2img": "/sdapi/v1/img2img",
             "samplers": "/sdapi/v1/samplers",
-            "models": "/sdapi/v1/sd-models",
-            "loras": "/sdapi/v1/loras",
             "extensions": "/sdapi/v1/extensions",
-            "interrupt": "/sdapi/v1/interrupt",
             "image_info": "/sdapi/v1/png-info",
-            "schedulers": "/sdapi/v1/schedulers",
             "script_info": "/sdapi/v1/script-info",
             "refresh_loras": "/sdapi/v1/refresh-loras",
             "cmd_flags": "/sdapi/v1/cmd-flags",
@@ -99,47 +95,35 @@ class A1111Client(RemoteBackend):
 
     @property
     def loras(self) -> list[str]:
-        return self._safe_list("loras", lambda: (lora["name"] for lora in self._get_json(self._endpoints["loras"])))
+        return self._safe_list("loras", lambda: (lora.name for lora in self.client.loras()))
 
     def lora_identities(self) -> dict[str, set[str]]:
         """Hashes and training names from each LoRA's safetensors metadata, which survive renaming the file."""
         try:
-            listed_loras = self._get_json(self._endpoints["loras"])
+            with sdmux_errors():
+                listed_loras = self.client.loras()
         except BackendError:
             return {}
         identities = {}
-        for lora in listed_loras if isinstance(listed_loras, list) else []:
-            metadata = lora.get("metadata") or {}
+        for lora in listed_loras:
+            metadata = (lora.raw or {}).get("metadata") or {}
             values = {str(metadata.get(key)).strip().lower() for key in LORA_IDENTITY_KEYS if metadata.get(key)}
-            if values and lora.get("name"):
-                identities[lora["name"]] = values
+            if values and lora.name:
+                identities[lora.name] = values
         return identities
 
     @property
     def samplers(self) -> list[str]:
-        return self._safe_list(
-            "samplers", lambda: (sampler["name"] for sampler in self._get_json(self._endpoints["samplers"]))
-        )
+        return self._safe_list("samplers", self.client.samplers)
 
     @property
     def schedulers(self) -> list[str]:
-        """Scheduler names. Older A1111 builds and SD.Next have no scheduler endpoint and return []."""
-        response = None
-        try:
-            response = self._request("GET", self._endpoints["schedulers"])
-        except BackendError as e:
-            log.warning(f"Could not fetch schedulers: {e}")
-        if response is None or response.status_code == 404:
-            return []
-        return self._safe_list(
-            "schedulers", lambda: (s.get("label") or s["name"] for s in response.json())
-        )
+        """Scheduler names. Older A1111 builds have no scheduler endpoint and return []."""
+        return self._safe_list("schedulers", self.client.schedulers)
 
     @property
     def models(self) -> list[str]:
-        return self._safe_list(
-            "models", lambda: (model["model_name"] for model in self._get_json(self._endpoints["models"]))
-        )
+        return self._safe_list("models", lambda: (model.name for model in self.client.models()))
 
     @property
     def lora_dir(self) -> str | None:
@@ -316,15 +300,11 @@ class A1111Client(RemoteBackend):
             bool: True if successful, otherwise False.
         """
         try:
-            response = self._request("POST", self._endpoints["interrupt"], timeout=10)
+            with sdmux_errors():
+                self.client.interrupt()
         except BackendError as e:
             log.error(f"Interrupt failed: {e}")
             return False
-
-        if response.status_code != 200:
-            log.error(f"Request failed with code: {response.status_code} {response.text[:1000]}")
-            return False
-
         log.error("Interrupted by user.")
         return True
 
@@ -507,6 +487,11 @@ class SDNextClient(A1111Client):
 
     kind = "sdnext"
     label = "SD.Next"
+
+    @property
+    def schedulers(self) -> list[str]:
+        """SD.Next folds the scheduler into the sampler; ADetailer there takes no scheduler of its own."""
+        return []
     api_fix = Fix(
         [
             "SD.Next serves its API by default. Check that the address points at SD.Next itself,",

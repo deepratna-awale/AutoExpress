@@ -62,6 +62,7 @@ standalone = [
     { name = "rembg", extra = ["cpu"], marker = "platform_machine == 'arm64' or sys_platform != 'darwin'" },
     { name = "requests" },
     { name = "sd-parsers" },
+    { name = "sdmux" },
     { name = "waitress" },
     { name = "websocket-client" },
     { name = "werkzeug" },
@@ -85,6 +86,7 @@ requires-dist = [
     { name = "requests", marker = "extra == 'mcp'", specifier = ">=2.34.2" },
     { name = "requests", marker = "extra == 'standalone'", specifier = ">=2.34.2" },
     { name = "sd-parsers", marker = "extra == 'standalone'", specifier = "==0.6" },
+    { name = "sdmux", marker = "extra == 'standalone'", specifier = "==0.2.0" },
     { name = "waitress", marker = "extra == 'standalone'", specifier = ">=3.0.2" },
     { name = "websocket-client", marker = "extra == 'standalone'", specifier = ">=1.9.2" },
     { name = "werkzeug", marker = "extra == 'standalone'", specifier = ">=3.1.9" },
@@ -2011,6 +2013,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2c/3a/ca5ca165909a6906d7d5accfa425fe521e2d9186b552b82b3efbc6ad0a43/sd_parsers-0.6.tar.gz", hash = "sha256:c8ce15162ebed6bc9aaa292960b6815e6a57ea42a0c4ecd9309eee48fb0d7d83", size = 119770, upload-time = "2025-03-31T12:12:59.594Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/18/429ab8225af8d9aa23fd6cc5a9f7a82ecf98497af509049f49dc5fa3610b/sd_parsers-0.6-py3-none-any.whl", hash = "sha256:1c025ab1c5f61ad816777a0515d56cfb08166e002ab706b34e4dc42433ce8026", size = 28709, upload-time = "2025-03-31T12:12:57.769Z" },
+]
+
+[[package]]
+name = "sdmux"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pillow" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/be/5962fb0c808082b1307bc0a0f7b3627fbab4362211dcfb29bd669c6fd202/sdmux-0.2.0.tar.gz", hash = "sha256:3166cc9ac9e5f4c185335e85bdcc740177dcf68fbb205834cc446f1342e7180b", size = 107337, upload-time = "2026-11-13T06:10:07.933Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/8a/76db40b5d2a6637deab974e8b4a536da6f52c1219f30ded1c03f9bddf19a/sdmux-0.2.0-py3-none-any.whl", hash = "sha256:86cd4999ffaad84b739704f1dcfc68c7ab2e981382e4b5e9e1ab89bb1f08156b", size = 97312, upload-time = "2026-11-13T06:10:06.666Z" },
 ]
 
 [[package]]

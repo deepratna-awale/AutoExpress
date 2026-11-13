@@ -5,6 +5,7 @@ All notable changes to AutoExpress are listed here, newest first.
 ## Unreleased
 
 ### Changed
+- **The WebUI connections run on [sdmux](https://pypi.org/project/sdmux/).** Detecting the WebUI, the transport (timeouts, retries, logins, tokens, extra headers), and each WebUI's session, login, upload, queue, download, progress and interrupt steps now come from the sdmux library (0.2.0), which started out as this code. AutoExpress keeps its face edit, instruction edit, animation and Live2D workflows and the capability checks with fixes on top. Detection also recognises Forge 2.x, and names Draw Things and stable-diffusion.cpp when they answer instead of calling them unknown. Interrupting a ComfyUI job only touches that job: a queued prompt is dropped, a running one interrupted.
 - **The original interface at `/classic` catches up with the web interface.** It now has the Login section, model defaults with notes when a setting is changed to match the WebUI, the Illustration/Photo style, Change pose too, the intensity slider, Remove background, Animate with idle-motion suggestions, a progress bar and missing-LoRA notes, Retry and per-expression settings with export and import, the Live2D model kit, pasting an image, and a working Interrupt button.
 
 ### Docs
