@@ -1,6 +1,6 @@
-# AutoExpress web interface
+# Emotica web interface
 
-The AutoExpress interface, built with Next.js, TypeScript, Tailwind CSS and shadcn/ui. It talks to the AutoExpress Flask backend (`autoexpress/views.py`); all image generation still happens in Python.
+The Emotica interface, built with Next.js, TypeScript, Tailwind CSS and shadcn/ui. It talks to the Emotica Flask backend (`emotica/views.py`); all image generation still happens in Python.
 
 ## Build for use
 
@@ -10,7 +10,7 @@ pnpm install
 pnpm build
 ```
 
-`pnpm build` writes a static export to `frontend/out/`. Start AutoExpress as usual (`run.sh` / `run.bat`) and open http://127.0.0.1:5000. Flask serves the export when it exists and falls back to the original interface otherwise. The original interface is always at `/classic`.
+`pnpm build` writes a static export to `frontend/out/`. Start Emotica as usual (`run.sh` / `run.bat`) and open http://127.0.0.1:5000. Flask serves the export when it exists and falls back to the original interface otherwise. The original interface is always at `/classic`.
 
 ## Develop
 
@@ -21,7 +21,7 @@ cd frontend
 pnpm dev
 ```
 
-Open http://localhost:3000. The dev server proxies the backend routes to Flask; set `AUTOEXPRESS_BACKEND_URL` to point it somewhere else, e.g. `AUTOEXPRESS_BACKEND_URL=http://127.0.0.1:5001 pnpm dev`.
+Open http://localhost:3000. The dev server proxies the backend routes to Flask; set `EMOTICA_BACKEND_URL` to point it somewhere else, e.g. `EMOTICA_BACKEND_URL=http://127.0.0.1:5001 pnpm dev`.
 
 ## Features
 

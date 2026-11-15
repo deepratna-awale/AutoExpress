@@ -1,12 +1,12 @@
 "use client";
 
-import { AutoExpressApp } from "@/components/auto-express-app";
-import { AutoExpressProvider } from "@/lib/store";
+import { EmoticaApp } from "@/components/emotica-app";
+import { EmoticaProvider } from "@/lib/store";
 
 export default function Home() {
   return (
-    <AutoExpressProvider>
-      <AutoExpressApp />
-    </AutoExpressProvider>
+    <EmoticaProvider>
+      <EmoticaApp />
+    </EmoticaProvider>
   );
 }

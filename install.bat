@@ -112,12 +112,12 @@ if "%SKIP_FRONTEND%"=="1" (
 )
 where node >nul 2>&1
 if errorlevel 1 (
-    call :log "WARNING: Node.js was not found, so the web interface was not built. Install Node.js 26 from https://nodejs.org/ and run install.bat again. Until then AutoExpress downloads the prebuilt web interface when it starts."
+    call :log "WARNING: Node.js was not found, so the web interface was not built. Install Node.js 26 from https://nodejs.org/ and run install.bat again. Until then Emotica downloads the prebuilt web interface when it starts."
     goto done
 )
 node -e "process.exit(+process.versions.node.split('.')[0] < 20 ? 1 : 0)" >nul 2>&1
 if errorlevel 1 (
-    call :log "WARNING: Node.js is too old for the web interface (needs 20.9+, 26 recommended). AutoExpress downloads the prebuilt one when it starts instead."
+    call :log "WARNING: Node.js is too old for the web interface (needs 20.9+, 26 recommended). Emotica downloads the prebuilt one when it starts instead."
     goto done
 )
 set PNPM=
@@ -128,7 +128,7 @@ if not defined PNPM (
     if not errorlevel 1 set PNPM=corepack pnpm
 )
 if not defined PNPM (
-    call :log "WARNING: pnpm was not found (npm install -g pnpm, or corepack enable). AutoExpress downloads the prebuilt web interface when it starts instead."
+    call :log "WARNING: pnpm was not found (npm install -g pnpm, or corepack enable). Emotica downloads the prebuilt web interface when it starts instead."
     goto done
 )
 for /f "delims=" %%v in ('node --version') do call :log "Building the web interface with Node.js %%v..."
@@ -143,11 +143,11 @@ goto done
 
 :frontend_failed
 popd
-call :log "WARNING: The web interface failed to build (see %LOGFILE%). AutoExpress downloads the prebuilt one when it starts instead."
+call :log "WARNING: The web interface failed to build (see %LOGFILE%). Emotica downloads the prebuilt one when it starts instead."
 
 :done
 echo ================================================
-call :log "AutoExpress is installed. Start it with run.bat and open http://127.0.0.1:5000"
+call :log "Emotica is installed. Start it with run.bat and open http://127.0.0.1:5000"
 pause
 exit /b 0
 

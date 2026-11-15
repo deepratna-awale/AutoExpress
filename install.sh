@@ -93,13 +93,13 @@ log "Python dependencies installed."
 # Web interface
 build_frontend() {
     if ! command -v node >/dev/null 2>&1; then
-        log "WARNING: Node.js was not found, so the web interface was not built. Install Node.js 26 from https://nodejs.org/ and run ./install.sh again. Until then AutoExpress downloads the prebuilt web interface when it starts."
+        log "WARNING: Node.js was not found, so the web interface was not built. Install Node.js 26 from https://nodejs.org/ and run ./install.sh again. Until then Emotica downloads the prebuilt web interface when it starts."
         return
     fi
     local major
     major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)"
     if [ -z "$major" ] || [ "$major" -lt 20 ]; then
-        log "WARNING: Node.js $(node --version 2>/dev/null) is too old for the web interface (needs 20.9+, 26 recommended). AutoExpress downloads the prebuilt one when it starts instead."
+        log "WARNING: Node.js $(node --version 2>/dev/null) is too old for the web interface (needs 20.9+, 26 recommended). Emotica downloads the prebuilt one when it starts instead."
         return
     fi
 
@@ -109,7 +109,7 @@ build_frontend() {
     elif command -v corepack >/dev/null 2>&1; then
         pnpm="corepack pnpm"
     else
-        log "WARNING: pnpm was not found (npm install -g pnpm, or corepack enable). AutoExpress downloads the prebuilt web interface when it starts instead."
+        log "WARNING: pnpm was not found (npm install -g pnpm, or corepack enable). Emotica downloads the prebuilt web interface when it starts instead."
         return
     fi
 
@@ -117,7 +117,7 @@ build_frontend() {
     if (cd frontend && $pnpm install --frozen-lockfile && $pnpm build) >> "$LOGFILE" 2>&1; then
         log "Web interface built in frontend/out."
     else
-        log "WARNING: The web interface failed to build (see $LOGFILE). AutoExpress downloads the prebuilt one when it starts instead."
+        log "WARNING: The web interface failed to build (see $LOGFILE). Emotica downloads the prebuilt one when it starts instead."
     fi
 }
 
@@ -128,4 +128,4 @@ else
 fi
 
 echo "================================================"
-log "AutoExpress is installed. Start it with ./run.sh and open http://127.0.0.1:5000"
+log "Emotica is installed. Start it with ./run.sh and open http://127.0.0.1:5000"

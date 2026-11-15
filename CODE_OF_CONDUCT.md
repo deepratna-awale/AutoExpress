@@ -31,7 +31,7 @@ This Code of Conduct applies in all project spaces, including issues, pull reque
 
 ## Enforcement
 
-Report unacceptable behaviour to the maintainer through a [private report](https://github.com/deepratna-awale/AutoExpress/security/advisories/new) or by contacting [@deepratna-awale](https://github.com/deepratna-awale) on GitHub. Every report is reviewed promptly and handled privately.
+Report unacceptable behaviour to the maintainer through a [private report](https://github.com/deepratna-awale/Emotica/security/advisories/new) or by contacting [@deepratna-awale](https://github.com/deepratna-awale) on GitHub. Every report is reviewed promptly and handled privately.
 
 Maintainers may remove, edit or reject comments, commits, code, issues and other contributions that break this Code of Conduct. They may also temporarily or permanently ban anyone whose behaviour they consider inappropriate, threatening, offensive or harmful.
 

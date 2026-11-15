@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# Set up ComfyUI with everything AutoExpress uses on a fresh GPU pod (RunPod or any Linux box with CUDA).
+# Set up ComfyUI with everything Emotica uses on a fresh GPU pod (RunPod or any Linux box with CUDA).
 #
 # Tested on RunPod with the image runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04
 # (see docs/runpod.md). Run it on the pod, from anywhere:
 #
-#   curl -fsSL https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/scripts/runpod/setup_comfyui.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/deepratna-awale/Emotica/main/scripts/runpod/setup_comfyui.sh | bash
 #
 # What it does:
 #   1. Clones ComfyUI, ComfyUI-Impact-Pack and ComfyUI-Impact-Subpack (face inpainting), ComfyUI-See-through
 #      (Live2D model kits) and starts ComfyUI on port 8188.
 #   2. Downloads the face detector, an anime upscale model (small pictures for Live2D kits), Qwen-Image-Edit 2511 (expressions and poses) and Wan 2.2 image to video 14B
-#      (animated sprites) with AutoExpress's own download commands.
+#      (animated sprites) with Emotica's own download commands.
 #   3. Optionally a checkpoint for face inpainting (CHECKPOINT_URL).
 #
 # Settings (environment variables):
 #   COMFYUI_DIR      where ComfyUI goes (default ~/ComfyUI, on the container disk). Set it to /workspace/ComfyUI
 #                    to keep everything on a pod volume, which needs about 100 GB: RunPod's default 20 GB
 #                    volume runs out of quota part way through the downloads.
-#   AUTOEXPRESS_DIR  where AutoExpress goes (default next to ComfyUI)
-#   AUTOEXPRESS_REF  branch or tag of AutoExpress to use (default main)
+#   EMOTICA_DIR  where Emotica goes (default next to ComfyUI)
+#   EMOTICA_REF  branch or tag of Emotica to use (default main)
 #   SKIP_QWEN=1      skip Qwen-Image-Edit (about 31 GB)
 #   SKIP_WAN=1       skip Wan 2.2 (about 38 GB)
 #   SKIP_SEETHROUGH=1  skip the See-through, DWPose, SAM 3.1 and Qwen3-VL nodes and models (about 22 GB, Live2D model kits)
@@ -28,8 +28,8 @@
 set -euo pipefail
 
 COMFYUI_DIR="${COMFYUI_DIR:-$HOME/ComfyUI}"
-AUTOEXPRESS_DIR="${AUTOEXPRESS_DIR:-$(dirname "$COMFYUI_DIR")/AutoExpress}"
-AUTOEXPRESS_REF="${AUTOEXPRESS_REF:-main}"
+EMOTICA_DIR="${EMOTICA_DIR:-$(dirname "$COMFYUI_DIR")/Emotica}"
+EMOTICA_REF="${EMOTICA_REF:-main}"
 COMFYUI_PORT="${COMFYUI_PORT:-8188}"
 PIP="python -m pip install -q"
 
@@ -63,9 +63,9 @@ if [ "${SKIP_SEETHROUGH:-0}" != "1" ]; then
     wget -q -O "$COMFYUI_DIR/models/text_encoders/qwen3vl_8b_fp8_scaled.safetensors" https://huggingface.co/Comfy-Org/Qwen3-VL/resolve/main/text_encoders/qwen3vl_8b_fp8_scaled.safetensors || true
 fi
 
-echo "== AutoExpress ($AUTOEXPRESS_REF) in $AUTOEXPRESS_DIR"
-if [ ! -d "$AUTOEXPRESS_DIR/.git" ]; then
-  git clone -q --branch "$AUTOEXPRESS_REF" https://github.com/deepratna-awale/AutoExpress "$AUTOEXPRESS_DIR"
+echo "== Emotica ($EMOTICA_REF) in $EMOTICA_DIR"
+if [ ! -d "$EMOTICA_DIR/.git" ]; then
+  git clone -q --branch "$EMOTICA_REF" https://github.com/deepratna-awale/Emotica "$EMOTICA_DIR"
 fi
 $PIP requests pillow
 
@@ -80,14 +80,14 @@ mkdir -p "$COMFYUI_DIR/models/upscale_models"
   wget -q -O "$COMFYUI_DIR/models/upscale_models/RealESRGAN_x4plus_anime_6B.pth" \
     https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth || true
 
-cd "$AUTOEXPRESS_DIR"
+cd "$EMOTICA_DIR"
 if [ "${SKIP_QWEN:-0}" != "1" ]; then
   echo "== Qwen-Image-Edit 2511 (expressions, poses)"
-  python -m autoexpress_core.instruction_edit download "$COMFYUI_DIR"
+  python -m emotica_core.instruction_edit download "$COMFYUI_DIR"
 fi
 if [ "${SKIP_WAN:-0}" != "1" ]; then
   echo "== Wan 2.2 image to video 14B (animated sprites)"
-  python -m autoexpress_core.animation download "$COMFYUI_DIR"
+  python -m emotica_core.animation download "$COMFYUI_DIR"
 fi
 if [ -n "${CHECKPOINT_URL:-}" ]; then
   echo "== Checkpoint"
@@ -105,4 +105,4 @@ for _ in $(seq 1 120); do
   curl -sf "http://127.0.0.1:$COMFYUI_PORT/system_stats" > /dev/null && break
   sleep 2
 done
-echo "ComfyUI is up. On RunPod, connect AutoExpress to https://<pod id>-$COMFYUI_PORT.proxy.runpod.net"
+echo "ComfyUI is up. On RunPod, connect Emotica to https://<pod id>-$COMFYUI_PORT.proxy.runpod.net"

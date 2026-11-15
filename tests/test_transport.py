@@ -11,9 +11,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from PIL import Image
 
-from autoexpress_core import build_expression_payload
-from autoexpress_core.backends.a1111_api import A1111Client
-from autoexpress_core.backends.base import (
+from emotica_core import build_expression_payload
+from emotica_core.backends.a1111_api import A1111Client
+from emotica_core.backends.base import (
     BackendAuthError,
     BackendTimeout,
     BackendUnavailable,
@@ -24,7 +24,7 @@ from autoexpress_core.backends.base import (
     same_origin,
     split_credentials,
 )
-from autoexpress_core.images import pil_to_b64
+from emotica_core.images import pil_to_b64
 
 
 class FakeA1111(BaseHTTPRequestHandler):
@@ -245,7 +245,7 @@ def test_auth_headers_cover_basic_bearer_and_extra():
 
 def test_swarm_token_cookie_stays_on_its_host():
     import requests
-    from autoexpress_core.backends.swarmui_api import SwarmUIClient
+    from emotica_core.backends.swarmui_api import SwarmUIClient
 
     for host in ("localhost", "pod-7801.proxy.example.net"):
         token = secrets.token_hex(8)

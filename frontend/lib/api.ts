@@ -1,5 +1,5 @@
 /**
- * Client for the AutoExpress Flask backend.
+ * Client for the Emotica Flask backend.
  *
  * In production the Flask app serves the exported frontend, so every call is
  * same-origin. During `next dev` the requests are rewritten to the Flask
@@ -84,7 +84,7 @@ export function connectionReport(message: string, fix: CapabilityFix | null): Ca
 
 export const CONNECTION_ITEM = "connection";
 
-/** What the connected WebUI has and lacks for AutoExpress, from GET /backend/capabilities. */
+/** What the connected WebUI has and lacks for Emotica, from GET /backend/capabilities. */
 export interface Capabilities {
   backend: string;
   name: string;
@@ -133,7 +133,7 @@ export interface EditMethodsResponse {
 export const INPAINT_METHOD = "inpaint";
 export const INSTRUCT_METHOD = "instruct";
 
-/** Whether exports can be cut out of their background (rembg on the AutoExpress server). */
+/** Whether exports can be cut out of their background (rembg on the Emotica server). */
 export interface BackgroundRemovalInfo {
   available: boolean;
   models: { illustration: string; photo: string };
@@ -145,7 +145,7 @@ export interface LoraSelection {
   lora_strength: number | string;
 }
 
-/** Parameters parsed from an image by `autoexpress.modules.image_parser`. */
+/** Parameters parsed from an image by `emotica.modules.image_parser`. */
 export interface CleanedImageData {
   ad_checkpoint: string | null;
   ad_sampler: string | null;
@@ -405,7 +405,7 @@ export interface Live2DRequest {
   character_lora?: { entry: CharacterLoraEntry; installed_name: string | null } | null;
 }
 
-/** An expression LoRA the WebUI lacks and AutoExpress couldn't install itself. */
+/** An expression LoRA the WebUI lacks and Emotica couldn't install itself. */
 export interface JobNote {
   kind: string;
   name: string;

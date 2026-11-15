@@ -66,10 +66,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/favicon-rounded.png" alt="Auto Express Logo" className="size-6" width={24} height={24} />
+                  <img src="/logo.svg" alt="Emotica Logo" className="size-6" width={24} height={24} />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">Auto Express</span>
+                  <span className="truncate font-semibold">Emotica</span>
                   <span className="truncate text-xs text-muted-foreground">Expression Generator</span>
                 </div>
               </SidebarMenuButton>

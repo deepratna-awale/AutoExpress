@@ -7,9 +7,9 @@ import json
 import pytest
 from PIL import Image, ImageSequence, PngImagePlugin
 
-from autoexpress_core import animation, character_card
-from autoexpress_core.backends.comfyui_api import ComfyUIClient
-from autoexpress_core.images import pil_to_b64
+from emotica_core import animation, character_card
+from emotica_core.backends.comfyui_api import ComfyUIClient
+from emotica_core.images import pil_to_b64
 
 from test_remote_backends import ComfySession, comfy_routes
 
@@ -169,7 +169,7 @@ def test_key_color_and_despill():
 
 
 def test_remove_background_frames_smooths_alpha_over_time(monkeypatch):
-    from autoexpress_core import background
+    from emotica_core import background
 
     def cut(image, model):
         value = 255 if image.getpixel((0, 0))[0] % 80 == 0 else 0  # every other frame flickers
@@ -203,7 +203,7 @@ def test_animate_sprite_loops_and_matches_the_still():
 
 
 def test_animate_sprite_keeps_transparent_stills_transparent(monkeypatch):
-    from autoexpress_core import background
+    from emotica_core import background
 
     monkeypatch.setattr(background, "remove_background", lambda image, model: image.convert("RGBA"))
     backend = FakeAnimator()
@@ -302,7 +302,7 @@ def test_comfyui_wan_without_lightning_and_missing_files():
     backend = ComfyUIClient(poll_interval=0)
     backend.session = ComfySession(routes)
     ok, message = backend.check_ready("animate")
-    assert not ok and "wan2.2_i2v_high_noise_14B_fp8_scaled" in message and "autoexpress_core.animation download" in message
+    assert not ok and "wan2.2_i2v_high_noise_14B_fp8_scaled" in message and "emotica_core.animation download" in message
     report = {item.key: item for item in backend.animate_capabilities()}
     assert report["wan_nodes"].ok and not report["wan_models"].ok and not report["wan_models"].required
 

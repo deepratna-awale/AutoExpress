@@ -7,9 +7,9 @@ import types
 import pytest
 from PIL import Image
 
-from autoexpress_core import build_expression_payload
-from autoexpress_core.backends.a1111_inprocess import A1111InProcessBackend
-from autoexpress_core.images import pil_to_b64
+from emotica_core import build_expression_payload
+from emotica_core.backends.a1111_inprocess import A1111InProcessBackend
+from emotica_core.images import pil_to_b64
 
 
 class Component:

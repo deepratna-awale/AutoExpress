@@ -1,6 +1,6 @@
 import pytest
 
-from autoexpress_core import expression_sets
+from emotica_core import expression_sets
 
 
 FAMILIES = [f["id"] for f in expression_sets.list_families()]

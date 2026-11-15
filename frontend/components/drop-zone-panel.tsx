@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2, FileText, ImageUp, Loader2, RefreshCw, Trash
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
-import { useAutoExpress } from "@/lib/store";
+import { useEmotica } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -46,7 +46,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 export function DropZonePanel() {
-  const { file, imageDataUrl, rawMetadata, uploading, setFile } = useAutoExpress();
+  const { file, imageDataUrl, rawMetadata, uploading, setFile } = useEmotica();
   const [error, setError] = useState<string | null>(null);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [metadataOpen, setMetadataOpen] = useState(false);

@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from autoexpress_core import ExpressionGenerator, overrides
-from autoexpress_core.expressions import get_expressions
-from autoexpress_core.generator import default_expression_prompt
-from autoexpress_core.payload import find_nested_key
+from emotica_core import ExpressionGenerator, overrides
+from emotica_core.expressions import get_expressions
+from emotica_core.generator import default_expression_prompt
+from emotica_core.payload import find_nested_key
 
 
 def test_normalize_cleans_and_refuses_bad_values():
@@ -67,8 +67,8 @@ flask = pytest.importorskip("flask")
 pytest.importorskip("sd_parsers")
 
 from test_app import FakeEditWebUI, FakeWebUI, body, client  # noqa: E402,F401
-from autoexpress import views  # noqa: E402
-from autoexpress_core.backends import registry  # noqa: E402
+from emotica import views  # noqa: E402
+from emotica_core.backends import registry  # noqa: E402
 
 
 def test_retry_one_expression_with_its_own_prompt_and_remember_it(client, tmp_path, monkeypatch):

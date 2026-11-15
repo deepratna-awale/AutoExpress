@@ -3,6 +3,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
+# The Comfy Registry node id. It stays "autoexpress" so existing ComfyUI installs keep updating.
 name = "autoexpress"
 description = "Generate 28 facial expressions of a character from one image. Works as a standalone app, an AUTOMATIC1111/Forge/SD.Next extension, ComfyUI nodes and InvokeAI nodes."
 version = "2.2.0"
@@ -26,7 +27,7 @@ standalone = [
     "loguru>=0.7.3",
     # The WebUI API clients (detection, auth, transport and each WebUI's request steps)
     "sdmux==0.2.0",
-    # Production server for "python -m autoexpress"
+    # Production server for "python -m emotica"
     "waitress>=3.0.2",
     # Optional: live step progress from ComfyUI
     "websocket-client>=1.9.2",
@@ -34,7 +35,7 @@ standalone = [
     # onnxruntime has no Intel macOS wheels, so it's left out there and the option is hidden.
     "rembg[cpu]>=2.0.82; sys_platform != 'darwin' or platform_machine == 'arm64'",
 ]
-# The MCP server (python -m autoexpress_mcp): lets any MCP client drive a running standalone app.
+# The MCP server (python -m emotica_mcp): lets any MCP client drive a running standalone app.
 mcp = [
     "mcp>=1.20.0",
     "requests>=2.34.2",
@@ -54,23 +55,23 @@ environments = ["python_full_version >= '3.11'"]
 
 
 [project.urls]
-Repository = "https://github.com/deepratna-awale/AutoExpress"
-Documentation = "https://github.com/deepratna-awale/AutoExpress#readme"
-"Bug Tracker" = "https://github.com/deepratna-awale/AutoExpress/issues"
+Repository = "https://github.com/deepratna-awale/Emotica"
+Documentation = "https://github.com/deepratna-awale/Emotica#readme"
+"Bug Tracker" = "https://github.com/deepratna-awale/Emotica/issues"
 
 [tool.setuptools]
-packages = ["autoexpress_core", "autoexpress_core.backends", "autoexpress_core.live2d", "autoexpress_mcp"]
+packages = ["emotica_core", "emotica_core.backends", "emotica_core.live2d", "emotica_mcp", "autoexpress_mcp"]
 
 [tool.setuptools.package-data]
-autoexpress_core = ["resources/*.json", "resources/*.js", "resources/expressions/*.json"]
+emotica_core = ["resources/*.json", "resources/*.js", "resources/expressions/*.json"]
 
 # Comfy Registry metadata. .github/workflows/publish-comfy-registry.yml publishes
 # a new version whenever `version` above changes on main. Files listed in
 # .comfyignore are left out of the published archive.
 [tool.comfy]
 PublisherId = "deepratna-awale"
-DisplayName = "AutoExpress"
-Icon = "https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/autoexpress_core/resources/icon.png"
+DisplayName = "Emotica"
+Icon = "https://raw.githubusercontent.com/deepratna-awale/Emotica/main/emotica_core/resources/icon.png"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

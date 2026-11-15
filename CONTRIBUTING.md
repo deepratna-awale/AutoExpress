@@ -1,10 +1,10 @@
-# Contributing to AutoExpress
+# Contributing to Emotica
 
-Thanks for your interest in improving AutoExpress. Bug reports, new prompt styles, WebUI support and documentation fixes are all welcome.
+Thanks for your interest in improving Emotica. Bug reports, new prompt styles, WebUI support and documentation fixes are all welcome.
 
 ## Before you start
 
-- Search the [existing issues](https://github.com/deepratna-awale/AutoExpress/issues) first. For larger changes, open an issue to discuss the idea before you write the code.
+- Search the [existing issues](https://github.com/deepratna-awale/Emotica/issues) first. For larger changes, open an issue to discuss the idea before you write the code.
 - Read the [Code of Conduct](CODE_OF_CONDUCT.md).
 - Don't report security problems in public issues. See [SECURITY.md](SECURITY.md) instead.
 
@@ -12,11 +12,11 @@ Thanks for your interest in improving AutoExpress. Bug reports, new prompt style
 
 | Path | What it is |
 | --- | --- |
-| `autoexpress_core/` | Shared core: expression prompt sets, expression LoRAs, intensity, payloads, the generation loop and the WebUI backends |
-| `scripts/autoexpress_tab.py` | The AUTOMATIC1111 / Forge / reForge / SD.Next extension tab |
-| `autoexpress_comfy/`, `__init__.py` | The ComfyUI nodes |
+| `emotica_core/` | Shared core: expression prompt sets, expression LoRAs, intensity, payloads, the generation loop and the WebUI backends |
+| `scripts/emotica_tab.py` | The AUTOMATIC1111 / Forge / reForge / SD.Next extension tab |
+| `emotica_comfy/`, `__init__.py` | The ComfyUI nodes |
 | `invokeai_nodes/` | The InvokeAI node |
-| `autoexpress/` | The standalone Flask app and its HTTP API |
+| `emotica/` | The standalone Flask app and its HTTP API |
 | `frontend/` | The Next.js interface for the standalone app |
 | `example_workflows/` | Ready-made ComfyUI workflows |
 | `docs/` | User documentation |
@@ -27,8 +27,8 @@ Thanks for your interest in improving AutoExpress. Bug reports, new prompt style
 You need Python 3.11 or newer. For the web interface you also need Node.js 20.9 or newer and pnpm.
 
 ```bash
-git clone https://github.com/deepratna-awale/AutoExpress.git
-cd AutoExpress
+git clone https://github.com/deepratna-awale/Emotica.git
+cd Emotica
 uv sync --extra standalone         # .venv with the app's dependencies and the dev tools (pytest)
 ```
 
@@ -40,7 +40,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[standalone]" pytest
 ```
 
-Run the standalone app with `python -m autoexpress`, then open http://127.0.0.1:5000. To work on the interface, see [frontend/README.md](frontend/README.md).
+Run the standalone app with `python -m emotica`, then open http://127.0.0.1:5000. To work on the interface, see [frontend/README.md](frontend/README.md).
 
 ## Tests
 
@@ -52,9 +52,9 @@ The suite doesn't need a GPU or a running WebUI, because the backends are tested
 
 ## Common changes
 
-- **Adding a prompt style:** add a JSON file to `autoexpress_core/resources/expressions/`. Copy an existing one and keep the same 28 expression keys.
-- **Adding an expression LoRA:** add an entry to `autoexpress_core/resources/expression_loras.json` with its Civitai version id and SHA-256.
-- **Supporting a new WebUI:** the connection itself (detection, transport, logins, request steps) goes into [sdmux](https://github.com/deepratna-awale/sdmux) first. Then add a backend in `autoexpress_core/backends/` that drives the sdmux client and register it in `registry.py`. Add tests to `tests/test_remote_backends.py`.
+- **Adding a prompt style:** add a JSON file to `emotica_core/resources/expressions/`. Copy an existing one and keep the same 28 expression keys.
+- **Adding an expression LoRA:** add an entry to `emotica_core/resources/expression_loras.json` with its Civitai version id and SHA-256.
+- **Supporting a new WebUI:** the connection itself (detection, transport, logins, request steps) goes into [sdmux](https://github.com/deepratna-awale/sdmux) first. Then add a backend in `emotica_core/backends/` that drives the sdmux client and register it in `registry.py`. Add tests to `tests/test_remote_backends.py`.
 
 ## Pull requests
 

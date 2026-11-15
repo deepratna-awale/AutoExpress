@@ -24,10 +24,10 @@ if [ -x "runtime/bin/python3" ]; then
 elif [ -x ".venv/bin/python" ]; then
     PYTHON=".venv/bin/python"
 else
-    echo "AutoExpress isn't installed yet. Run ./install.sh first."
+    echo "Emotica isn't installed yet. Run ./install.sh first."
     exit 1
 fi
 
 # The debugger allows running code from the browser, so only listen locally.
-exec "$PYTHON" -m flask --app autoexpress run --debug \
-    --host="${AUTOEXPRESS_HOST:-127.0.0.1}" --port="${AUTOEXPRESS_PORT:-5000}"
+exec "$PYTHON" -m flask --app emotica run --debug \
+    --host="${EMOTICA_HOST:-127.0.0.1}" --port="${EMOTICA_PORT:-5000}"

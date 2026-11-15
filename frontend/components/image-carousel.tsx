@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
 
 import { api, expressionName } from "@/lib/api";
-import { useAutoExpress } from "@/lib/store";
+import { useEmotica } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 export function ImageCarousel({ isInDrawer = false }: ImageCarouselProps) {
-  const { images, galleryDir, galleryVersion, generating, loadImages } = useAutoExpress();
+  const { images, galleryDir, galleryVersion, generating, loadImages } = useEmotica();
   const [carousel, setCarousel] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
   const [retryOpen, setRetryOpen] = useState(false);

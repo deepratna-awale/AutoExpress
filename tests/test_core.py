@@ -1,6 +1,6 @@
 import pytest
 
-from autoexpress_core import (
+from emotica_core import (
     FLAVORS,
     expression_loras,
     resolve_flavor,
@@ -11,8 +11,8 @@ from autoexpress_core import (
     join_prompt,
     make_sprite_sheet,
 )
-from autoexpress_core.images import b64_to_pil, pil_to_b64
-from autoexpress_core.payload import find_nested_key
+from emotica_core.images import b64_to_pil, pil_to_b64
+from emotica_core.payload import find_nested_key
 from conftest import FakeBackend
 
 
@@ -146,7 +146,7 @@ def test_sprite_sheet_layout(face_image):
 
 
 def test_sprite_sheet_labels_without_scalable_font(monkeypatch, face_image):
-    from autoexpress_core import grid
+    from emotica_core import grid
 
     monkeypatch.setattr(grid, "_label_font", lambda size: None)
     tile = face_image.resize((512, 768))

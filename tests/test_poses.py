@@ -2,8 +2,8 @@
 
 import pytest
 
-from autoexpress_core import ExpressionGenerator, instruction_edit
-from autoexpress_core.backends.comfyui_api import ComfyUIClient
+from emotica_core import ExpressionGenerator, instruction_edit
+from emotica_core.backends.comfyui_api import ComfyUIClient
 
 from test_instruction_edit import edit_routes
 from test_remote_backends import ComfySession

@@ -6,7 +6,7 @@ Security fixes go into the latest release and the `main` branch.
 
 ## Reporting a vulnerability
 
-Please don't open a public issue for security problems. Report them privately through [GitHub's private vulnerability reporting](https://github.com/deepratna-awale/AutoExpress/security/advisories/new), and include:
+Please don't open a public issue for security problems. Report them privately through [GitHub's private vulnerability reporting](https://github.com/deepratna-awale/Emotica/security/advisories/new), and include:
 
 - what the problem is and where it is (file, route or setting),
 - steps to reproduce it, or a proof of concept,

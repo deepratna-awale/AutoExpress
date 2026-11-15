@@ -1,0 +1,2449 @@
+/**
+ * Emotica puppet player.
+ *
+ * Plays an Emotica puppet (a "<name>.puppet.model.json" made by the Live2D model kit) with
+ * PixiJS 6 meshes. The puppet stands in for a Live2D model: it has the parts of
+ * pixi-live2d-display's Live2DModel that the SillyTavern Live2D extension uses (parameters,
+ * expressions, motions, hit areas, lip sync, cursor following), so that extension plays puppets
+ * without any change once installPuppetLoader() has hooked Live2DModel.from().
+ *
+ * The rig is procedural: each layer has a role (face, iris, eyelash, front hair ...) and the
+ * puppet file gives the boxes and pivots to deform it around. Every frame the parameters are
+ * worked out (defaults, then motions, expressions and the outfit, eased by a spring so changes
+ * glide, then blinking and breathing, cursor, lip sync, values set by hand) and every layer's
+ * mesh is bent from them: head turn with depth parallax, features, hair and cloth sway, soft
+ * body jiggle (bust and hips) and the pull of the mouse when cloth, hair or a soft part is dragged.
+ *
+ * Needs window.PIXI (v6). Full-body poses (pose()) use the humanoid IK solver imported next to it.
+ */
+import './humanoid_ik.js';
+
+const FORMAT = 'Emotica Puppet';
+const LEGACY_FORMAT = 'AutoExpress Puppet';  // puppets made before the rename
+const SUFFIX = '.puppet.model.json';
+const LOG = '[Emotica puppet]';
+
+// How far in front of the face each role sits, for the head-turn parallax (face = 0).
+const ROLE_DEPTH = {
+    front_hair: 0.75, hair_under: 0.75, headwear: 0.65, nose: 0.6, eyewear: 0.6, brow: 0.45, brow_angry: 0.45, mouth: 0.45, mouth_open: 0.45,
+    mouth_grin: 0.45, eyelash: 0.4, eye_closed: 0.4, eye_tears: 0.39, eyes: 0.4, iris: 0.35, eye_white: 0.35, cheek: 0.25, face: 0,
+    ear: -0.3, back_hair: -0.45,
+};
+const HEAD_ROLES = new Set(Object.keys(ROLE_DEPTH));
+// The bones where each limb joins the body.
+const ROOT_BONES = new Set(['UpperArmL', 'UpperArmR', 'ThighL', 'ThighR']);
+const EYE_ROLES = new Set(['eye_white', 'iris', 'eyelash', 'eyes']);
+// The open mouth in pieces for lip sync (the kit's "Mouth inside", "Teeth upper", ...).
+const MOUTH_PART_ROLES = new Set(['mouth_inside', 'teeth_upper', 'teeth_lower', 'tongue', 'mouth_lips']);
+// Mouth shapes for speech (the Oculus / Azure viseme set, which TTS engines report), as the
+// parameters the mouth pieces move by: open, wide (-1 rounded, 1 stretched), tongue raised, teeth
+// brought to the lips.
+const VISEMES = {
+    sil: { open: 0, wide: 0, tongue: 0, teeth: 0 },
+    PP: { open: 0, wide: -0.1, tongue: 0, teeth: 0 },
+    FF: { open: 0.16, wide: 0.2, tongue: 0, teeth: 1 },
+    TH: { open: 0.3, wide: 0.1, tongue: 1, teeth: 0.15 },
+    DD: { open: 0.26, wide: 0.2, tongue: 0.8, teeth: 0.25 },
+    kk: { open: 0.28, wide: 0.1, tongue: 0.2, teeth: 0.3 },
+    CH: { open: 0.2, wide: -0.5, tongue: 0, teeth: 0.9 },
+    SS: { open: 0.18, wide: 0.55, tongue: 0, teeth: 1 },
+    nn: { open: 0.22, wide: 0.15, tongue: 0.7, teeth: 0.2 },
+    RR: { open: 0.22, wide: -0.35, tongue: 0.3, teeth: 0.3 },
+    aa: { open: 0.75, wide: 0.05, tongue: 0, teeth: 0.6 },
+    E: { open: 0.42, wide: 0.5, tongue: 0, teeth: 0.7 },
+    ih: { open: 0.24, wide: 0.75, tongue: 0, teeth: 0.9 },
+    oh: { open: 0.55, wide: -0.6, tongue: 0, teeth: 0.3 },
+    ou: { open: 0.28, wide: -0.95, tongue: 0, teeth: 0.2 },
+};
+// Letters to visemes, for speaking a line without a TTS engine's viseme events (a rough guess:
+// digraphs first, then single letters; vowels hold longer).
+const LETTER_VISEMES = [
+    ['th', 'TH'], ['sh', 'CH'], ['ch', 'CH'], ['ee', 'ih'], ['oo', 'ou'], ['ou', 'ou'], ['ph', 'FF'],
+    ['a', 'aa'], ['e', 'E'], ['i', 'ih'], ['y', 'ih'], ['o', 'oh'], ['u', 'ou'], ['w', 'ou'],
+    ['b', 'PP'], ['m', 'PP'], ['p', 'PP'], ['f', 'FF'], ['v', 'FF'], ['d', 'DD'], ['t', 'DD'], ['l', 'nn'], ['n', 'nn'],
+    ['k', 'kk'], ['g', 'kk'], ['c', 'kk'], ['q', 'kk'], ['x', 'kk'], ['s', 'SS'], ['z', 'SS'], ['j', 'CH'], ['r', 'RR'], ['h', 'kk'],
+];
+// Layers of the body under the head: they jiggle with the soft parts and follow the mouse's pull.
+const SOFT_ROLES = new Set(['body', 'clothing', 'nude_body', 'inner']);
+// Painted on the face's skin: these move exactly with it (its depth), see _onFaceSurface.
+const FACE_SURFACE_ROLES = new Set(['mouth', 'mouth_open', 'mouth_grin', 'mouth_lips', 'mouth_inside', 'teeth_upper', 'teeth_lower', 'tongue', 'cheek', 'cheek_hatch']);
+// The outer clothes, hidden by ParamClothesOuter when there is a body layer under them.
+const OUTER_ROLES = new Set(['clothing', 'arm']);
+// Expressions whose names start with these stay on (each in its own slot) while emotions change.
+const PERSISTENT_SLOTS = ['outfit_', 'accessories_'];
+// How long parameter changes take to settle (seconds): expressions glide instead of snapping.
+const EASE_TIME = 0.16;
+const CURSOR_DEFAULTS = {
+    idParamAngleX: 'ParamAngleX',
+    idParamAngleY: 'ParamAngleY',
+    idParamAngleZ: 'ParamAngleZ',
+    idParamBodyAngleX: 'ParamBodyAngleX',
+    idParamBreath: 'ParamBreath',
+    idParamEyeBallX: 'ParamEyeBallX',
+    idParamEyeBallY: 'ParamEyeBallY',
+};
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+function smoothstep(edge0, edge1, x) {
+    const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+    return t * t * (3 - 2 * t);
+}
+
+// Skeleton ---------------------------------------------------------------------------------------
+// Rig.Skeleton.Bones, parents first: {Name, Parent, Head, Tail, Radius, Group, Param}. Each bone
+// turns about its Head (canvas pixels, the drawing's pose) by its parameter, in degrees, clockwise
+// on screen; children follow. Affine matrices are [a, b, c, d, e, f]: x' = a x + c y + e,
+// y' = b x + d y + f.
+function segmentDistance(x, y, [ax, ay], [bx, by]) {
+    const dx = bx - ax, dy = by - ay;
+    const t = clamp(((x - ax) * dx + (y - ay) * dy) / Math.max(1e-6, dx * dx + dy * dy), 0, 1);
+    return Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+}
+/** How far along the bone (0 at its head, 1 at its tail) the point projects, unclamped. */
+function alongBone(x, y, [ax, ay], [bx, by]) {
+    const dx = bx - ax, dy = by - ay;
+    return ((x - ax) * dx + (y - ay) * dy) / Math.max(1e-6, dx * dx + dy * dy);
+}
+function applyMatrix(M, o, x, y) {
+    return [M[o] * x + M[o + 2] * y + M[o + 4], M[o + 1] * x + M[o + 3] * y + M[o + 5]];
+}
+function invertAt(M, o, x, y) {
+    const a = M[o], b = M[o + 1], c = M[o + 2], d = M[o + 3];
+    const det = a * d - b * c || 1e-6;
+    const px = x - M[o + 4], py = y - M[o + 5];
+    return [(d * px - c * py) / det, (-b * px + a * py) / det];
+}
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** The jaw's height at x, between its sampled points ([[x, y], ...] left to right). */
+function jawAt(points, x) {
+    if (!points || !points.length) return null;
+    if (x <= points[0][0]) return points[0][1];
+    for (let i = 1; i < points.length; i++) {
+        if (x <= points[i][0]) {
+            const [x0, y0] = points[i - 1];
+            const [x1, y1] = points[i];
+            return y0 + (y1 - y0) * (x - x0) / Math.max(1e-6, x1 - x0);
+        }
+    }
+    return points[points.length - 1][1];
+}
+
+export function isPuppetPath(source) {
+    return typeof source === 'string' && source.split(/[?#]/)[0].toLowerCase().endsWith(SUFFIX);
+}
+
+// Parameters ----------------------------------------------------------------------------
+/** The parameter store, shaped like Cubism's core model as pixi-live2d-display exposes it. */
+class PuppetCore {
+    constructor(parameters) {
+        this.ids = parameters.map(p => p.Id);
+        this.index = new Map(this.ids.map((id, i) => [id, i]));
+        const n = this.ids.length;
+        this.defaults = Float32Array.from(parameters, p => p.Default ?? 0);
+        this.mins = Float32Array.from(parameters, p => p.Min ?? -1);
+        this.maxs = Float32Array.from(parameters, p => p.Max ?? 1);
+        this.values = Float32Array.from(this.defaults);
+        this.overrides = new Map(); // index -> value set by hand (kept until reset to the default)
+        this.adds = new Map(); // index -> {value, time}: short-lived offsets (lip sync)
+        this._model = {
+            parameters: {
+                ids: this.ids,
+                defaultValues: this.defaults,
+                minimumValues: this.mins,
+                maximumValues: this.maxs,
+                values: this.values,
+                count: n,
+            },
+        };
+    }
+
+    getParameterIndex(id) {
+        return this.index.has(id) ? this.index.get(id) : -1;
+    }
+
+    getParameterValueById(id) {
+        const i = this.getParameterIndex(id);
+        return i < 0 ? 0 : this.values[i];
+    }
+
+    getParameterValueByIndex(i) {
+        return this.values[i] ?? 0;
+    }
+
+    setParameterValueById(id, value, weight = 1) {
+        this.setParameterValueByIndex(this.getParameterIndex(id), value, weight);
+    }
+
+    setParameterValueByIndex(i, value, weight = 1) {
+        if (i < 0 || i >= this.ids.length) return;
+        const target = weight >= 1 ? value : lerp(this.values[i], value, weight);
+        // Setting a parameter back to its default hands it back to the animation.
+        if (Math.abs(target - this.defaults[i]) < 1e-6) this.overrides.delete(i);
+        else this.overrides.set(i, target);
+        this.values[i] = clamp(target, this.mins[i], this.maxs[i]);
+    }
+
+    addParameterValueById(id, value, weight = 1) {
+        const i = this.getParameterIndex(id);
+        if (i < 0) return;
+        this.adds.set(i, { value: value * weight, time: performance.now() });
+    }
+
+    multiplyParameterValueById(id, value, weight = 1) {
+        const i = this.getParameterIndex(id);
+        if (i >= 0) this.values[i] *= lerp(1, value, weight);
+    }
+}
+
+// Motions ---------------------------------------------------------------------------------
+/** A parsed .motion3.json: curves that give each parameter's value at a time. */
+class Motion {
+    constructor(json, entry = {}) {
+        const meta = json.Meta || {};
+        this.duration = meta.Duration || 1;
+        this.loop = !!meta.Loop;
+        this.fadeIn = entry.FadeInTime ?? meta.FadeInTime ?? 0.5;
+        this.fadeOut = entry.FadeOutTime ?? meta.FadeOutTime ?? 0.5;
+        this.curves = [];
+        for (const curve of json.Curves || []) {
+            if (curve.Target !== 'Parameter') continue;
+            this.curves.push({ id: curve.Id, segments: Motion.parse(curve.Segments || []), fadeIn: curve.FadeInTime, fadeOut: curve.FadeOutTime });
+        }
+    }
+
+    static parse(data) {
+        const segments = [];
+        if (data.length < 2) return segments;
+        let last = [data[0], data[1]];
+        let pos = 2;
+        while (pos < data.length) {
+            const type = data[pos];
+            if (type === 1) {
+                const points = [last, [data[pos + 1], data[pos + 2]], [data[pos + 3], data[pos + 4]], [data[pos + 5], data[pos + 6]]];
+                segments.push({ type, points });
+                last = points[3];
+                pos += 7;
+            } else {
+                const end = [data[pos + 1], data[pos + 2]];
+                segments.push({ type, points: [last, end] });
+                last = end;
+                pos += 3;
+            }
+        }
+        return segments;
+    }
+
+    static evaluate(segments, time) {
+        if (!segments.length) return 0;
+        let segment = segments[segments.length - 1];
+        for (const s of segments) {
+            if (time <= s.points[s.points.length - 1][0]) {
+                segment = s;
+                break;
+            }
+        }
+        const p = segment.points;
+        const start = p[0];
+        const end = p[p.length - 1];
+        if (time <= start[0]) return start[1];
+        if (time >= end[0]) return end[1];
+        switch (segment.type) {
+        case 2: return start[1]; // stepped
+        case 3: return end[1]; // inverse stepped
+        case 1: { // bezier: find u with x(u) = time, then y(u)
+            const bez = (a, b, c, d, u) => {
+                const v = 1 - u;
+                return v * v * v * a + 3 * v * v * u * b + 3 * v * u * u * c + u * u * u * d;
+            };
+            let lo = 0, hi = 1, u = 0.5;
+            for (let k = 0; k < 20; k++) {
+                u = (lo + hi) / 2;
+                if (bez(p[0][0], p[1][0], p[2][0], p[3][0], u) < time) lo = u;
+                else hi = u;
+            }
+            return bez(p[0][1], p[1][1], p[2][1], p[3][1], u);
+        }
+        default: return lerp(start[1], end[1], (time - start[0]) / (end[0] - start[0]));
+        }
+    }
+}
+
+/** A parsed .exp3.json. */
+class Expression {
+    constructor(json) {
+        this.fadeIn = json.FadeInTime ?? 0.5;
+        this.fadeOut = json.FadeOutTime ?? 0.5;
+        this.parameters = (json.Parameters || []).map(p => ({ id: p.Id, value: p.Value ?? 0, blend: p.Blend || 'Add' }));
+    }
+}
+
+// The model ---------------------------------------------------------------------------------
+let PuppetClass = null;
+// Puppets that are playing (the SillyTavern extension looks up a character's puppet here).
+const LIVE = new Set();
+
+/** The puppets on screen now. */
+export function livePuppets() {
+    return [...LIVE];
+}
+
+/**
+ * A file of a puppet packed into the page (play.html sets window.EMOTICA_PUPPET_FILES: path ->
+ * parsed JSON, or a data: URL for a texture), so it plays when opened straight from the disk,
+ * where browsers block fetch().
+ */
+function bundled(path) {
+    const files = typeof window !== 'undefined' && window.EMOTICA_PUPPET_FILES;
+    return files && Object.prototype.hasOwnProperty.call(files, path) ? files[path] : null;
+}
+
+function definePuppetClass(PIXI) {
+    class Puppet extends PIXI.Container {
+        static async from(source) {
+            const url = new URL(source, document.baseURI).href;
+            let document_ = bundled(source);
+            if (!document_) {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`${LOG} can't load ${source}: ${response.status}`);
+                document_ = await response.json();
+            }
+            if (document_.Type !== FORMAT && document_.Type !== LEGACY_FORMAT) throw new Error(`${LOG} ${source} is not an ${FORMAT}`);
+            const puppet = new Puppet(document_, url);
+            await puppet._loadTextures();
+            return puppet;
+        }
+
+        constructor(doc, url) {
+            super();
+            this.doc = doc;
+            this.url = url;
+            this.base = url.substring(0, url.lastIndexOf('/') + 1);
+            this.tag = doc.Name || 'puppet';
+            const width = doc.Canvas.Width;
+            const height = doc.Canvas.Height;
+            this.core = new PuppetCore(doc.Parameters);
+            const references = doc.FileReferences || {};
+            this._motionCache = new Map();
+            this._expressionCache = new Map();
+            this._motions = []; // active motions: {motion, group, start, fadeOutStart?}
+            this._expressions = []; // active expressions: {expression, start, fadeOutStart?}
+            this._time = 0;
+            this._blink = { next: 2 + Math.random() * 3, phase: -1 };
+            this._focus = { x: 0, y: 0, tx: 0, ty: 0 };
+            this._hair = {};
+            this._soft = {};
+            this._drag = { active: false, sx: 0, sy: 0, tx: 0, ty: 0, x: 0, y: 0, vx: 0, vy: 0, moved: 0, start: 0, soft: null };
+            // Expressions that stay on while the emotions change, one per slot (outfit_*, accessories_*):
+            // slot -> { now: {expression, start}, old: the one it fades from }.
+            this._slots = {};
+            this._pose = new Map(); // parameter id -> offset the user posed
+            this._eased = null;
+            this._easedVelocity = null;
+            // Drag anywhere to pull (the preview page); in SillyTavern only cloth, hair and soft parts,
+            // so dragging elsewhere still moves the model.
+            this.grabAnywhere = false;
+            // Dragging the head, an arm or the torso poses the skeleton (off: only the bust and hips pull).
+            this.poseable = true;
+            this._autoInteract = false;
+            this._onPointerMove = (event) => this._pointerMoved(event);
+
+            const self = this;
+            const hitAreas = {};
+            (doc.HitAreas || []).forEach((area, index) => {
+                hitAreas[area.Name] = { id: area.Id || area.Name, name: area.Name, index };
+            });
+            this.internalModel = {
+                coreModel: this.core,
+                settings: {
+                    url,
+                    name: this.tag,
+                    expressions: references.Expressions || [],
+                    motions: references.Motions || {},
+                    hitAreas: doc.HitAreas || [],
+                },
+                hitAreas,
+                width,
+                height,
+                originalWidth: width,
+                originalHeight: height,
+                motionManager: {
+                    get playing() {
+                        return self._motions.some(m => m.group !== 'Idle' && m.fadeOutStart === undefined);
+                    },
+                    stopAllMotions: () => {
+                        this._motions = [];
+                    },
+                },
+                ...CURSOR_DEFAULTS,
+            };
+
+            this.interactive = true;
+            this.buttonMode = false;
+            this.hitArea = new PIXI.Rectangle(0, 0, width, height);
+            this._wrapped = new Map();
+            super.on('pointerdown', (event) => this._grabStart(event));
+            super.on('pointermove', (event) => this._grabMove(event));
+            super.on('pointerup', () => this._grabEnd());
+            super.on('pointerupoutside', () => this._grabEnd());
+            super.on('pointertap', (event) => {
+                if (this._drag.moved > 6) return; // that was a drag, not a tap
+                const hits = this.hitTest(event.data.global.x, event.data.global.y);
+                if (!hits.length) return;
+                // The SillyTavern Live2D extension plays its mapping for a hit; with nobody listening
+                // (the preview page), the puppet reacts by itself.
+                if (this.listenerCount('hit')) this.emit('hit', hits);
+                else this.react(hits[0]);
+            });
+
+            this._ticker = PIXI.Ticker.shared;
+            this._ticker.add(this._tick, this);
+            LIVE.add(this);
+        }
+
+        // Size: like Live2DModel, the size is the canvas size times the scale.
+        get width() {
+            return Math.abs(this.scale.x) * this.internalModel.width;
+        }
+
+        set width(value) {
+            this.scale.x = value / this.internalModel.width;
+        }
+
+        get height() {
+            return Math.abs(this.scale.y) * this.internalModel.height;
+        }
+
+        set height(value) {
+            this.scale.y = value / this.internalModel.height;
+        }
+
+        get autoInteract() {
+            return this._autoInteract;
+        }
+
+        set autoInteract(value) {
+            this._autoInteract = !!value;
+            window.removeEventListener('pointermove', this._onPointerMove);
+            if (this._autoInteract) window.addEventListener('pointermove', this._onPointerMove);
+            else {
+                this._focus.tx = 0;
+                this._focus.ty = 0;
+            }
+        }
+
+        _pointerMoved(event) {
+            this.focus(event.clientX, event.clientY);
+        }
+
+        /** Look towards a point (in the page's pixels, like the pointer). */
+        focus(x, y) {
+            const renderer = this._renderer();
+            const view = renderer?.view;
+            let sx = x, sy = y;
+            if (view && view.getBoundingClientRect) {
+                const rect = view.getBoundingClientRect();
+                sx = (x - rect.left) * (renderer.screen.width / Math.max(1, rect.width));
+                sy = (y - rect.top) * (renderer.screen.height / Math.max(1, rect.height));
+            }
+            const point = this.toLocal(new PIXI.Point(sx, sy));
+            const head = this.doc.Rig.Head;
+            const reach = Math.max(this.internalModel.width, this.internalModel.height) * 0.6;
+            this._focus.tx = clamp((point.x - head.Center[0]) / reach, -1, 1);
+            this._focus.ty = clamp((head.Center[1] - point.y) / reach, -1, 1);
+        }
+
+        _view() {
+            return this._renderer()?.view || null;
+        }
+
+        // Mouse pulls ---------------------------------------------------------------------------
+        // Listeners others add for pointermove (the Live2D extension drags the model with it) are
+        // paused while the puppet's cloth, hair or body is being pulled.
+        on(event, fn, context) {
+            if (event !== 'pointermove' || typeof fn !== 'function') return super.on(event, fn, context);
+            const wrapped = (...args) => {
+                if (!this._drag.active) fn.apply(context ?? this, args);
+            };
+            this._wrapped.set(fn, wrapped);
+            return super.on(event, wrapped, context);
+        }
+
+        off(event, fn, context) {
+            if (event === 'pointermove' && this._wrapped?.has(fn)) {
+                const wrapped = this._wrapped.get(fn);
+                this._wrapped.delete(fn);
+                return super.off(event, wrapped, context);
+            }
+            return super.off(event, fn, context);
+        }
+
+        /** Which soft region ('Bust', 'Hips') a point on the canvas is over, or null. */
+        _softAt(x, y, grow = 1) {
+            const rig = this.doc.Rig;
+            for (const name of ['Bust', 'Hips']) {
+                const region = rig[name];
+                if (!region || !(region.Radius?.[0] > 0)) continue;
+                for (const [cx, cy] of region.Centers) {
+                    const dx = (x - cx) / (region.Radius[0] * grow);
+                    const dy = (y - cy) / (region.Radius[1] * grow);
+                    if (dx * dx + dy * dy <= 1) return name;
+                }
+            }
+            return null;
+        }
+
+        /**
+         * What a press at a canvas point grabs: 'body' on the bust or hips (pulled, springs back),
+         * or a joint of the skeleton to pose ('head', 'arm L' / 'arm R', 'torso'), or null.
+         */
+        _grabbable(x, y) {
+            // A hand or a leg over the bust or hips is the limb's (it's drawn in front of them).
+            const limb = this.poseable && this._bones ? this._boneAt(x, y) : null;
+            if (limb && limb.Group && limb.Group !== 'torso' && limb.Group !== 'head') return `bone ${limb.Name}`;
+            if (this._softAt(x, y, 1.15)) return 'body';
+            if (!this.poseable) return null;
+            const rig = this.doc.Rig;
+            const [hl, ht, hr, hb] = rig.Head.Box;
+            if (x >= hl && x <= hr && y >= ht && y <= hb) return 'head';
+            if (this._bones) {
+                const bone = this._boneAt(x, y);
+                return bone ? `bone ${bone.Name}` : null;
+            }
+            for (const [side, arm] of Object.entries(rig.Arms || {})) {
+                const entry = this.doc.Layers.find(e => e.Id === arm.Layers[0]);
+                // Anywhere on the arm away from its joint (near the joint is the body's).
+                if (entry && x >= entry.X && x <= entry.X + entry.Width && y >= entry.Y && y <= entry.Y + entry.Height
+                    && Math.hypot(x - arm.Pivot[0], y - arm.Pivot[1]) >= arm.Length * 0.3) return `arm ${side}`;
+            }
+            const [bl, bt, br, bb] = rig.Body.Box;
+            if (x >= bl && x <= br && y >= hb && y <= bt + (bb - bt) * 0.55) return 'torso';
+            return null;
+        }
+
+        /**
+         * Pose the skeleton from a drag: the head turns and nods, an arm swings at the shoulder, the
+         * torso leans. Every joint stops at its limit (the parameters' ranges), and the pose stays.
+         */
+        _poseMove(d, point) {
+            const rig = this.doc.Rig;
+            const [hl, ht, hr, hb] = rig.Head.Box;
+            const dx = point.x - d.sx;
+            const dy = point.y - d.sy;
+            const set = (id, value) => {
+                const i = this.core.getParameterIndex(id);
+                if (i < 0) return;
+                const lo = this.core.mins[i], hi = this.core.maxs[i];
+                // The offset stops where the joint does (the parameter's range, from its default).
+                this._pose.set(id, clamp(value, lo - this.core.defaults[i], hi - this.core.defaults[i]));
+            };
+            const start = (id) => d.poseStart.get(id) || 0;
+            if (d.pose.startsWith('bone ')) {
+                const bone = this._boneByName.get(d.pose.slice(5));
+                const group = bone && (bone.Group || 'torso');
+                const limb = group && /^(arm|leg)_[LR]$/.test(group) ? group.replace('_', ' ') : null;
+                if (limb && /^(UpperArm|Thigh)/.test(bone.Name)) {
+                    // The elbow or knee is a hint point: it bends the limb that way, the hand or foot stays.
+                    const old = (this._hints || {})[limb];
+                    this.ikHint(limb, { x: point.x, y: point.y, z: old ? old.z : undefined });
+                } else if (limb) this.ik(limb, { x: point.x, y: point.y });
+                else if (bone) this._solveIK(bone, d.local, point.x, point.y);
+            } else if (d.pose === 'head') {
+                set('ParamAngleX', start('ParamAngleX') + dx / Math.max(1, hr - hl) * 50);
+                set('ParamAngleY', start('ParamAngleY') - dy / Math.max(1, hb - ht) * 50);
+            } else if (d.pose === 'torso') {
+                // The torso leans the way it is pulled: around the hips, like the arms at the shoulder.
+                const [bl, bt, br, bb] = rig.Body.Box;
+                const hx = (bl + br) / 2, hy = bt + (bb - bt) * 0.75;
+                const lean = (Math.atan2(point.x - hx, hy - point.y) - Math.atan2(d.sx - hx, hy - d.sy)) * 180 / Math.PI;
+                set('ParamBodyAngleZ', start('ParamBodyAngleZ') + lean);
+                set('ParamBodyAngleX', start('ParamBodyAngleX') + dx / Math.max(1, br - bl) * 20);
+            } else if (d.pose.startsWith('arm ')) {
+                const side = d.pose.slice(4);
+                const arm = rig.Arms[side];
+                const [px, py] = arm.Pivot;
+                const from = Math.atan2(d.sy - py, d.sx - px);
+                const to = Math.atan2(point.y - py, point.x - px);
+                const degrees = (to - from) * 180 / Math.PI;
+                for (const s of side === 'LR' ? ['L', 'R'] : [side]) set(`ParamArm${s}A`, start(`ParamArm${s}A`) + degrees);
+            }
+        }
+
+        /** Put the skeleton back in the drawing's pose. */
+        resetPose() {
+            this._pose.clear();
+            this._hints = {};
+            this._ikTargets = {};
+        }
+
+        _grabStart(event) {
+            const point = this.toLocal(event.data.global);
+            const d = this._drag;
+            d.moved = 0;
+            const kind = this._grabbable(point.x, point.y);
+            d.reacted = false;
+            if (!kind) return;
+            d.kind = kind;
+            d.active = true;
+            d.sx = point.x;
+            d.sy = point.y;
+            d.tx = 0;
+            d.ty = 0;
+            d.start = this._time;
+            d.soft = this._softAt(point.x, point.y, 1.15);
+            d.pose = kind === 'body' ? null : kind;
+            d.poseStart = new Map(this._pose);
+            if (kind.startsWith('bone ')) {
+                // Where on the bone it was grabbed, in the drawing's pose: that point follows the pointer.
+                const bone = this._boneByName.get(kind.slice(5));
+                const M = this._poseBones(b => this._pose.get(b.param) || 0);
+                d.local = invertAt(M, bone.index * 6, point.x, point.y);
+            }
+        }
+
+        _grabMove(event) {
+            const d = this._drag;
+            if (!d.active) return;
+            const point = this.toLocal(event.data.global);
+            if (d.pose) {
+                d.moved = Math.max(d.moved, Math.hypot(point.x - d.sx, point.y - d.sy) * Math.abs(this.scale.x || 1));
+                this._poseMove(d, point);
+                return;
+            }
+            // Skin and cloth only stretch so far: the pull is limited to a share of the soft part's
+            // size (a little more sideways than up and down), and gives way gradually towards it.
+            const region = this.doc.Rig[d.soft] || null;
+            const gain = (this.doc.Rig.Strength || {}).drag ?? 1;
+            const head = this.doc.Rig.Head;
+            const [rx, ry] = region?.Radius || [(head.Box[3] - head.Box[1]) * 0.4, (head.Box[3] - head.Box[1]) * 0.4];
+            const limitX = rx * 0.32 * gain;
+            const limitY = ry * 0.24 * gain;
+            let dx = point.x - d.sx;
+            let dy = point.y - d.sy;
+            d.moved = Math.max(d.moved, Math.hypot(dx, dy) * Math.abs(this.scale.x || 1));
+            dx = limitX * Math.tanh(dx / Math.max(1, limitX * 1.6));
+            dy = limitY * Math.tanh(dy / Math.max(1, limitY * 1.6));
+            d.tx = dx;
+            d.ty = dy;
+            if (!d.reacted && d.moved > 24) {
+                d.reacted = true;
+                this.react('Drag');
+            }
+        }
+
+        _grabEnd() {
+            const d = this._drag;
+            if (!d.active) return;
+            d.active = false;
+            d.tx = 0;
+            d.ty = 0;
+            // A quick tap on a soft part pokes it: it bounces.
+            if (d.soft && d.moved <= 6) this.poke(d.sx, d.sy);
+        }
+
+        /**
+         * React to a touch: show the emotion the puppet's Reactions give the hit area ("Drag" for a
+         * pull), with its motion, for a few seconds, then go back to the emotion from before.
+         */
+        react(area, seconds = 4) {
+            const emotion = (this.doc.Reactions || {})[area];
+            const names = this.internalModel.settings.expressions.map(e => e.Name);
+            if (!emotion || !names.includes(emotion)) return false;
+            const token = (this._reaction = {});
+            const before = this._emotion;
+            this.expression(emotion).then(() => (this._emotion = before));
+            if (this.internalModel.settings.motions[emotion]) this.motion(emotion);
+            setTimeout(() => {
+                if (this._reaction !== token || this._emotion !== before) return; // something newer took over
+                if (before) this.expression(before);
+                else for (const active of this._expressions) if (active.fadeOutStart === undefined) active.fadeOutStart = this._time;
+            }, seconds * 1000);
+            return true;
+        }
+
+        /** Poke the puppet at a point on the canvas: a soft part there bounces. */
+        poke(x, y, strength = 1) {
+            const name = this._softAt(x, y, 1.3);
+            if (!name) return false;
+            const region = this.doc.Rig[name];
+            region.Centers.forEach((_, index) => {
+                const state = this._soft[`${name}${index}`];
+                if (!state) return;
+                state.vy += region.Radius[1] * 2.2 * strength;
+                state.vx += (x - region.Centers[index][0]) * 1.5 * strength;
+            });
+            return true;
+        }
+
+        _renderer() {
+            let node = this;
+            while (node.parent) node = node.parent;
+            return node._puppetRenderer || window.__puppetRenderer || null;
+        }
+
+        /** Names of the hit areas under a point on the screen (global stage coordinates). */
+        hitTest(x, y) {
+            const point = this.toLocal(new PIXI.Point(x, y));
+            return (this.doc.HitAreas || [])
+                .filter(area => point.x >= area.Box[0] && point.x <= area.Box[2] && point.y >= area.Box[1] && point.y <= area.Box[3])
+                .map(area => area.Name);
+        }
+
+        /**
+         * The mouth's pieces and the blush are painted on the face, so they take the face's depth
+         * where they lie: their own depth (a split's guess for a small layer, or none for the blush)
+         * made them slide off the face when the head turned.
+         */
+        _onFaceSurface() {
+            const face = this.layers.find(l => l.role === 'face');
+            if (!face || !face.z) return;
+            const n = face.rest.length >> 1;
+            for (const layer of this.layers) {
+                if (!FACE_SURFACE_ROLES.has(layer.role)) continue;
+                const count = layer.rest.length >> 1;
+                const z = new Float32Array(count);
+                for (let k = 0; k < count; k++) {
+                    const x = layer.rest[2 * k], y = layer.rest[2 * k + 1];
+                    let best = Infinity, value = 0;
+                    for (let j = 0; j < n; j++) {
+                        const dx = face.rest[2 * j] - x, dy = face.rest[2 * j + 1] - y;
+                        const d = dx * dx + dy * dy;
+                        if (d < best) { best = d; value = face.z[j]; }
+                    }
+                    z[k] = value;
+                }
+                layer.z = z;
+            }
+        }
+
+        // Loading -------------------------------------------------------------------------
+        async _loadTextures() {
+            const rig = this.doc.Rig;
+            this.layers = [];
+            const cheekAfter = this.doc.Layers.findIndex(l => l.Role === 'face');
+            let index = 0;
+            for (const entry of this.doc.Layers) {
+                const texture = await PIXI.Texture.fromURL(bundled(entry.Texture) || this.base + entry.Texture);
+                this.layers.push(this._makeLayer(entry, texture));
+                if (index === cheekAfter) {
+                    for (const side of Object.keys(rig.Eyes || {})) {
+                        this.layers.push(this._makeCheek(side, false));
+                        this.layers.push(this._makeCheek(side, true));
+                    }
+                }
+                index += 1;
+            }
+            this._onFaceSurface();
+            this._setupSkeleton();
+            // Where the open mouth's inside is: the pieces open and close about its middle.
+            const inside = this.layers.find(l => l.role === 'mouth_inside');
+            if (inside) {
+                const ys = inside.rest.filter((_, i) => i % 2 === 1), xs = inside.rest.filter((_, i) => i % 2 === 0);
+                const top = Math.min(...ys), bottom = Math.max(...ys);
+                this._mouthParts = { top, bottom, cy: (top + bottom) / 2, cx: (Math.min(...xs) + Math.max(...xs)) / 2 };
+            }
+            for (const mesh of this._drawOrder()) this.addChild(mesh);
+            if (inside && (inside.entry.Grid || [2, 2]).every(n => n >= 2)) {
+                const masks = [];
+                for (const layer of this.layers.filter(l => l.role === 'teeth_upper' || l.role === 'teeth_lower' || l.role === 'tongue')) {
+                    const g = new PIXI.Graphics();
+                    this.addChild(g);
+                    layer.mesh.mask = g;
+                    masks.push(g);
+                }
+                this._mouthClip = { inside, masks };
+            }
+            this._hasBody = this.layers.some(l => l.role === 'nude_body');
+            this._halfSwitches = new Set(this.doc.Layers.filter(e => e.State === 'half' && e.Switch).map(e => e.Switch));
+            this._ready = true;
+            this._update(0);
+        }
+
+        _makeLayer(entry, texture) {
+            const [cols, rows] = entry.Grid || [2, 2];
+            const count = cols * rows;
+            const rest = new Float32Array(count * 2);
+            const uvs = new Float32Array(count * 2);
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const k = (r * cols + c) * 2;
+                    const u = c / (cols - 1);
+                    const v = r / (rows - 1);
+                    uvs[k] = u;
+                    uvs[k + 1] = v;
+                    rest[k] = entry.X + u * entry.Width;
+                    rest[k + 1] = entry.Y + v * entry.Height;
+                }
+            }
+            const indices = new Uint16Array((cols - 1) * (rows - 1) * 6);
+            let i = 0;
+            for (let r = 0; r < rows - 1; r++) {
+                for (let c = 0; c < cols - 1; c++) {
+                    const a = r * cols + c;
+                    const b = a + 1;
+                    const d = a + cols;
+                    const e = d + 1;
+                    indices.set([a, b, d, b, e, d], i);
+                    i += 6;
+                }
+            }
+            const mesh = new PIXI.SimpleMesh(texture, Float32Array.from(rest), uvs, indices, PIXI.DRAW_MODES.TRIANGLES);
+            mesh.autoUpdate = true;
+            // Each point's depth (See-through's), for the parallax of a turn.
+            const z = Array.isArray(entry.Z) && entry.Z.length === count ? Float32Array.from(entry.Z) : null;
+            const hair = (this.doc.Rig.Hair || []).find(h => h.Layer === entry.Id);
+            const cloth = (this.doc.Rig.Cloth || []).find(c => c.Layer === entry.Id);
+            return {
+                entry,
+                role: entry.Role,
+                side: entry.Side,
+                mesh,
+                meshes: [mesh],
+                texture,
+                indices,
+                uvs,
+                rest,
+                z,
+                out: mesh.vertices,
+                hair,
+                cloth,
+                dz: ROLE_DEPTH[entry.Role] ?? 0,
+                head: HEAD_ROLES.has(entry.Role) || entry.Role === 'neck',
+            };
+        }
+
+        /**
+         * Bind the body to the skeleton (when the puppet has one): every vertex of the body, clothes
+         * and arms gets the two bones nearest it (by how far inside each bone's thickness it is), and
+         * the head's layers follow the Head bone. The body layers come cut into pieces per limb
+         * (entry.Piece), so an arm swung across the body is drawn over it, and the legs under the hips.
+         */
+        _setupSkeleton() {
+            const sk = this.doc.Rig.Skeleton;
+            this._bones = null;
+            if (!sk || !(sk.Bones || []).length) return;
+            const bones = sk.Bones.map((b, index) => ({ ...b, index, param: b.Param || `ParamBone${b.Name}` }));
+            const byName = new Map(bones.map(b => [b.Name, b]));
+            for (const b of bones) b.parentIndex = b.Parent && byName.has(b.Parent) ? byName.get(b.Parent).index : -1;
+            this._bones = bones;
+            this._boneByName = byName;
+            this._boneM = new Float32Array(bones.length * 6);
+            const head = byName.get('Head');
+            const bodyBones = bones.filter(b => b.Name !== 'Head');
+            for (const layer of this.layers) {
+                if (layer.head && layer.role !== 'neck') {
+                    layer.skinHead = head ? head.index : -1;
+                    continue;
+                }
+                if (!layer.rest || layer.role === 'cheek' || layer.role === 'cheek_hatch') continue;
+                const count = layer.rest.length / 2;
+                const i0 = new Uint8Array(count), i1 = new Uint8Array(count), w0 = new Float32Array(count);
+                // A piece follows only its own limb's bones (and the bone it hangs from, so it bends
+                // smoothly into the body); the torso piece only the torso's. Otherwise the body
+                // under an arm would be dragged along when the arm swings.
+                const piece = layer.entry?.Piece;
+                const candidates = !piece ? bodyBones : bodyBones.filter(b => {
+                    // The torso also listens to the first bone of each limb, the way the arm's
+                    // piece listens to the chest: across the seam both pieces then carry the same
+                    // weights, so the cloth around the shoulder or hip stretches instead of splitting.
+                    if (piece === 'torso') return b.Group === 'torso' || ROOT_BONES.has(b.Name);
+                    if (b.Group === piece) return true;
+                    return b.Name === (piece.startsWith('arm') ? 'Chest' : 'Hips');
+                });
+                const pool = candidates.length ? candidates : bodyBones;
+                for (let v = 0; v < count; v++) {
+                    const x = layer.rest[v * 2], y = layer.rest[v * 2 + 1];
+                    let best = -1, second = -1, sb = 0, ss = 0, nearest = null, nd = Infinity;
+                    for (const b of pool) {
+                        // On the torso a limb's first bone only reaches around its joint (the
+                        // shoulder or hip), not all along the arm hanging beside the body.
+                        const joint = piece === 'torso' && ROOT_BONES.has(b.Name);
+                        const d = joint ? Math.hypot(x - b.Head[0], y - b.Head[1]) : segmentDistance(x, y, b.Head, b.Tail);
+                        const q = d / Math.max(1, joint ? b.Radius * 0.9 : b.Radius);
+                        let score = Math.exp(-3 * q * q) * (joint ? 0.8 : 1);
+                        if (joint && b.Name.startsWith('UpperArm')) {
+                            // Only the shoulder itself: the chest and bust beside the armpit stay
+                            // with the chest (they were dragged up with a raised arm).
+                            score *= clamp(1 - (y - b.Head[1]) / Math.max(1, b.Radius * 0.5), 0, 1);
+                        }
+                        if (piece && piece !== 'torso' && ROOT_BONES.has(b.Name)) {
+                            // Around the shoulder or hip joint the limb's own piece follows the body
+                            // too, so the top of a thigh stays tucked under a skirt and the top of
+                            // a sleeve under the jacket's shoulder instead of swinging out at a corner.
+                            const t = alongBone(x, y, b.Head, b.Tail);
+                            score *= clamp((t + 0.05) / (b.Name.startsWith('Thigh') ? 0.6 : 0.3), 0.05, 1);
+                        }
+                        if (!joint && d - b.Radius < nd) { nd = d - b.Radius; nearest = b; }
+                        if (score > sb) { second = best; ss = sb; best = b.index; sb = score; }
+                        else if (score > ss) { second = b.index; ss = score; }
+                    }
+                    if (sb < 1e-4) { best = nearest.index; sb = 1; second = -1; ss = 0; }
+                    i0[v] = best;
+                    i1[v] = second < 0 ? best : second;
+                    w0[v] = second < 0 ? 1 : sb / (sb + ss);
+                }
+                layer.skin = { i0, i1, w0 };
+            }
+        }
+
+        /**
+         * An arm swung back goes behind the body, a leg swung forward in front of it; back at rest,
+         * the usual order. (The meshes' order is the drawing order.)
+         */
+        _sortBySwing(P) {
+            const behind = (group) => {
+                const root = this._boneByName.get(group.startsWith('arm') ? `UpperArm${group.slice(-1)}` : `Thigh${group.slice(-1)}`);
+                const swing = root && root.SwingParam ? P(root.SwingParam) : 0;
+                return group.startsWith('arm') ? swing < -8 : swing <= 30;
+            };
+            const key = ['arm_L', 'arm_R', 'leg_L', 'leg_R'].map(behind).join();
+            if (key === this._swungOrder) return;
+            this._swungOrder = key;
+            const order = this._drawOrder();
+            const rank = (m) => {
+                const g = m.puppetGroup;
+                if (!g) return null;
+                if (g === 'torso') return 1;
+                return behind(g) ? 0 : 2;
+            };
+            const first = order.findIndex(m => m.puppetGroup);
+            if (first < 0) return;
+            const rest = order.slice(first);
+            const skinned = rest.filter(m => m.puppetGroup).sort((a, b) => rank(a) - rank(b));
+            const sorted = [...order.slice(0, first), ...skinned, ...rest.filter(m => !m.puppetGroup)];
+            sorted.forEach((mesh, index) => this.setChildIndex(mesh, index));
+        }
+
+        _restoreOrder() {
+            this._swungOrder = null;
+            this._drawOrder().forEach((mesh, index) => this.setChildIndex(mesh, index));
+        }
+
+        /** The meshes in drawing order: with a skeleton, the legs under the body and the arms over it. */
+        _drawOrder() {
+            const all = [];
+            for (const layer of this.layers) for (const mesh of layer.meshes) {
+                mesh.puppetGroup = layer.entry?.Piece || null;
+                all.push(mesh);
+            }
+            if (!this._bones) return all;
+            const first = all.findIndex(m => m.puppetGroup);
+            if (first < 0) return all;
+            const rank = (g) => (g && g.startsWith('leg') ? 0 : g && g.startsWith('arm') ? 2 : 1);
+            const before = all.slice(0, first);
+            const rest = all.slice(first);
+            const skinned = rest.filter(m => m.puppetGroup);
+            const after = rest.filter(m => !m.puppetGroup);
+            skinned.sort((a, b) => rank(a.puppetGroup) - rank(b.puppetGroup)); // stable: keeps the layer order within a rank
+            return [...before, ...skinned, ...after];
+        }
+
+        /** Every bone's matrix for the current angles (angle(bone) in degrees). */
+        _poseBones(angle) {
+            const M = this._boneM;
+            for (const b of this._bones) {
+                const t = angle(b) * Math.PI / 180;
+                const c = Math.cos(t), s = Math.sin(t);
+                const [hx, hy] = b.Head;
+                const la = c, lb = s, lc = -s, ld = c, le = hx - c * hx + s * hy, lf = hy - s * hx - c * hy;
+                const o = b.index * 6;
+                if (b.parentIndex < 0) {
+                    M[o] = la; M[o + 1] = lb; M[o + 2] = lc; M[o + 3] = ld; M[o + 4] = le; M[o + 5] = lf;
+                } else {
+                    const p = b.parentIndex * 6;
+                    const pa = M[p], pb = M[p + 1], pc = M[p + 2], pd = M[p + 3], pe = M[p + 4], pf = M[p + 5];
+                    M[o] = pa * la + pc * lb;
+                    M[o + 1] = pb * la + pd * lb;
+                    M[o + 2] = pa * lc + pc * ld;
+                    M[o + 3] = pb * lc + pd * ld;
+                    M[o + 4] = pa * le + pc * lf + pe;
+                    M[o + 5] = pb * le + pd * lf + pf;
+                }
+            }
+            return M;
+        }
+
+        /**
+         * Every bone's 3D matrix (3x4, row by row) for its turn in the picture's plane (roll, degrees)
+         * and its swing towards the viewer (swing, degrees). Points are (x, y, f): f is how far in
+         * front of the body's centre a point is, in canvas pixels.
+         */
+        _poseBones3(roll, swing) {
+            const M = this._boneM3 || (this._boneM3 = new Float32Array(this._bones.length * 12));
+            for (const b of this._bones) {
+                const t = roll(b) * Math.PI / 180, w = swing(b) * Math.PI / 180;
+                const ct = Math.cos(t), st = Math.sin(t);
+                // The swing turns about the axis across the bone in the picture's plane, tip forward.
+                const dx = b.Tail[0] - b.Head[0], dy = b.Tail[1] - b.Head[1];
+                const len = Math.hypot(dx, dy) || 1;
+                const ax = dy / len, ay = -dx / len;
+                const cw = Math.cos(w), sw = Math.sin(w), k = 1 - cw;
+                const S = [cw + k * ax * ax, k * ax * ay, sw * ay, k * ax * ay, cw + k * ay * ay, -sw * ax, -sw * ay, sw * ax, cw];
+                // L = Rz(roll) * S about the joint.
+                const R = [
+                    ct * S[0] - st * S[3], ct * S[1] - st * S[4], ct * S[2] - st * S[5],
+                    st * S[0] + ct * S[3], st * S[1] + ct * S[4], st * S[2] + ct * S[5],
+                    S[6], S[7], S[8],
+                ];
+                const [hx, hy] = b.Head;
+                const hz = b.HeadZ || 0;
+                const tx = hx - (R[0] * hx + R[1] * hy + R[2] * hz);
+                const ty = hy - (R[3] * hx + R[4] * hy + R[5] * hz);
+                const tz = hz - (R[6] * hx + R[7] * hy + R[8] * hz);
+                const L = [R[0], R[1], R[2], tx, R[3], R[4], R[5], ty, R[6], R[7], R[8], tz];
+                const o = b.index * 12;
+                if (b.parentIndex < 0) {
+                    M.set(L, o);
+                } else {
+                    const p = b.parentIndex * 12;
+                    for (let r = 0; r < 3; r++) {
+                        for (let c = 0; c < 4; c++) {
+                            let v = M[p + r * 4] * L[c] + M[p + r * 4 + 1] * L[4 + c] + M[p + r * 4 + 2] * L[8 + c];
+                            if (c === 3) v += M[p + r * 4 + 3];
+                            M[o + r * 4 + c] = v;
+                        }
+                    }
+                }
+            }
+            return M;
+        }
+
+        /** The bone under a canvas point in the current pose (how far inside its thickness), or null. */
+        _boneAt(x, y) {
+            if (!this._bones) return null;
+            const M = this._poseBones(b => this.core.getParameterValueById(b.param) || 0);
+            let found = null, bestQ = 1.25;
+            for (const b of this._bones) {
+                if (b.Name === 'Head') continue;
+                const o = b.index * 6;
+                const head = applyMatrix(M, o, b.Head[0], b.Head[1]);
+                const tail = applyMatrix(M, o, b.Tail[0], b.Tail[1]);
+                const q = segmentDistance(x, y, head, tail) / Math.max(1, b.Radius);
+                // Limbs win over the torso where they overlap (an arm across the chest).
+                const bias = (b.Group || 'torso') === 'torso' ? 0.35 : 0;
+                if (q + bias < bestQ) { bestQ = q + bias; found = b; }
+            }
+            return found;
+        }
+
+        // Inverse kinematics for the limbs ---------------------------------------------------------
+        /**
+         * The limbs IK moves: the upper bone, the lower bone and the end (hand or foot), by name.
+         * 'arm L', 'arm R', 'leg L', 'leg R'.
+         */
+        _limb(name) {
+            const [kind, side] = name.split(' ');
+            const names = kind === 'arm' ? [`UpperArm${side}`, `Forearm${side}`, `Hand${side}`] : [`Thigh${side}`, `Shin${side}`, `Foot${side}`];
+            const bones = names.map(n => this._boneByName && this._boneByName.get(n));
+            if (bones.slice(0, 2).some(b => !b)) return null;
+            return { name, kind, side, upper: bones[0], lower: bones[1], end: bones[2] || null };
+        }
+
+        /** A bone's local 3D transform (3x4) for a turn in the picture's plane and a swing towards the viewer, as _poseBones3. */
+        _boneLocal3(b, rollDeg, swingDeg) {
+            const t = rollDeg * Math.PI / 180, w = swingDeg * Math.PI / 180;
+            const ct = Math.cos(t), st = Math.sin(t);
+            const dx = b.Tail[0] - b.Head[0], dy = b.Tail[1] - b.Head[1];
+            const len = Math.hypot(dx, dy) || 1;
+            const ax = dy / len, ay = -dx / len;
+            const cw = Math.cos(w), sw = Math.sin(w), k = 1 - cw;
+            const S = [cw + k * ax * ax, k * ax * ay, sw * ay, k * ax * ay, cw + k * ay * ay, -sw * ax, -sw * ay, sw * ax, cw];
+            const R = [
+                ct * S[0] - st * S[3], ct * S[1] - st * S[4], ct * S[2] - st * S[5],
+                st * S[0] + ct * S[3], st * S[1] + ct * S[4], st * S[2] + ct * S[5],
+                S[6], S[7], S[8],
+            ];
+            const [hx, hy] = b.Head;
+            const hz = b.HeadZ || 0;
+            return [R[0], R[1], R[2], hx - (R[0] * hx + R[1] * hy + R[2] * hz), R[3], R[4], R[5], hy - (R[3] * hx + R[4] * hy + R[5] * hz), R[6], R[7], R[8], hz - (R[6] * hx + R[7] * hy + R[8] * hz)];
+        }
+
+        /** The joint where a bone ends (its child's head, or its tail), with its depth. */
+        _boneTip(b) {
+            const child = this._bones.find(c => c.parentIndex === b.index && (c.Group || 'torso') === (b.Group || 'torso'));
+            return child ? [child.Head[0], child.Head[1], child.HeadZ ?? b.HeadZ ?? 0] : [b.Tail[0], b.Tail[1], b.HeadZ || 0];
+        }
+
+        /** This frame's angle of a bone parameter (what plays, plus the pose). */
+        _boneValue(id) {
+            if (!id) return 0;
+            const i = this.core.getParameterIndex(id);
+            return i < 0 ? 0 : this.core.values[i];
+        }
+
+        /** The world 3x4 matrix of a bone's parent now, or the identity. */
+        _parentWorld(b) {
+            if (b.parentIndex < 0) return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+            const M = this._poseBones3(x => this._boneValue(x.param), x => this._boneValue(x.SwingParam));
+            return Array.from(M.slice(b.parentIndex * 12, b.parentIndex * 12 + 12));
+        }
+
+        /**
+         * Turn one bone (in the picture's plane, and towards or away from the viewer) so the point at
+         * its end lands as near the goal as its limits allow. A coarse search over both angles, then
+         * a finer one round the best: exact for the renderer's own rotation, joint limits included.
+         * Returns [roll, swing, world matrix].
+         */
+        _aimBone(b, parent, tip, goal) {
+            const range = (id, fallback) => {
+                const i = id ? this.core.getParameterIndex(id) : -1;
+                return i < 0 ? fallback : [this.core.mins[i], this.core.maxs[i]];
+            };
+            const [r0, r1] = range(b.param, [0, 0]);
+            const [w0, w1] = b.SwingParam ? range(b.SwingParam, [0, 0]) : [0, 0];
+            const compose = (L) => {
+                const W = new Array(12);
+                for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) {
+                    let v = parent[r * 4] * L[c] + parent[r * 4 + 1] * L[4 + c] + parent[r * 4 + 2] * L[8 + c];
+                    if (c === 3) v += parent[r * 4 + 3];
+                    W[r * 4 + c] = v;
+                }
+                return W;
+            };
+            const cost = (roll, swing) => {
+                const W = compose(this._boneLocal3(b, roll, swing));
+                const x = W[0] * tip[0] + W[1] * tip[1] + W[2] * tip[2] + W[3];
+                const y = W[4] * tip[0] + W[5] * tip[1] + W[6] * tip[2] + W[7];
+                const z = W[8] * tip[0] + W[9] * tip[1] + W[10] * tip[2] + W[11];
+                return (x - goal[0]) ** 2 + (y - goal[1]) ** 2 + (z - goal[2]) ** 2;
+            };
+            let best = [clamp(0, r0, r1), clamp(0, w0, w1)], bestC = cost(best[0], best[1]);
+            for (const step of [6, 1.5, 0.4]) {
+                const span = step === 6 ? null : step * 4;
+                const ra = span === null ? r0 : Math.max(r0, best[0] - span), rb = span === null ? r1 : Math.min(r1, best[0] + span);
+                const wa = span === null ? w0 : Math.max(w0, best[1] - span), wb = span === null ? w1 : Math.min(w1, best[1] + span);
+                for (let r = ra; r <= rb + 1e-6; r += step) {
+                    for (let w = wa; w <= wb + 1e-6; w += step) {
+                        const c = cost(r, w);
+                        if (c < bestC) { bestC = c; best = [r, w]; }
+                    }
+                }
+            }
+            return [best[0], best[1], compose(this._boneLocal3(b, best[0], best[1]))];
+        }
+
+        /**
+         * Two-bone inverse kinematics with a hint point, as animators rig a limb: the hand (or foot)
+         * goes to target and the elbow (or knee) bends towards hint. limb is 'arm L', 'arm R',
+         * 'leg L' or 'leg R'; target and hint are canvas points {x, y, z?} (z: how far in front of
+         * the body, in canvas pixels). Without a hint the limb keeps the last one, or bends the
+         * natural way (elbows out and down, knees forward). The hand keeps its turn, the foot stays
+         * level. The pose stays until resetPose(). Returns false without a skeleton.
+         */
+        ik(limb, target, hint) {
+            const L = this._limb(limb);
+            if (!L) return false;
+            this._hints = this._hints || {};
+            if (hint) this._hints[limb] = { x: hint.x, y: hint.y, z: hint.z };
+            this._ikTargets = this._ikTargets || {};
+            this._ikTargets[limb] = { x: target.x, y: target.y, z: target.z };
+            const parent = this._parentWorld(L.upper);
+            const apply = (W, p) => [W[0] * p[0] + W[1] * p[1] + W[2] * p[2] + W[3], W[4] * p[0] + W[5] * p[1] + W[6] * p[2] + W[7], W[8] * p[0] + W[9] * p[1] + W[10] * p[2] + W[11]];
+            const rootRest = [L.upper.Head[0], L.upper.Head[1], L.upper.HeadZ || 0];
+            const elbowRest = this._boneTip(L.upper);
+            const wristRest = this._boneTip(L.lower);
+            const S = apply(parent, rootRest);
+            const l1 = Math.hypot(elbowRest[0] - rootRest[0], elbowRest[1] - rootRest[1], elbowRest[2] - rootRest[2]);
+            const l2 = Math.hypot(wristRest[0] - elbowRest[0], wristRest[1] - elbowRest[1], wristRest[2] - elbowRest[2]);
+            // The goal, on the body's depth unless given (a hand brought over the body comes in front
+            // of it), and never past the limb's reach.
+            let tz = target.z;
+            if (tz === undefined) {
+                tz = S[2];
+                const body = this.doc.Rig.Body && this.doc.Rig.Body.Box;
+                if (L.kind === 'arm' && body && target.x > body[0] && target.x < body[2] && target.y > body[1] && target.y < body[3]) tz = S[2] + l1 * 0.45;
+            }
+            let T = [target.x, target.y, tz];
+            let v = [T[0] - S[0], T[1] - S[1], T[2] - S[2]];
+            let d = Math.hypot(...v) || 1e-6;
+            const reach = l1 + l2;
+            const dd = clamp(d, Math.abs(l1 - l2) + 1, reach * 0.999);
+            const n = v.map(c => c / d);
+            T = [S[0] + n[0] * dd, S[1] + n[1] * dd, S[2] + n[2] * dd];
+            // The bend: elbows out from the body and back, knees forward, unless a hint says otherwise.
+            let H = this._hints[limb];
+            if (!H) {
+                const E0 = apply(parent, elbowRest);
+                const out = L.side === 'L' ? 1 : -1;
+                H = L.kind === 'arm' ? { x: E0[0] + out * l1 * 0.8, y: E0[1] + l1 * 0.4, z: E0[2] } : { x: E0[0], y: E0[1], z: E0[2] + l1 };
+            }
+            const h = [H.x - S[0], H.y - S[1], (H.z ?? S[2]) - S[2]];
+            const along = h[0] * n[0] + h[1] * n[1] + h[2] * n[2];
+            let p = [h[0] - n[0] * along, h[1] - n[1] * along, h[2] - n[2] * along];
+            let pl = Math.hypot(...p);
+            if (pl < 1e-3) { p = L.kind === 'arm' ? [0, 0, -1] : [0, 0, 1]; pl = 1; }
+            p = p.map(c => c / pl);
+            const a = (l1 * l1 - l2 * l2 + dd * dd) / (2 * dd);
+            const k = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+            const E = [S[0] + n[0] * a + p[0] * k, S[1] + n[1] * a + p[1] * k, S[2] + n[2] * a + p[2] * k];
+            const set = (id, value) => {
+                if (!id) return;
+                const i = this.core.getParameterIndex(id);
+                if (i < 0) return;
+                // The pose is an offset over what plays (the motions), like a drag.
+                this._pose.set(id, clamp(value, this.core.mins[i], this.core.maxs[i]) - this.core.defaults[i]);
+            };
+            const [r1, w1, W1] = this._aimBone(L.upper, parent, elbowRest, E);
+            set(L.upper.param, r1); set(L.upper.SwingParam, w1);
+            const [r2, w2, W2] = this._aimBone(L.lower, W1, wristRest, T);
+            set(L.lower.param, r2); set(L.lower.SwingParam, w2);
+            if (L.end && L.kind === 'leg') {
+                // The foot stays level: it turns back by what the leg turned in the picture's plane.
+                const tip = this._boneTip(L.end);
+                const ankle = apply(W2, [L.end.Head[0], L.end.Head[1], L.end.HeadZ || 0]);
+                const goal = [ankle[0] + (tip[0] - L.end.Head[0]), ankle[1] + (tip[1] - L.end.Head[1]), ankle[2]];
+                const [r3, w3] = this._aimBone(L.end, W2, tip, goal);
+                set(L.end.param, r3); set(L.end.SwingParam, w3);
+            }
+            return true;
+        }
+
+        /**
+         * Pose the whole body at once with the humanoid IK solver (humanoid_ik.js): goals is
+         * {handL, handR: {x, y, z?, pole?, palm?, grip?}, footL, footR: {x, y, z?, pole?}, look: {x, y, z?}, lean, reach}
+         * in canvas pixels. The solver works out the whole skeleton in 3D with every joint's limits
+         * (shoulder cones, elbow and knee hinges, wrist cone, finger hinges), bends the spine toward a
+         * hand goal out of reach, keeps hands out of the torso and head, and turns head and eyes to
+         * look. Each limb is then put on the rig with ik() (the solved elbow or knee as its hint),
+         * the spine's lean and the look go on the torso bones and the head angle. Returns the
+         * solver's report (per joint: pos, depth, turn; hands: palm and the nearest drawn hand view),
+         * or null without a skeleton. A rig with ParamHandView<side> shows the matching drawn hand.
+         */
+        pose(goals = {}) {
+            const IK = globalThis.HumanoidIK;
+            if (!IK || !this._boneByName || !this._limb('arm L') && !this._limb('arm R')) return null;
+            const B = n => this._boneByName.get(n);
+            const head = b => b ? [b.Head[0], b.Head[1], b.HeadZ || 0] : null;
+            const J = {};
+            const put = (key, p) => { if (p) J[key] = p; };
+            put('neck', head(B('Neck')) || head(B('Head')));
+            const hb = B('Head');
+            if (hb) put('nose', [hb.Head[0] + (hb.Tail[0] - hb.Head[0]) * 0.45, hb.Head[1] + (hb.Tail[1] - hb.Head[1]) * 0.45, hb.HeadZ || 0]);
+            for (const [s, k] of [['L', 'l'], ['R', 'r']]) {
+                const arm = this._limb(`arm ${s}`), leg = this._limb(`leg ${s}`);
+                if (arm) { put(`${k}_sho`, head(arm.upper)); put(`${k}_elb`, this._boneTip(arm.upper)); put(`${k}_wri`, this._boneTip(arm.lower)); }
+                if (leg) { put(`${k}_hip`, head(leg.upper)); put(`${k}_knee`, this._boneTip(leg.upper)); put(`${k}_ank`, this._boneTip(leg.lower)); }
+            }
+            const sk = this._humanoid && this._humanoidKey === JSON.stringify(J) ? this._humanoid : IK.skeletonFromJoints(J, { depth: true });
+            this._humanoid = sk; this._humanoidKey = JSON.stringify(J);
+            const report = sk.solve(goals);
+            const set = (id, value) => {
+                const i = id && Number.isFinite(value) ? this.core.getParameterIndex(id) : -1;
+                if (i >= 0) this._pose.set(id, clamp(value, this.core.mins[i], this.core.maxs[i]) - this.core.defaults[i]);
+            };
+            // The spine's bend (lean, or a reach past the arm) on the torso bones, split as the solver did.
+            for (const [joint, bone] of [['spine', 'Spine'], ['chest', 'Chest']]) {
+                const b = B(bone);
+                if (b && report[joint]) set(b.param, report[joint].turn);
+            }
+            const P = j => ({ x: j.pos[0], y: j.pos[1], z: j.pos[2] });
+            for (const s of ['L', 'R']) {
+                if (goals[`hand${s}`] && report[`hand${s}`] && this._limb(`arm ${s}`)) this.ik(`arm ${s}`, P(report[`hand${s}`]), P(report[`forearm${s}`]));
+                if (goals[`foot${s}`] && report[`foot${s}`] && this._limb(`leg ${s}`)) this.ik(`leg ${s}`, P(report[`foot${s}`]), P(report[`shin${s}`]));
+                const view = report[`hand${s}`] && report[`hand${s}`].view;
+                if (view) set(`ParamHandView${s}`, view.index);
+            }
+            if (goals.look && report.head) {
+                // The neck takes its share of the look on the Neck bone; the head's share is the head angle.
+                if (B('Neck') && report.neck) set(B('Neck').param, report.neck.turn);
+                if (report.head.lookX !== undefined) { set('ParamAngleX', report.head.lookX); set('ParamAngleY', report.head.lookY); }
+                // The eyes take what the head and neck could not: toward the goal, up to full at 15 degrees.
+                const d = report.head.lookDir, e = Math.min(1, (report.head.eyes || 0) / 15), l = d ? Math.hypot(d[0], d[1]) || 1 : 1;
+                if (d && e > 0) { set('ParamEyeBallX', d[0] / l * e); set('ParamEyeBallY', -d[1] / l * e); }
+            }
+            return report;
+        }
+
+        /** Move the elbow's or knee's hint point and bend the limb towards it again (its hand or foot stays put). */
+        ikHint(limb, hint) {
+            const L = this._limb(limb);
+            if (!L) return false;
+            let target = this._ikTargets && this._ikTargets[limb];
+            if (!target) {
+                const M = this._poseBones3(x => this._boneValue(x.param), x => this._boneValue(x.SwingParam));
+                const tip = this._boneTip(L.lower), o = L.lower.index * 12;
+                target = {
+                    x: M[o] * tip[0] + M[o + 1] * tip[1] + M[o + 2] * tip[2] + M[o + 3],
+                    y: M[o + 4] * tip[0] + M[o + 5] * tip[1] + M[o + 6] * tip[2] + M[o + 7],
+                    z: M[o + 8] * tip[0] + M[o + 9] * tip[1] + M[o + 10] * tip[2] + M[o + 11],
+                };
+            }
+            return this.ik(limb, target, hint);
+        }
+
+        /**
+         * Drag a bone's point to a canvas point: cyclic coordinate descent up the limb (hand, forearm,
+         * upper arm; foot, shin, thigh; or the chest and spine), each joint stopping at its limits.
+         */
+        _solveIK(bone, local, tx, ty) {
+            const chain = [];
+            for (let b = bone; b && chain.length < 3; b = b.parentIndex >= 0 ? this._bones[b.parentIndex] : null) {
+                if (b.Name === 'Hips') break;
+                if ((b.Group || 'torso') === 'torso' && (bone.Group || 'torso') !== 'torso') break; // a limb stops at the body
+                chain.push(b);
+            }
+            const angle = (b) => this._pose.get(b.param) || 0;
+            for (let iter = 0; iter < 4; iter++) {
+                for (const j of chain) {
+                    const M = this._poseBones(angle);
+                    const [ex, ey] = applyMatrix(M, bone.index * 6, local[0], local[1]);
+                    const [jx, jy] = applyMatrix(M, j.index * 6, j.Head[0], j.Head[1]);
+                    if (Math.hypot(ex - jx, ey - jy) < 2) continue;
+                    const delta = wrapAngle(Math.atan2(ty - jy, tx - jx) - Math.atan2(ey - jy, ex - jx)) * 180 / Math.PI;
+                    const i = this.core.getParameterIndex(j.param);
+                    if (i < 0) continue;
+                    const lo = this.core.mins[i] - this.core.defaults[i], hi = this.core.maxs[i] - this.core.defaults[i];
+                    this._pose.set(j.param, clamp(angle(j) + delta, lo, hi));
+                }
+            }
+        }
+
+        /**
+         * A blush for one cheek: a soft pink multiplied over the skin (so it takes the skin's tone),
+         * or, with hatch, the anime blush strokes drawn over it when the blush is strong.
+         */
+        _makeCheek(side, hatch) {
+            const eye = this.doc.Rig.Eyes[side];
+            const [l, t, r, b] = eye.Box;
+            const w = (r - l) * 1.5;
+            const h = (b - t) * 0.85;
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 128;
+            const g = canvas.getContext('2d');
+            if (!hatch) {
+                // Feathered: strongest in the middle and fading out smoothly (no visible rim).
+                const gradient = g.createRadialGradient(128, 64, 0, 128, 64, 126);
+                const stops = 12;
+                for (let i = 0; i <= stops; i++) {
+                    const f = i / stops;
+                    const a = Math.pow(Math.cos(f * Math.PI / 2), 2.2);
+                    gradient.addColorStop(f, `rgba(255,${Math.round(125 + 45 * f)},${Math.round(138 + 40 * f)},${a.toFixed(3)})`);
+                }
+                g.filter = 'blur(3px)';
+                g.setTransform(1, 0, 0, 0.5, 0, 32);
+                g.fillStyle = gradient;
+                g.fillRect(0, 0, 256, 256);
+            } else {
+                // Short parallel strokes leaning outwards, thick in the middle, fading at the ends.
+                const lean = (side === 'R') === (this.doc.Rig.Head.Center[0] > (l + r) / 2) ? 1 : -1;
+                g.lineCap = 'round';
+                g.filter = 'blur(1.2px)';
+                for (let i = 0; i < 4; i++) {
+                    const x = 70 + i * 36;
+                    const grad = g.createLinearGradient(x, 30, x + 18 * lean, 98);
+                    grad.addColorStop(0, 'rgba(225,70,95,0)');
+                    grad.addColorStop(0.5, 'rgba(225,70,95,0.7)');
+                    grad.addColorStop(1, 'rgba(225,70,95,0)');
+                    g.strokeStyle = grad;
+                    g.lineWidth = 5;
+                    g.beginPath();
+                    g.moveTo(x - 9 * lean, 34);
+                    g.lineTo(x + 9 * lean, 94);
+                    g.stroke();
+                }
+            }
+            const entry = {
+                Id: `cheek_${side}${hatch ? '_hatch' : ''}`, Role: hatch ? 'cheek_hatch' : 'cheek', Side: side,
+                X: (l + r) / 2 - w / 2, Y: b + (b - t) * 0.05, Width: w, Height: h, Grid: [2, 2],
+            };
+            const layer = this._makeLayer(entry, PIXI.Texture.from(canvas));
+            // Line the blush up with the eyes: a drawn head is often tilted already, and the blush
+            // should sit along the face, not level with the screen. Head tilt then turns it further.
+            const angle = this._eyeLineAngle();
+            if (angle) {
+                const ox = entry.X + w / 2, oy = entry.Y + h / 2;
+                const c = Math.cos(angle), s = Math.sin(angle);
+                for (let k = 0; k < layer.rest.length; k += 2) {
+                    const dx = layer.rest[k] - ox, dy = layer.rest[k + 1] - oy;
+                    layer.rest[k] = ox + dx * c - dy * s;
+                    layer.rest[k + 1] = oy + dx * s + dy * c;
+                }
+                layer.out.set(layer.rest);
+            }
+            layer.dz = ROLE_DEPTH.cheek;
+            layer.head = true;
+            if (!hatch && PIXI.BLEND_MODES?.MULTIPLY !== undefined) layer.mesh.blendMode = PIXI.BLEND_MODES.MULTIPLY;
+            layer.mesh.alpha = 0;
+            return layer;
+        }
+
+        /** The slant of the line through both eyes in the drawing (radians, 0 with one eye box). */
+        _eyeLineAngle() {
+            const eyes = this.doc.Rig.Eyes || {};
+            if (!eyes.L || !eyes.R) return 0;
+            const centre = (box) => [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
+            let [ax, ay] = centre(eyes.L.Box);
+            let [bx, by] = centre(eyes.R.Box);
+            if (ax > bx) [ax, ay, bx, by] = [bx, by, ax, ay];
+            const angle = Math.atan2(by - ay, Math.max(1, bx - ax));
+            return clamp(angle, -0.6, 0.6);
+        }
+
+        async _loadJson(relative) {
+            const inline = bundled(relative);
+            if (inline) return inline;
+            const response = await fetch(this.base + relative);
+            if (!response.ok) throw new Error(`${LOG} can't load ${relative}`);
+            return response.json();
+        }
+
+        // Speech ------------------------------------------------------------------------------
+        /**
+         * Show one mouth shape (a VISEMES name: 'aa', 'ih', 'ou', 'E', 'oh', 'PP', 'FF', 'TH', 'DD',
+         * 'kk', 'CH', 'SS', 'nn', 'RR', 'sil') for a moment; call it again as a TTS engine reports each
+         * viseme. weight scales it.
+         */
+        viseme(name, weight = 1) {
+            const v = VISEMES[name];
+            if (!v) return false;
+            this._speech = { frames: [{ t: 0, v: name, w: weight }], start: performance.now(), hold: 180 };
+            return true;
+        }
+
+        /** The available mouth shapes, for a picker. */
+        static get visemes() { return Object.keys(VISEMES); }
+
+        /**
+         * Mouth a line: visemes from its letters at about charsPerSecond (a stand-in for a TTS
+         * engine's viseme timeline), or a timeline itself: [{t: seconds, v: viseme, w: weight}, ...].
+         * Returns the length in seconds.
+         */
+        speak(line, charsPerSecond = 14) {
+            let frames = [];
+            if (Array.isArray(line)) frames = line.map(f => ({ t: f.t * 1000, v: f.v, w: f.w ?? 1 }));
+            else {
+                const text = String(line).toLowerCase();
+                const step = 1000 / charsPerSecond;
+                let t = 0;
+                for (let i = 0; i < text.length;) {
+                    const ch = text[i];
+                    if (/[.,!?;:]/.test(ch)) { frames.push({ t, v: 'sil', w: 1 }); t += step * 3; i++; continue; }
+                    if (!/[a-z]/.test(ch)) { if (ch === ' ') t += step * 0.4; i++; continue; }
+                    const hit = LETTER_VISEMES.find(([g]) => text.startsWith(g, i)) || [ch, 'kk'];
+                    const vowel = 'aeiouy'.includes(hit[0][0]);
+                    frames.push({ t, v: hit[1], w: 1 });
+                    t += step * (vowel ? 1.4 : 0.8) * Math.max(1, hit[0].length * 0.7);
+                    i += hit[0].length;
+                }
+                frames.push({ t, v: 'sil', w: 1 });
+            }
+            this._speech = { frames, start: performance.now(), hold: 0 };
+            return (frames.length ? frames[frames.length - 1].t : 0) / 1000;
+        }
+
+        /** This frame's mouth from the speech playing ({parameter id: value}), or null. */
+        _speakFrame() {
+            const sp = this._speech;
+            if (!sp || !sp.frames.length) return null;
+            const now = performance.now() - sp.start;
+            const frames = sp.frames;
+            const end = frames[frames.length - 1].t + (sp.hold || 120);
+            if (now > end) { this._speech = null; return null; }
+            // Ease from each shape into the next (a mouth doesn't jump).
+            let i = 0;
+            while (i + 1 < frames.length && frames[i + 1].t <= now) i++;
+            const a = frames[i], b = frames[i + 1] || a;
+            const span = Math.max(1, b.t - a.t);
+            const u = b === a ? 0 : smoothstep(0, 1, Math.min(1, (now - a.t) / Math.min(span, 90)));
+            const va = VISEMES[a.v] || VISEMES.sil, vb = VISEMES[b.v] || VISEMES.sil;
+            const mix = (k) => (va[k] * a.w) * (1 - u) + (vb[k] * b.w) * u;
+            return { ParamMouthOpenY: mix('open'), ParamMouthWide: mix('wide'), ParamTongueUp: mix('tongue'), ParamTeeth: mix('teeth') };
+        }
+
+        // Face tracking and voice (what makes the puppet a VTuber) ---------------------------
+        /**
+         * Drive the puppet from a face tracker, one video frame at a time: MediaPipe
+         * FaceLandmarker's result (with outputFaceBlendshapes and outputFacialTransformationMatrixes),
+         * or {blendshapes: {name: score}, matrix: [16 numbers, column-major]} from any tracker that
+         * gives ARKit-style blendshapes. The head, eyes, gaze, brows and mouth follow the face, the
+         * body follows the head a little. mirror (the default) moves her like a mirror image, as
+         * VTuber apps do. The head's rest angle is taken from the first frames; recenter() takes it
+         * again. Without new frames for half a second the puppet goes back to idling on its own.
+         */
+        track(result, { mirror = true } = {}) {
+            const shapes = {};
+            const categories = result?.faceBlendshapes?.[0]?.categories;
+            if (categories) for (const c of categories) shapes[c.categoryName] = c.score;
+            else if (result?.blendshapes) Object.assign(shapes, result.blendshapes);
+            const m = result?.facialTransformationMatrixes?.[0]?.data || result?.matrix;
+            if (!m && !Object.keys(shapes).length) return false;
+            const deg = 180 / Math.PI;
+            // The face's forward (nose) and up directions in the camera's space: x to the picture's
+            // right, y up, z towards the camera.
+            let yaw = 0, pitch = 0, roll = 0;
+            if (m) {
+                yaw = Math.asin(clamp(m[8], -1, 1)) * deg;
+                pitch = Math.asin(clamp(m[9], -1, 1)) * deg;
+                roll = Math.atan2(m[4], m[5]) * deg;
+            }
+            const t = this._tracking || (this._tracking = { rest: null, samples: [], target: {}, now: {}, last: 0 });
+            if (!t.rest) {
+                t.samples.push([yaw, pitch, roll]);
+                if (t.samples.length >= 8) t.rest = [0, 1, 2].map(j => t.samples.reduce((a, v) => a + v[j], 0) / t.samples.length);
+            }
+            const rest = t.rest || [yaw, pitch, roll];
+            yaw -= rest[0]; pitch -= rest[1]; roll -= rest[2];
+            // Seen in a mirror, turning to your left turns her to the screen's left, and your left eye
+            // is the one on the screen's left: her right.
+            const s = mirror ? -1 : 1;
+            const g = (k) => shapes[k] || 0;
+            const eye = (side) => clamp(1 - (g(`eyeBlink${side}`) - 0.3) / 0.35, 0, 1) * (1 + 0.2 * clamp((g(`eyeWide${side}`) - 0.2) / 0.4, 0, 1));
+            const brow = (side) => clamp((g('browInnerUp') * 0.6 + g(`browOuterUp${side}`) - g(`browDown${side}`)) * 1.5, -1, 1);
+            const [her, other] = mirror ? ['R', 'L'] : ['L', 'R'];
+            const gazeX = (g('eyeLookOutLeft') + g('eyeLookInRight') - g('eyeLookInLeft') - g('eyeLookOutRight')) / 2;
+            const gazeY = (g('eyeLookUpLeft') + g('eyeLookUpRight') - g('eyeLookDownLeft') - g('eyeLookDownRight')) / 2;
+            const smile = (g('mouthSmileLeft') + g('mouthSmileRight')) / 2 - (g('mouthFrownLeft') + g('mouthFrownRight')) / 2;
+            const open = clamp((g('jawOpen') - 0.05) * 1.6 - g('mouthClose') * 0.5, 0, 1);
+            const wide = clamp((g('mouthStretchLeft') + g('mouthStretchRight')) * 1.5 + smile * 0.6 - (g('mouthPucker') + g('mouthFunnel')) * 1.6, -1, 1);
+            t.target = {
+                ParamAngleX: clamp(s * yaw, -30, 30),
+                ParamAngleY: clamp(pitch * 1.2, -30, 30),
+                ParamAngleZ: clamp(s * roll * 1.5, -30, 30),
+                ParamBodyAngleX: clamp(s * yaw * 0.25, -10, 10),
+                ParamBodyAngleZ: clamp(s * roll * 0.3, -10, 10),
+                [`ParamEye${her}Open`]: eye('Left'),
+                [`ParamEye${other}Open`]: eye('Right'),
+                ParamEyeBallX: clamp(s * gazeX * 1.8, -1, 1),
+                ParamEyeBallY: clamp(gazeY * 1.8, -1, 1),
+                [`ParamBrow${her}Y`]: brow('Left'),
+                [`ParamBrow${other}Y`]: brow('Right'),
+                ParamMouthOpenY: open,
+                ParamMouthForm: clamp(smile * 2, -1, 1),
+                ParamMouthWide: wide,
+                ParamTeeth: clamp(open * 1.2 + Math.max(0, smile) * 0.3, 0, 1),
+            };
+            t.last = performance.now();
+            return true;
+        }
+
+        /** Take the head's rest angle again from the next frames (sit as you will stream, then call it). */
+        recenter() {
+            if (this._tracking) { this._tracking.rest = null; this._tracking.samples = []; }
+        }
+
+        stopTracking() { this._tracking = null; }
+
+        /**
+         * Lip sync from a voice: a MediaStream (the microphone) or an <audio>/<video> element (a TTS
+         * clip). The mouth opens with the loudness and widens on bright sounds (ee) and rounds on
+         * dark ones (oo). Returns a function that stops it.
+         */
+        listen(input) {
+            this.stopListening();
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            const ctx = new AudioContextClass();
+            const source = input instanceof MediaStream ? ctx.createMediaStreamSource(input) : ctx.createMediaElementSource(input);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            analyser.smoothingTimeConstant = 0.3;
+            source.connect(analyser);
+            if (!(input instanceof MediaStream)) analyser.connect(ctx.destination); // still hear the clip
+            this._voice = { ctx, analyser, wave: new Float32Array(analyser.fftSize), spectrum: new Uint8Array(analyser.frequencyBinCount), level: 0, bright: 0, floor: 0.004 };
+            return () => this.stopListening();
+        }
+
+        stopListening() {
+            if (this._voice) { this._voice.ctx.close().catch(() => {}); this._voice = null; }
+        }
+
+        /** This frame's mouth from the voice, or null when it's quiet. */
+        _voiceFrame(dt) {
+            const v = this._voice;
+            if (!v) return null;
+            v.analyser.getFloatTimeDomainData(v.wave);
+            let sum = 0;
+            for (const x of v.wave) sum += x * x;
+            const rms = Math.sqrt(sum / v.wave.length);
+            // The room's own noise is learnt slowly, so a fan or hiss doesn't keep the mouth open.
+            v.floor = rms < v.floor ? lerp(v.floor, rms, 0.05) : lerp(v.floor, rms, 0.002);
+            const loud = clamp((rms - v.floor * 1.5) * 14, 0, 1);
+            // The mouth opens fast and closes a little slower, like a jaw.
+            v.level = lerp(v.level, loud, 1 - Math.exp(-dt * (loud > v.level ? 30 : 14)));
+            v.analyser.getByteFrequencyData(v.spectrum);
+            let total = 0, weighted = 0;
+            const hz = v.ctx.sampleRate / v.analyser.fftSize;
+            for (let i = 2; i < v.spectrum.length; i++) { total += v.spectrum[i]; weighted += v.spectrum[i] * i * hz; }
+            const centroid = total > 0 ? weighted / total : 1500;
+            v.bright = lerp(v.bright, clamp((centroid - 1400) / 1400, -1, 1), 1 - Math.exp(-dt * 10));
+            if (v.level < 0.03) return null;
+            return { ParamMouthOpenY: v.level * 0.9, ParamMouthWide: v.bright * 0.8, ParamTeeth: clamp(v.level * 0.9 + Math.max(0, v.bright) * 0.3, 0, 1), ParamTongueUp: 0 };
+        }
+
+        /** This frame's tracked face ({values, weight}), eased; null when there is no tracker. */
+        _trackFrame(dt) {
+            const t = this._tracking;
+            if (!t) return null;
+            const age = performance.now() - t.last;
+            const weight = age < 500 ? 1 : clamp(1 - (age - 500) / 700, 0, 1);
+            if (weight <= 0) return null;
+            // Trackers jitter: ease towards each new reading (fast enough to keep up with speech).
+            const ease = 1 - Math.exp(-dt * 22);
+            for (const [id, value] of Object.entries(t.target)) t.now[id] = t.now[id] === undefined ? value : lerp(t.now[id], value, ease);
+            return { values: t.now, weight };
+        }
+
+        // Expressions and motions (the Live2DModel calls the extension makes) ---------------
+        async expression(id) {
+            const list = this.internalModel.settings.expressions;
+            if (!list.length) return false;
+            let item;
+            if (id === undefined) item = list[Math.floor(Math.random() * list.length)];
+            else if (typeof id === 'number') item = list[id];
+            else item = list.find(e => e.Name === id) ?? list[Number(id)];
+            if (!item) return false;
+            let expression = this._expressionCache.get(item.File);
+            if (!expression) {
+                expression = new Expression(await this._loadJson(item.File));
+                this._expressionCache.set(item.File, expression);
+            }
+            const slot = PERSISTENT_SLOTS.find(prefix => String(item.Name).startsWith(prefix));
+            if (slot) {
+                // Outfits and accessories stay on while the emotions change.
+                const state = this._slots[slot] || (this._slots[slot] = { now: null, old: null });
+                state.old = state.now;
+                state.now = { expression, start: this._time, name: item.Name };
+                return true;
+            }
+            for (const active of this._expressions) if (active.fadeOutStart === undefined) active.fadeOutStart = this._time;
+            this._expressions.push({ expression, start: this._time, name: item.Name });
+            this._emotion = item.Name;
+            return true;
+        }
+
+        async motion(group, index, priority) {
+            const list = this.internalModel.settings.motions[group];
+            if (!list || !list.length) return false;
+            let i = index === undefined || index === null || index === 'random' ? Math.floor(Math.random() * list.length) : Number(index);
+            if (!(i >= 0 && i < list.length)) i = 0;
+            const entry = list[i];
+            let motion = this._motionCache.get(entry.File);
+            if (!motion) {
+                motion = new Motion(await this._loadJson(entry.File), entry);
+                this._motionCache.set(entry.File, motion);
+            }
+            for (const active of this._motions) {
+                if (active.fadeOutStart === undefined && (group !== 'Idle' || active.group === 'Idle')) active.fadeOutStart = this._time;
+            }
+            this._motions.push({ motion, group, start: this._time });
+            return true;
+        }
+
+        // Every frame -------------------------------------------------------------------------
+        _tick() {
+            if (!this.layers || !this._ready) return; // still loading
+            // Real time, so a slow frame rate never slows blinks and motions down (the springs
+            // sub-step); only a long pause (a hidden tab) is cut short.
+            const dt = Math.min(0.5, this._ticker.deltaMS / 1000);
+            this._update(dt);
+        }
+
+        _update(dt) {
+            this._time += dt;
+            this._computeParameters(dt);
+            this._deform(dt);
+        }
+
+        _computeParameters(dt) {
+            const core = this.core;
+            const values = core.values;
+            values.set(core.defaults);
+            const touched = new Set();
+            const now = this._time;
+
+            // Idle in the background when nothing else plays.
+            const idle = this.internalModel.settings.motions.Idle;
+            const reacting = this._motions.some(m => m.group !== 'Idle' && m.fadeOutStart === undefined);
+            if (idle && idle.length && !reacting && !this._motions.some(m => m.group === 'Idle' && m.fadeOutStart === undefined) && !this._idleLoading) {
+                this._idleLoading = true;
+                this.motion('Idle').finally(() => (this._idleLoading = false));
+            }
+
+            // Motions, oldest first, each blended over what came before.
+            this._motions = this._motions.filter(active => {
+                const m = active.motion;
+                const t = now - active.start;
+                if (!m.loop && t > m.duration) return false;
+                if (active.fadeOutStart !== undefined && now - active.fadeOutStart > m.fadeOut) return false;
+                return true;
+            });
+            // The idle loop goes underneath whatever else plays.
+            const ordered = [...this._motions.filter(a => a.group === 'Idle'), ...this._motions.filter(a => a.group !== 'Idle')];
+            for (const active of ordered) {
+                const m = active.motion;
+                const t = now - active.start;
+                const local = m.loop ? t % m.duration : t;
+                let weight = m.fadeIn > 0 ? clamp(t / m.fadeIn, 0, 1) : 1;
+                if (!m.loop && m.fadeOut > 0) weight *= clamp((m.duration - t) / m.fadeOut, 0, 1);
+                if (active.fadeOutStart !== undefined) weight *= m.fadeOut > 0 ? clamp(1 - (now - active.fadeOutStart) / m.fadeOut, 0, 1) : 0;
+                weight = smoothstep(0, 1, weight);
+                for (const curve of m.curves) {
+                    const i = core.getParameterIndex(curve.id);
+                    if (i < 0) continue;
+                    values[i] = lerp(values[i], Motion.evaluate(curve.segments, local), weight);
+                    touched.add(i);
+                }
+            }
+
+            // Expressions on top: the newest fades in while the older ones fade out.
+            this._expressions = this._expressions.filter(active => active.fadeOutStart === undefined || now - active.fadeOutStart < active.expression.fadeOut);
+            for (const active of this._expressions) {
+                const e = active.expression;
+                let weight = e.fadeIn > 0 ? clamp((now - active.start) / e.fadeIn, 0, 1) : 1;
+                if (active.fadeOutStart !== undefined) weight *= e.fadeOut > 0 ? clamp(1 - (now - active.fadeOutStart) / e.fadeOut, 0, 1) : 0;
+                weight = smoothstep(0, 1, weight);
+                for (const p of e.parameters) {
+                    const i = core.getParameterIndex(p.id);
+                    if (i < 0) continue;
+                    if (p.blend === 'Multiply') values[i] *= lerp(1, p.value, weight);
+                    else if (p.blend === 'Overwrite') values[i] = lerp(values[i], p.value, weight);
+                    else values[i] += p.value * weight;
+                    touched.add(i);
+                }
+            }
+
+            // The outfit, over everything (Overwrite), cross-fading from the one before.
+            const applyOutfit = (active, weight) => {
+                for (const p of active.expression.parameters) {
+                    const i = core.getParameterIndex(p.id);
+                    if (i >= 0) values[i] = lerp(values[i], p.value, weight);
+                }
+            };
+            for (const state of Object.values(this._slots)) {
+                if (!state.now) continue;
+                const e = state.now.expression;
+                const weight = smoothstep(0, 1, e.fadeIn > 0 ? clamp((now - state.now.start) / e.fadeIn, 0, 1) : 1);
+                if (state.old && weight < 1) applyOutfit(state.old, 1);
+                else state.old = null;
+                applyOutfit(state.now, weight);
+            }
+
+            // Ease every value towards where the motions and expressions put it (a critically damped
+            // spring), so expression changes glide and overlapping fades never jump.
+            if (!this._eased || this._eased.length !== values.length || dt <= 0) {
+                this._eased = Float32Array.from(values);
+                this._easedVelocity = new Float32Array(values.length);
+            } else {
+                const omega = 2 / EASE_TIME;
+                const f = 1 + 2 * dt * omega;
+                const oo = omega * omega;
+                const hoo = dt * oo;
+                const hhoo = dt * hoo;
+                const inv = 1 / (f + hhoo);
+                const x = this._eased, v = this._easedVelocity;
+                for (let i = 0; i < values.length; i++) {
+                    const target = values[i];
+                    const nx = (f * x[i] + dt * v[i] + hhoo * target) * inv;
+                    v[i] = (v[i] + hoo * (target - x[i])) * inv;
+                    x[i] = nx;
+                    values[i] = nx;
+                }
+            }
+
+            // Blinking and breathing (a tracked face blinks for itself).
+            const tracked = this._trackFrame(dt);
+            const blink = tracked ? lerp(this._autoBlink(dt), 1, tracked.weight) : this._autoBlink(dt);
+            for (const id of ['ParamEyeLOpen', 'ParamEyeROpen']) {
+                const i = core.getParameterIndex(id);
+                if (i >= 0) values[i] *= blink;
+            }
+            const breath = core.getParameterIndex(this.internalModel.idParamBreath || 'ParamBreath');
+            if (breath >= 0 && !touched.has(breath)) values[breath] = 0.5 + 0.5 * Math.sin(now * (2 * Math.PI / 3.6));
+
+            // Cursor.
+            const f = this._focus;
+            const ease = 1 - Math.exp(-dt * 6);
+            const fx = tracked ? f.tx * (1 - tracked.weight) : f.tx, fy = tracked ? f.ty * (1 - tracked.weight) : f.ty;
+            f.x += (fx - f.x) * ease;
+            f.y += (fy - f.y) * ease;
+            const im = this.internalModel;
+            const addFocus = (id, amount) => {
+                if (!id || id === 'none') return;
+                const i = core.getParameterIndex(id);
+                if (i >= 0) values[i] += amount;
+            };
+            addFocus(im.idParamAngleX, f.x * 30);
+            addFocus(im.idParamAngleY, f.y * 30);
+            addFocus(im.idParamAngleZ, f.x * f.y * -30);
+            addFocus(im.idParamBodyAngleX, f.x * 10);
+            addFocus(im.idParamEyeBallX, f.x);
+            addFocus(im.idParamEyeBallY, f.y);
+
+            // Lip sync and other short offsets, then values set by hand, then speech (visemes).
+            const wall = performance.now();
+            for (const [i, add] of core.adds) {
+                if (wall - add.time > 160) core.adds.delete(i);
+                else values[i] += add.value;
+            }
+            for (const [i, value] of core.overrides) values[i] = value;
+            if (tracked) {
+                for (const [id, value] of Object.entries(tracked.values)) {
+                    const i = core.getParameterIndex(id);
+                    if (i >= 0) values[i] = lerp(values[i], value, tracked.weight);
+                }
+            }
+            const voiced = this._voiceFrame(dt);
+            if (voiced) {
+                for (const [id, value] of Object.entries(voiced)) {
+                    const i = core.getParameterIndex(id);
+                    if (i >= 0) values[i] = id === 'ParamMouthOpenY' ? Math.max(values[i], value) : value;
+                }
+            }
+            const said = this._speakFrame();
+            if (said) {
+                for (const [id, value] of Object.entries(said)) {
+                    const i = core.getParameterIndex(id);
+                    if (i >= 0) values[i] = value;
+                }
+            }
+            // The pose the user dragged the skeleton into, on top of whatever plays.
+            for (const [id, offset] of this._pose) {
+                const i = core.getParameterIndex(id);
+                if (i >= 0) values[i] += offset;
+            }
+            for (let i = 0; i < values.length; i++) values[i] = clamp(values[i], core.mins[i], core.maxs[i]);
+        }
+
+        _autoBlink(dt) {
+            const b = this._blink;
+            if (b.phase < 0) {
+                b.next -= dt;
+                if (b.next <= 0) b.phase = 0;
+                return 1;
+            }
+            b.phase += dt;
+            const closing = 0.08, closed = 0.05, opening = 0.12;
+            let open;
+            if (b.phase < closing) open = 1 - b.phase / closing;
+            else if (b.phase < closing + closed) open = 0;
+            else if (b.phase < closing + closed + opening) open = (b.phase - closing - closed) / opening;
+            else {
+                b.phase = -1;
+                b.next = 2.5 + Math.random() * 4 + (Math.random() < 0.15 ? -2.2 : 0); // now and then a quick double blink
+                open = 1;
+            }
+            return open;
+        }
+
+        _hairSwing(key, target, dt, spring) {
+            const physics = this.doc.Rig.Physics || {};
+            const k = spring?.stiffness ?? physics.stiffness ?? 18;
+            const d = spring?.damping ?? physics.damping ?? 5.5;
+            const state = this._hair[key] || (this._hair[key] = { x: target, v: 0 });
+            const steps = Math.max(1, Math.ceil(dt / 0.008));
+            const h = dt / steps;
+            for (let s = 0; s < steps; s++) {
+                const a = k * (target - state.x) - d * state.v;
+                state.v += a * h;
+                state.x += state.v * h;
+            }
+            return state.x;
+        }
+
+        /**
+         * Where the puppet is in the world, in canvas pixels: dragging the model across the screen (or
+         * the page moving it) shakes the soft parts and hair like any other movement of the body.
+         */
+        _worldOffset() {
+            const sx = Math.abs(this.scale?.x || 1), sy = Math.abs(this.scale?.y || 1);
+            return [(this.x || 0) / sx, (this.y || 0) / sy];
+        }
+
+        /**
+         * A mass on a 2D spring, its anchor at (ax, ay) in the world (the body point plus the
+         * model's own movement): returns how far it lags behind the anchor. Real tissue and hair are
+         * springs with a natural frequency (Hz) and a damping ratio: fx/fy for the side-to-side and
+         * the up-and-down bounce, zeta the fraction of critical damping (0.1 rings a while, 1 doesn't).
+         * gx/gy shift its rest point (gravity pulling sideways when the body tilts).
+         */
+        _jiggle(key, ax, ay, dt, fx, fy, zeta, gx = 0, gy = 0) {
+            const [wx, wy] = this._worldOffset();
+            ax += wx; ay += wy;
+            const state = this._soft[key] || (this._soft[key] = { x: ax, y: ay, vx: 0, vy: 0 });
+            const kx = (2 * Math.PI * fx) ** 2, ky = (2 * Math.PI * fy) ** 2;
+            const cx = 2 * zeta * 2 * Math.PI * fx, cy = 2 * zeta * 2 * Math.PI * fy;
+            const steps = Math.max(1, Math.ceil(dt / 0.004));
+            const h = dt / steps;
+            for (let s = 0; s < steps; s++) {
+                // Semi-implicit Euler: stable at these stiffnesses with 4 ms steps.
+                state.vx += (kx * (ax + gx - state.x) - cx * state.vx) * h;
+                state.vy += (ky * (ay + gy - state.y) - cy * state.vy) * h;
+                state.x += state.vx * h;
+                state.y += state.vy * h;
+            }
+            return [state.x - ax, state.y - ay];
+        }
+
+        /** A 2D spring that follows (ax, ay) with a lag: returns the lag (how far the soft part trails). */
+        _softSpring(key, ax, ay, dt, k, d) {
+            const state = this._soft[key] || (this._soft[key] = { x: ax, y: ay, vx: 0, vy: 0 });
+            const steps = Math.max(1, Math.ceil(dt / 0.006));
+            const h = dt / steps;
+            for (let s = 0; s < steps; s++) {
+                state.vx += (k * (ax - state.x) - d * state.vx) * h;
+                state.vy += (k * (ay - state.y) - d * state.vy) * h;
+                state.x += state.vx * h;
+                state.y += state.vy * h;
+            }
+            return [state.x - ax, state.y - ay];
+        }
+
+        /** The mouse's pull: follows the pointer while dragging, springs back (and wobbles) after. */
+        _dragStep(dt) {
+            const d = this._drag;
+            const spring = (this.doc.Rig.Physics || {}).drag || {};
+            const k = d.active ? 260 : (spring.stiffness ?? 110);
+            const c = d.active ? 32 : (spring.damping ?? 5);
+            const steps = Math.max(1, Math.ceil(dt / 0.006));
+            const h = dt / steps;
+            for (let s = 0; s < steps; s++) {
+                d.vx += (k * (d.tx - d.x) - c * d.vx) * h;
+                d.vy += (k * (d.ty - d.y) - c * d.vy) * h;
+                d.x += d.vx * h;
+                d.y += d.vy * h;
+            }
+            return Math.abs(d.x) + Math.abs(d.y) + Math.abs(d.vx) + Math.abs(d.vy) > 0.05;
+        }
+
+        _deform(dt) {
+            const P = (id) => this.core.getParameterValueById(id);
+            const rig = this.doc.Rig;
+            const S = rig.Strength || {};
+            const head = rig.Head;
+            const body = rig.Body;
+            const [fl, ft, fr, fb] = head.Box;
+            const faceW = fr - fl;
+            const faceH = fb - ft;
+            const [cx, cy] = head.Center;
+            const [px, py] = head.Pivot;
+            const r = Math.max(1, head.Radius);
+            const ax = P('ParamAngleX') / 30;
+            const ay = P('ParamAngleY') / 30;
+            const tilt = (P('ParamAngleZ') * (S.tilt ?? 0.35)) * Math.PI / 180;
+            const bodyTilt = (P('ParamBodyAngleZ') * (S.body ?? 0.35)) * Math.PI / 180;
+            const bx = P('ParamBodyAngleX') / 10;
+            const by = P('ParamBodyAngleY') / 10;
+            const breath = P('ParamBreath');
+            const [bpx, bpy] = body.Pivot;
+            const top = Math.min(ft, body.Box[1]);
+            const bodyH = Math.max(1, bpy - top);
+            const chest = body.Chest ?? (body.Box[1] + (body.Box[3] - body.Box[1]) * 0.25);
+            const turn = (S.turn ?? 0.1) * faceW;
+            const nod = (S.nod ?? 0.07) * faceH;
+            const parallax = S.parallax ?? 0.9;
+            // With depth, a turn is a small rotation: near points move further than far ones.
+            const depthRig = rig.Depth && rig.Depth.Scale > 0 ? rig.Depth : null;
+            const yaw = ax * (S.yaw ?? 12) * Math.PI / 180, pitch = ay * (S.pitch ?? 10) * Math.PI / 180;
+            const sinYaw = Math.sin(yaw), cosYaw = Math.cos(yaw), sinPitch = Math.sin(pitch);
+            const sinBodyYaw = Math.sin(bx * (S.body_yaw ?? 8) * Math.PI / 180);
+            const cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+            const cosB = Math.cos(bodyTilt), sinB = Math.sin(bodyTilt);
+            const hairReach = (S.hair ?? 0.06) * faceW;
+            // The hair hangs in locks, each a pendulum, so they swing a little out of step like real
+            // strands (one swing for the whole layer looks like a sheet of card). The front and back
+            // hair at the same place are the same lock, seen in front of and behind the head: they
+            // swing together, or the back hair (painted on under the front hair by the split, edge and
+            // all) slides out from under the front hair's outline.
+            const hairTarget = -ax * 0.8 - P('ParamAngleZ') / 30 - bx * 0.4 + (P('ParamHairFront') + P('ParamHairBack')) / 2 + 0.13 * Math.sin(this._time * 1.2);
+            const hairSpec = (rig.Physics || {}).hair;
+            let hairSwing = [this._hairSwing('front', hairTarget, dt)];
+            if (hairSpec && hairSpec.frequency) {
+                hairSwing = [];
+                const locks = Math.max(1, hairSpec.locks ?? 5);
+                for (let i = 0; i < locks; i++) {
+                    const f = hairSpec.frequency * (1 + 0.09 * Math.sin(i * 2.3));
+                    const w = 2 * Math.PI * f;
+                    const swing = this._hairSwing(`lock${i}`, hairTarget, dt, { stiffness: w * w, damping: 2 * (hairSpec.damping ?? 0.2) * w });
+                    // The head moving through space leaves the tips behind.
+                    const [lagX] = this._jiggle(`lockroot${i}`, cx, cy, dt, f, f, hairSpec.damping ?? 0.2);
+                    hairSwing.push(swing + clamp(lagX / Math.max(1, hairReach), -1.5, 1.5));
+                }
+            }
+            const hairRig = rig.Hair || [];
+            const hairRoot = hairRig.length ? Math.min(...hairRig.map(h => h.Root)) : 0;
+            const hairLength = hairRig.length ? Math.max(1, Math.max(...hairRig.map(h => h.Root + h.Length)) - hairRoot) : 1;
+            const spanOf = (layers) => {
+                let lo = Infinity, hi = -Infinity;
+                for (const l of layers) for (let i = 0; i < l.rest.length; i += 2) { lo = Math.min(lo, l.rest[i]); hi = Math.max(hi, l.rest[i]); }
+                return [lo, Math.max(lo + 1, hi)];
+            };
+            const lockAt = (swings, layer, x) => {
+                if (swings.length === 1) return swings[0];
+                if (layer.span === undefined) {
+                    // All the hair shares one row of locks across the whole hairdo.
+                    const hairLayers = layer.hair ? this.layers.filter(l => l.hair) : [layer];
+                    const span = spanOf(hairLayers);
+                    for (const l of hairLayers) l.span = span;
+                }
+                const u = clamp((x - layer.span[0]) / (layer.span[1] - layer.span[0]), 0, 1) * (swings.length - 1);
+                const i = Math.min(swings.length - 2, Math.floor(u));
+                const t = u - i;
+                return swings[i] * (1 - t) + swings[i + 1] * t;
+            };
+            const mouth = rig.Mouth;
+            const mouthOpen = P('ParamMouthOpenY');
+            const mouthForm = P('ParamMouthForm');
+            const hasMouthOpen = this.layers.some(l => l.role === 'mouth_open');
+            const closedSides = new Set(this.layers.filter(l => l.role === 'eye_closed').map(l => l.side || 'LR'));
+            // Drawn pieces for the strongest emotions: angry brows, a grin, tears (each over what it replaces).
+            const hasArt = (role) => this.layers.some(l => l.role === role);
+            const angry = hasArt('brow_angry') ? smoothstep(0.1, 0.7, P('ParamBrowAngry')) : 0;
+            const grin = hasArt('mouth_grin') ? smoothstep(0.1, 0.7, P('ParamMouthGrin')) : 0;
+            // The open mouth in pieces (lips, inside, teeth, tongue): lip sync opens, widens and rounds
+            // it and moves the tongue, in place of the one drawn open mouth.
+            const talk = this._mouthParts;
+            const talkShow = talk ? smoothstep(0.03, 0.14, mouthOpen) : 0;
+            const talkOpen = talk ? Math.max(0.06, Math.min(1, mouthOpen)) : 0;
+            const talkWide = P('ParamMouthWide');
+            const talkX = 1 + (talkWide >= 0 ? 0.22 : 0.4) * talkWide;
+            const talkUp = talk ? (talk.top - talk.cy) * (talkOpen - 1) : 0;
+            const talkDown = talk ? (talk.bottom - talk.cy) * (talkOpen - 1) : 0;
+            const tears = smoothstep(0.05, 0.6, P('ParamTear'));
+            const outer = this._hasBody ? P('ParamClothesOuter') : 1;
+            const inner = P('ParamClothesInner');
+            const swung = this._bones && this._bones.some(b => b.SwingParam && P(b.SwingParam));
+            const boneM = !swung && this._bones && this._bones.some(b => P(b.param)) ? this._poseBones(b => P(b.param)) : null;
+            // Swung towards or away from the viewer: the bones move in 3D, each point at its depth.
+            const boneM3 = swung ? this._poseBones3(b => P(b.param), b => (b.SwingParam ? P(b.SwingParam) : 0)) : null;
+            const headF = this._boneByName?.get('Head')?.HeadZ || 0;
+            const depthAt = (layer, v) => (depthRig && layer.z ? (depthRig.Body - layer.z[v]) * depthRig.Scale : 0);
+            if (swung) this._sortBySwing(P);
+            else if (this._swungOrder) this._restoreOrder();
+
+            // Where the body moves a point to (lean, turn, breathing, tilt): used for the vertices and
+            // to drive the soft parts, which trail behind that movement.
+            const bodyMove = (rx, ry, x, y) => {
+                const up = clamp((bpy - ry) / bodyH, 0, 1);
+                x += bx * 0.025 * bodyH * up;
+                y += by * 0.012 * bodyH * up;
+                y -= breath * (S.breath ?? 0.012) * bodyH * clamp((bpy - ry) / Math.max(1, bpy - chest), 0, 1);
+                if (bodyTilt) {
+                    const dx = x - bpx, dy = y - bpy;
+                    x = bpx + dx * cosB - dy * sinB;
+                    y = bpy + dx * sinB + dy * cosB;
+                }
+                return [x, y];
+            };
+
+            // Soft body: each bust and hip centre trails the body's movement on a bouncy spring.
+            const softPhysics = (rig.Physics || {}).soft || {};
+            const softRegions = [];
+            for (const name of ['Bust', 'Hips']) {
+                const region = rig[name];
+                const gain = name === 'Bust' ? (S.bust ?? 1) : (S.hips ?? 1);
+                if (!region || !(region.Radius?.[0] > 0) || gain <= 0) continue;
+                const [rx, ry] = region.Radius;
+                const param = name === 'Bust' ? ['ParamBustX', 'ParamBustY'] : ['ParamHipX', 'ParamHipY'];
+                const spec = (name === 'Bust' ? softPhysics : (rig.Physics || {}).hips) || softPhysics;
+                region.Centers.forEach(([cx0, cy0], index) => {
+                    const [ax, ay] = bodyMove(cx0, cy0, cx0, cy0);
+                    // Breathing lifts the bust a touch more, so it never sits perfectly still.
+                    const lift = name === 'Bust' ? -breath * ry * 0.04 : 0;
+                    let ox, oy;
+                    if (spec.frequency) {
+                        // The two sides ring a little out of step, as they do.
+                        const detune = index ? 1.04 : 1;
+                        const [fx, fy] = spec.frequency;
+                        // Tilting the body turns gravity against it: the mass settles towards the low side.
+                        const g = (spec.gravity ?? 0.12) * ry;
+                        const tiltNow = bodyTilt + (P('ParamAngleZ') * 0.15) * Math.PI / 180;
+                        [ox, oy] = this._jiggle(`${name}${index}`, ax, ay + lift, dt, fx * detune, fy * detune, spec.damping ?? 0.12,
+                            -Math.sin(tiltNow) * g, (1 - Math.cos(tiltNow)) * g);
+                        // Tissue stiffens as it stretches: a soft limit, never a hard stop.
+                        const limit = spec.limit ?? 0.32;
+                        ox = rx * limit * Math.tanh((ox * gain) / (rx * limit));
+                        oy = ry * limit * Math.tanh((oy * gain) / (ry * limit));
+                    } else {
+                        const k = (softPhysics.stiffness ?? 75) * (name === 'Hips' ? 0.7 : 1) * (index ? 1.06 : 1);
+                        const c = (softPhysics.damping ?? 3) * (name === 'Hips' ? 1.2 : 1);
+                        [ox, oy] = this._softSpring(`${name}${index}`, ax, ay + lift, dt, k, c);
+                        ox = clamp(ox * 3 * gain, -rx * 0.3, rx * 0.3);
+                        oy = clamp(oy * 3 * gain, -ry * 0.3, ry * 0.3);
+                    }
+                    ox += P(param[0]) * rx * 0.18;
+                    oy -= P(param[1]) * ry * 0.18;
+                    softRegions.push({ cx: cx0, cy: cy0, rx, ry, ox, oy, attached: name === 'Bust' });
+                });
+            }
+
+            this._softNow = softRegions; // this frame's jiggle (read by tests and tools)
+
+            // Cloth: skirt hems and ribbons swing behind the body like hair, a little heavier.
+            const bodyW = Math.max(1, body.Box[2] - body.Box[0]);
+            const clothSpec = (rig.Physics || {}).cloth || {};
+            const clothTarget = -bx * 0.9 - P('ParamBodyAngleZ') / 10 * 0.7 + 0.08 * Math.sin(this._time * 0.9);
+            let clothSwing = [0];
+            if ((rig.Cloth || []).length && clothSpec.frequency) {
+                // The hem in panels, each its own pendulum, trailing the hips through space too.
+                clothSwing = [];
+                const locks = Math.max(1, clothSpec.locks ?? 4);
+                const hips = rig.Hips?.Centers?.[0] || body.Pivot;
+                for (let i = 0; i < locks; i++) {
+                    const f = clothSpec.frequency * (1 + 0.07 * Math.sin(i * 1.9));
+                    const w = 2 * Math.PI * f;
+                    const swing = this._hairSwing(`cloth${i}`, clothTarget, dt, { stiffness: w * w, damping: 2 * (clothSpec.damping ?? 0.25) * w });
+                    const [lagX] = this._jiggle(`clothroot${i}`, hips[0], hips[1], dt, f, f, clothSpec.damping ?? 0.25);
+                    clothSwing.push(swing + clamp(lagX / Math.max(1, (S.cloth ?? 0.05) * Math.max(1, body.Box[2] - body.Box[0])), -1.5, 1.5));
+                }
+            } else if ((rig.Cloth || []).length) {
+                clothSwing = [this._hairSwing('cloth', clothTarget, dt, clothSpec)];
+            }
+            const clothReach = (S.cloth ?? 0.05) * bodyW;
+
+            // The mouse's pull, strongest where the drag started.
+            const dragging = this._dragStep(dt);
+            const drag = this._drag;
+            const sigma = faceH * (drag.soft ? 0.4 : 0.32);
+            const twoSigma2 = 2 * sigma * sigma;
+
+            for (const layer of this.layers) {
+                const { role, side, rest, out } = layer;
+                const eyeKey = side && rig.Eyes[side] ? side : (rig.Eyes.LR ? 'LR' : side);
+                const eye = rig.Eyes[eyeKey];
+                const rawOpen = eyeKey === 'LR' ? (P('ParamEyeLOpen') + P('ParamEyeROpen')) / 2 : P(`ParamEye${side}Open`);
+                const eyeSmile = clamp(eyeKey === 'LR' ? (P('ParamEyeLSmile') + P('ParamEyeRSmile')) / 2 : P(`ParamEye${side}Smile`), 0, 1);
+                const hasClosed = closedSides.has(side || 'LR') || closedSides.has('LR');
+                // With closed-eye art, a smile closes the eyes into arcs (^ ^) instead of squashing
+                // the open eye, which smears its lashes.
+                const eyeOpen = hasClosed ? Math.min(rawOpen, 1) * (1 - 0.92 * eyeSmile) + Math.max(0, rawOpen - 1) : rawOpen;
+
+                // Opacity from the switches.
+                let alpha = 1;
+                // A quick cross-fade between the open eye and the closed art (a blink lasts a tenth of a
+                // second, so the swap reads as the lid closing).
+                // The open and the closed drawings swap over a narrow band: a half-way mix shows both
+                // lids at once (a ghost). A blink passes it in a frame or two.
+                if (role === 'eye_closed') alpha = 1 - smoothstep(0.27, 0.33, eyeOpen);
+                else if (role === 'eye_white' || role === 'iris') alpha = hasClosed ? smoothstep(0.28, 0.33, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen);
+                else if (role === 'eyelash' || role === 'eyes') alpha = hasClosed ? smoothstep(0.27, 0.33, eyeOpen) : 1;
+                else if (role === 'mouth' && talk) alpha = (1 - talkShow) * (1 - grin);
+                else if (role === 'mouth') alpha = (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1) * (1 - grin);
+                else if (role === 'mouth_open') alpha = talk ? 0 : smoothstep(0.15, 0.55, mouthOpen);
+                else if (MOUTH_PART_ROLES.has(role)) alpha = talk ? talkShow * (1 - grin) : 0;
+                else if (role === 'mouth_grin') alpha = grin * (hasMouthOpen ? 1 - smoothstep(0.15, 0.55, mouthOpen) : 1);
+                else if (role === 'brow') alpha = 1 - angry;
+                else if (role === 'brow_angry') alpha = angry;
+                else if (role === 'eye_tears') alpha = tears * (hasClosed ? smoothstep(0.27, 0.33, eyeOpen) : smoothstep(0.02, 0.2, eyeOpen));
+                else if (role === 'cheek') alpha = clamp(P('ParamCheek'), 0, 1) * 0.85;
+                else if (role === 'cheek_hatch') alpha = smoothstep(0.35, 0.85, P('ParamCheek')) * 0.8;
+                else if (OUTER_ROLES.has(role)) alpha = clamp(outer, 0, 1);
+                else if (role === 'inner') alpha = clamp(inner, 0, 1);
+                // One piece of the clothes on its own (half off), and the accessories.
+                // Koikatsu-style slots: 1 on, 0.5 half off (with half-off art), 0 off. Without a body
+                // layer only the coat can come off (the clothes under it are drawn).
+                const sw = layer.entry.Switch;
+                if (sw && (this._hasBody || sw === 'ParamClothesCoat')) {
+                    const v = P(sw);
+                    if (layer.entry.State === 'half') alpha *= smoothstep(0.1, 0.35, v) * (1 - smoothstep(0.65, 0.9, v));
+                    else if (this._halfSwitches.has(sw)) alpha *= smoothstep(0.65, 0.9, v);
+                    else alpha *= clamp(v, 0, 1);
+                } else if (layer.entry.State === 'half') alpha = 0;
+                if (layer.entry.Accessory) alpha *= clamp(P('ParamAccessories'), 0, 1);
+                if (layer.entry.ShadowOf) {
+                    // The shade an arm casts on the cloth beside it fades as the arm moves away.
+                    const b = layer.entry.ShadowOf;
+                    alpha *= 1 - smoothstep(6, 30, Math.hypot(P(`ParamBone${b}`), P(`ParamBone${b}Swing`)));
+                }
+                for (const mesh of layer.meshes) {
+                    mesh.alpha = alpha;
+                    mesh.visible = alpha > 0.003;
+                }
+                if (alpha <= 0.003) continue;
+
+                for (let k = 0; k < rest.length; k += 2) {
+                    let x = rest[k];
+                    let y = rest[k + 1];
+
+                    // Features ---------------------------------------------------------
+                    if (eye && EYE_ROLES.has(role)) {
+                        const [el, et, er, eb] = eye.Box;
+                        const eh = eb - et;
+                        // The lid comes down a little before the swap to the closed art; without that
+                        // art the eye has to close by squashing.
+                        const scale = eyeOpen <= 1 ? (hasClosed ? 0.55 + 0.45 * eyeOpen : 0.1 + 0.9 * eyeOpen) : eyeOpen;
+                        y = eye.Lid + (y - eye.Lid) * scale;
+                        if (!hasClosed) y -= eyeSmile * 0.35 * eh * clamp((rest[k + 1] - et) / Math.max(1, eh), 0, 1);
+                        if (role === 'iris') {
+                            x += P('ParamEyeBallX') * (S.eyeball ?? 0.14) * (er - el);
+                            y -= P('ParamEyeBallY') * (S.eyeball ?? 0.14) * 0.8 * eh;
+                        }
+                    } else if (role === 'eye_closed' && eye && eyeSmile > 0) {
+                        // A smile bends the closed lid into an arc, highest in the middle.
+                        const [el, et, er, eb] = eye.Box;
+                        const n = clamp((x - (el + er) / 2) / Math.max(1, (er - el) / 2), -1, 1);
+                        y -= eyeSmile * 0.3 * (eb - et) * (1 - n * n);
+                    } else if ((role === 'brow' || role === 'brow_angry') && eye) {
+                        const [el, et, er, eb] = eye.Box;
+                        const eh = eb - et;
+                        const brow = eye.Brow || eye.Box;
+                        const bw = Math.max(1, brow[2] - brow[0]);
+                        // +1 at the inner end (towards the middle of the face), -1 at the outer end.
+                        const inner = clamp(((x - (brow[0] + brow[2]) / 2) / (bw / 2)) * Math.sign(cx - (brow[0] + brow[2]) / 2 || 1), -1, 1);
+                        const n = clamp((x - (brow[0] + brow[2]) / 2) / (bw / 2), -1, 1);
+                        y -= P(`ParamBrow${side}Y`) * (S.brow ?? 0.35) * eh;
+                        y += P(`ParamBrow${side}Angle`) * 0.22 * eh * inner;
+                        y -= P(`ParamBrow${side}Form`) * 0.15 * eh * (1 - n * n);
+                    } else if (talk && MOUTH_PART_ROLES.has(role)) {
+                        // The opening scales about its middle; the teeth ride its top and bottom edges
+                        // whole, the tongue the bottom (raised for t, d, l, th); the lips follow both.
+                        x = talk.cx + (x - talk.cx) * talkX;
+                        const h = talk.bottom - talk.top;
+                        // The teeth stay a little behind the lips as the mouth closes: a small opening
+                        // shows a sliver of them and the dark, not a row of white.
+                        // ParamTeeth brings them to the lips' edge (s, ee, f).
+                        const teeth = clamp(P('ParamTeeth'), 0, 1);
+                        if (role === 'teeth_upper') y += talkUp * (0.62 + 0.38 * teeth);
+                        else if (role === 'teeth_lower') y += talkDown * (0.3 + 0.7 * teeth);
+                        else if (role === 'tongue') y = talk.cy + (y - talk.cy) * talkOpen + (1 - talkOpen) * 0.14 * h - P('ParamTongueUp') * 0.18 * h;
+                        else y += talkUp + (talkDown - talkUp) * clamp((rest[k + 1] - talk.top) / Math.max(1, h), 0, 1);
+                        if (mouth) {
+                            const mw = Math.max(1, mouth.Box[2] - mouth.Box[0]);
+                            const n = clamp((x - talk.cx) / (mw / 2), -1.2, 1.2);
+                            y -= mouthForm * (S.mouth_form ?? 0.35) * mw * 0.3 * (n * n - 0.35);
+                        }
+                    } else if ((role === 'mouth' || role === 'mouth_open') && mouth) {
+                        const [ml, mt, mr, mb] = mouth.Box;
+                        const mw = Math.max(1, mr - ml);
+                        const [mcx, mcy] = mouth.Center;
+                        const n = clamp((x - mcx) / (mw / 2), -1.2, 1.2);
+                        if (role === 'mouth') y = mcy + (y - mcy) * (1 + (hasMouthOpen ? 1.5 : 4) * mouthOpen);
+                        else y = mcy + (y - mcy) * (0.3 + 0.7 * mouthOpen);
+                        y -= mouthForm * (S.mouth_form ?? 0.35) * mw * 0.3 * (n * n - 0.35);
+                    }
+                    if ((role === 'mouth' || role === 'mouth_open' || role === 'mouth_lips' || role === 'teeth_lower' || role === 'tongue') && mouth && mouth.Jaw) {
+                        // Never past the jaw: an open or stretched mouth stays inside the face.
+                        const jaw = jawAt(mouth.Jaw, x);
+                        if (jaw !== null) y = Math.min(y, jaw - Math.max(3, (jaw - mouth.Center[1]) * 0.18));
+                    }
+
+                    // Hair and cloth sway ----------------------------------------------
+                    let sway = 1;
+                    if (layer.hair) {
+                        // One curve for all the hair, so the back hair (painted on under the front hair
+                        // by the split, edge and all) never slides out from under it.
+                        const t = clamp((rest[k + 1] - hairRoot) / hairLength, 0, 1);
+                        x += lockAt(hairSwing, layer, rest[k]) * hairReach * t * t;
+                        sway = t;
+                    }
+                    if (layer.cloth) {
+                        const t = clamp((rest[k + 1] - layer.cloth.Root) / layer.cloth.Length, 0, 1);
+                        x += lockAt(clothSwing, layer, rest[k]) * clothReach * (layer.cloth.Sway ?? 1) * t * t;
+                    }
+
+                    // Soft body jiggle ------------------------------------------------------
+                    const soft = SOFT_ROLES.has(role);
+                    if (soft) {
+                        for (const region of softRegions) {
+                            const dx = (rest[k] - region.cx) / region.rx;
+                            const dy = (rest[k + 1] - region.cy) / region.ry;
+                            const d2 = dx * dx + dy * dy;
+                            if (d2 >= 1) continue;
+                            let w = (1 - d2) * (1 - d2);
+                            // The bust hangs from the chest: its top barely moves, the lower curve swings most.
+                            if (region.attached) w *= 0.3 + 0.7 * smoothstep(-0.95, 0.55, dy);
+                            x += region.ox * w;
+                            // Lagging below (the body rising) stretches it and lagging above squashes it,
+                            // keeping its volume: taller is narrower.
+                            const stretch = (region.oy / region.ry) * 0.35 * w;
+                            y += region.oy * w + (rest[k + 1] - region.cy) * stretch;
+                            x -= (rest[k] - region.cx) * stretch * 0.5;
+                        }
+                    }
+
+                    // The mouse's pull ---------------------------------------------------------
+                    if (dragging && soft) {
+                        const ddx = rest[k] - drag.sx;
+                        const ddy = rest[k + 1] - drag.sy;
+                        const w = Math.exp(-(ddx * ddx + ddy * ddy) / twoSigma2) * (layer.hair ? sway : 1);
+                        x += drag.x * w;
+                        y += drag.y * w;
+                    }
+
+                    // Head turn, nod and tilt -------------------------------------------
+                    if (layer.head) {
+                        let w = 1;
+                        if (role === 'neck') w = clamp(1 - (rest[k + 1] - (py - r * 0.2)) / Math.max(1, r * 0.8), 0, 1) * 0.6;
+                        else if (role === 'back_hair' || role === 'front_hair') w = rest[k + 1] <= py ? 1 : lerp(1, role === 'back_hair' ? 0.25 : 0.5, smoothstep(py, py + r * 1.5, rest[k + 1]));
+                        const nx = clamp((rest[k] - cx) / r, -1, 1);
+                        const ny = clamp((rest[k + 1] - cy) / r, -1, 1);
+                        if (depthRig && layer.z) {
+                            // In front of the head's centre by d canvas pixels.
+                            const d = (depthRig.Head - layer.z[k >> 1]) * depthRig.Scale;
+                            x += (sinYaw * d + (x - cx) * (cosYaw - 1)) * w;
+                            y -= sinPitch * d * w;
+                        } else {
+                            const depth = 1 + parallax * layer.dz;
+                            x += ax * turn * (1 - 0.5 * nx * nx) * depth * w;
+                            y -= ay * nod * (1 - 0.5 * ny * ny) * depth * w;
+                        }
+                        if (tilt) {
+                            const dx = x - px, dy = y - py;
+                            const c = lerp(1, cosT, w), s = sinT * w;
+                            x = px + dx * c - dy * s;
+                            y = py + dx * s + dy * c;
+                        }
+                    }
+
+                    // Posed arms: turn at the shoulder, the upper end staying attached ----
+                    if (role === 'arm' && rig.Arms && !this._bones) {
+                        const arm = rig.Arms[side] || rig.Arms.LR;
+                        const degrees = arm ? P(`ParamArm${side || 'L'}A`) : 0;
+                        if (degrees) {
+                            const [ax0, ay0] = arm.Pivot;
+                            const w = smoothstep(arm.Length * 0.04, arm.Length * 0.25, Math.hypot(rest[k] - ax0, rest[k + 1] - ay0));
+                            const angle = degrees * Math.PI / 180 * w;
+                            const ddx = x - ax0, ddy = y - ay0;
+                            x = ax0 + ddx * Math.cos(angle) - ddy * Math.sin(angle);
+                            y = ay0 + ddx * Math.sin(angle) + ddy * Math.cos(angle);
+                        }
+                    }
+
+                    // Body: lean, turn and breathing ------------------------------------
+                    [x, y] = bodyMove(rest[k], rest[k + 1], x, y);
+                    if (depthRig && layer.z && sinBodyYaw) {
+                        const up = clamp((bpy - rest[k + 1]) / bodyH, 0, 1);
+                        x += sinBodyYaw * (depthRig.Body - layer.z[k >> 1]) * depthRig.Scale * up;
+                    }
+
+                    // Skeleton: the bones' pose, blended between the two nearest bones --------
+                    if (boneM3) {
+                        // The head moves as one: its far side (the top and back of the head) isn't
+                        // drawn, so tipping it by its own depth would lift the back hair over it.
+                        const f = layer.skinHead >= 0 && layer.skinHead !== undefined ? headF : depthAt(layer, k >> 1);
+                        const at = (o) => [
+                            boneM3[o] * x + boneM3[o + 1] * y + boneM3[o + 2] * f + boneM3[o + 3],
+                            boneM3[o + 4] * x + boneM3[o + 5] * y + boneM3[o + 6] * f + boneM3[o + 7],
+                        ];
+                        if (layer.skin) {
+                            const v = k >> 1;
+                            const w = layer.skin.w0[v];
+                            const [x0, y0] = at(layer.skin.i0[v] * 12);
+                            if (w < 0.999) {
+                                const [x1, y1] = at(layer.skin.i1[v] * 12);
+                                x = x0 * w + x1 * (1 - w);
+                                y = y0 * w + y1 * (1 - w);
+                            } else {
+                                x = x0;
+                                y = y0;
+                            }
+                        } else if (layer.skinHead >= 0 && layer.skinHead !== undefined) {
+                            [x, y] = at(layer.skinHead * 12);
+                        }
+                    } else if (boneM) {
+                        if (layer.skin) {
+                            const v = k >> 1;
+                            const o0 = layer.skin.i0[v] * 6, o1 = layer.skin.i1[v] * 6, w = layer.skin.w0[v];
+                            const [x0, y0] = applyMatrix(boneM, o0, x, y);
+                            if (w < 0.999) {
+                                const [x1, y1] = applyMatrix(boneM, o1, x, y);
+                                x = x0 * w + x1 * (1 - w);
+                                y = y0 * w + y1 * (1 - w);
+                            } else {
+                                x = x0;
+                                y = y0;
+                            }
+                        } else if (layer.skinHead >= 0 && layer.skinHead !== undefined) {
+                            [x, y] = applyMatrix(boneM, layer.skinHead * 6, x, y);
+                        }
+                    }
+                    out[k] = x;
+                    out[k + 1] = y;
+                }
+            }
+            if (this._mouthClip) this._clipMouth();
+        }
+
+        /**
+         * Keep the teeth and tongue inside the mouth: each is masked by the opening, an oval through
+         * the inside layer's points as they are drawn this frame (so it follows the head too).
+         */
+        _clipMouth() {
+            const { inside, masks } = this._mouthClip;
+            const [cols, rows] = inside.entry.Grid || [2, 2];
+            const v = inside.out;
+            const at = (u, w) => {
+                const fx = u * (cols - 1), fy = w * (rows - 1);
+                const c0 = Math.min(cols - 2, Math.floor(fx)), r0 = Math.min(rows - 2, Math.floor(fy));
+                const tx = fx - c0, ty = fy - r0;
+                const p = (r, c) => (r * cols + c) * 2;
+                const a = p(r0, c0), b = p(r0, c0 + 1), c = p(r0 + 1, c0), d = p(r0 + 1, c0 + 1);
+                return [
+                    (v[a] * (1 - tx) + v[b] * tx) * (1 - ty) + (v[c] * (1 - tx) + v[d] * tx) * ty,
+                    (v[a + 1] * (1 - tx) + v[b + 1] * tx) * (1 - ty) + (v[c + 1] * (1 - tx) + v[d + 1] * tx) * ty,
+                ];
+            };
+            const points = [];
+            for (let i = 0; i < 32; i++) {
+                const t = (i / 32) * Math.PI * 2;
+                points.push(...at(0.5 + 0.5 * Math.cos(t), 0.5 + 0.5 * Math.sin(t)));
+            }
+            for (const g of masks) {
+                g.clear();
+                g.beginFill(0xffffff);
+                g.drawPolygon(points);
+                g.endFill();
+            }
+        }
+
+        destroy(options) {
+            this.stopListening();
+            this._tracking = null;
+            LIVE.delete(this);
+            this._ticker?.remove(this._tick, this);
+            window.removeEventListener('pointermove', this._onPointerMove);
+            super.destroy(options);
+            this.layers = null;
+            this.internalModel = undefined;
+        }
+    }
+    return Puppet;
+}
+
+function puppetClass() {
+    if (!PuppetClass) {
+        if (!window.PIXI) throw new Error(`${LOG} PixiJS isn't loaded`);
+        PuppetClass = definePuppetClass(window.PIXI);
+    }
+    return PuppetClass;
+}
+
+/** Load a puppet: `await PuppetModel.from(url)`. */
+export const PuppetModel = {
+    from: (source) => puppetClass().from(source),
+};
+
+/**
+ * Make Live2DModel.from() load puppets too, so the SillyTavern Live2D extension plays them.
+ * Waits for the extension's PixiJS and Live2D libraries, which may load after this script.
+ */
+export function installPuppetLoader({ timeout = 300000 } = {}) {
+    const started = Date.now();
+    const hook = () => {
+        const Live2DModel = window.PIXI?.live2d?.Live2DModel;
+        if (!Live2DModel) {
+            if (Date.now() - started < timeout) setTimeout(hook, 250);
+            return;
+        }
+        if (Live2DModel.from.__emoticaPuppet) return;
+        const original = Live2DModel.from.bind(Live2DModel);
+        const from = function (source, ...rest) {
+            if (isPuppetPath(source)) return puppetClass().from(source);
+            return original(source, ...rest);
+        };
+        from.__emoticaPuppet = true;
+        Live2DModel.from = from;
+        // The puppet looks up the renderer to follow the cursor on the right canvas.
+        const Application = window.PIXI.Application;
+        if (Application && !Application.prototype.__emoticaPuppet) {
+            const render = Application.prototype.render;
+            Application.prototype.render = function (...args) {
+                this.stage._puppetRenderer = this.renderer;
+                return render.apply(this, args);
+            };
+            Application.prototype.__emoticaPuppet = true;
+        }
+        console.log(LOG, 'Live2D models can now be Emotica puppets.');
+    };
+    hook();
+}

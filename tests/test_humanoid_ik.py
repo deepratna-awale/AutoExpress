@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-IK = pathlib.Path(__file__).resolve().parents[1] / "autoexpress_core" / "resources" / "humanoid_ik.js"
+IK = pathlib.Path(__file__).resolve().parents[1] / "emotica_core" / "resources" / "humanoid_ik.js"
 T_POSE = {"nose": [996, 246], "neck": [1023, 423], "r_sho": [866, 416], "r_elb": [631, 460], "r_wri": [382, 460],
           "l_sho": [1181, 431], "l_elb": [1423, 467], "l_wri": [1673, 463], "r_hip": [910, 984], "r_knee": [884, 1429],
           "r_ank": [848, 1852], "l_hip": [1127, 988], "l_knee": [1145, 1429], "l_ank": [1185, 1852]}
@@ -85,7 +85,7 @@ console.log(JSON.stringify({dir: a.head.lookDir, x: a.head.lookX, after: b.head.
 
 
 def test_the_puppet_page_ships_the_solver_and_play_html_inlines_it(tmp_path):
-    from autoexpress_core.live2d import puppet
+    from emotica_core.live2d import puppet
 
     puppet.write_preview(tmp_path, "mira")
     assert (tmp_path / "humanoid_ik.js").exists() and (tmp_path / "puppet.js").exists()
@@ -97,7 +97,7 @@ def test_the_puppet_page_ships_the_solver_and_play_html_inlines_it(tmp_path):
 def test_stray_specks_do_not_make_a_layer_as_big_as_the_canvas():
     from PIL import Image, ImageDraw
 
-    from autoexpress_core.live2d import puppet
+    from emotica_core.live2d import puppet
 
     alpha = Image.new("L", (400, 400), 0)
     ImageDraw.Draw(alpha).ellipse((150, 100, 250, 220), fill=255)

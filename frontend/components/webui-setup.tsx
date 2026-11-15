@@ -5,7 +5,7 @@ import { AlertTriangle, Check, CheckCircle2, ChevronRight, Copy, ExternalLink, L
 import { toast } from "sonner";
 
 import { CONNECTION_ITEM, type CapabilityFix, type CapabilityItem } from "@/lib/api";
-import { useAutoExpress } from "@/lib/store";
+import { useEmotica } from "@/lib/store";
 import { cn, copyText } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -126,7 +126,7 @@ function ItemRow({ item }: { item: CapabilityItem }) {
 
 /** Checklist of what the connected WebUI has and lacks, with steps to fix each gap. */
 export function WebUISetup() {
-  const { capabilities, checkingCapabilities, checkCapabilities, connection, connect } = useAutoExpress();
+  const { capabilities, checkingCapabilities, checkCapabilities, connection, connect } = useEmotica();
   if (!capabilities) return null;
 
   // A failed connect has nothing to re-check on the server; try connecting again instead.

@@ -18,8 +18,8 @@ ENV HOME=/home/user \
     U2NET_HOME=/home/user/.u2net
 
 # Set working directory
-WORKDIR /AutoExpress
-RUN chown user:user /AutoExpress
+WORKDIR /Emotica
+RUN chown user:user /Emotica
 
 # Install the dependencies first to leverage Docker's caching: the "standalone"
 # extra from pyproject.toml, pinned and hash-checked by uv.lock
@@ -46,12 +46,12 @@ COPY --chown=user:user --from=frontend /frontend/out ./frontend/out
 EXPOSE 5000
 
 # Set environment variables for Flask
-ENV FLASK_APP=autoexpress
-ENV AUTOEXPRESS_HOST=0.0.0.0
-ENV AUTOEXPRESS_PORT=5000
+ENV FLASK_APP=emotica
+ENV EMOTICA_HOST=0.0.0.0
+ENV EMOTICA_PORT=5000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('AUTOEXPRESS_PORT', '5000'), timeout=4)"
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('EMOTICA_PORT', '5000'), timeout=4)"
 
-# Serve with waitress (see autoexpress/__main__.py)
-CMD ["python", "-m", "autoexpress"]
+# Serve with waitress (see emotica/__main__.py)
+CMD ["python", "-m", "emotica"]

@@ -518,7 +518,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 {kit.puppet_zip && (
                   <p className="text-sm text-muted-foreground">
                     The puppet plays right away in SillyTavern: unzip it into <code>assets/live2d</code> and pick its
-                    .puppet.model.json in the Live2D extension (the AutoExpress extension must be installed too). The
+                    .puppet.model.json in the Live2D extension (the Emotica extension must be installed too). The
                     kit is for making a full Live2D model in Cubism Editor.
                   </p>
                 )}
@@ -541,7 +541,7 @@ export function Live2DDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 <p className="text-xs text-muted-foreground">
                   Open the PSD in Live2D Cubism Editor to rig it (the README in the kit walks through it), or drop the See-through PSD into
                   StretchyStudio for an instant rig. After exporting from Cubism, add the 28 emotions with
-                  <code className="mx-1 rounded bg-muted px-1">python -m autoexpress_core.live2d attach &lt;model folder&gt;</code>.
+                  <code className="mx-1 rounded bg-muted px-1">python -m emotica_core.live2d attach &lt;model folder&gt;</code>.
                 </p>
               </section>
             )}

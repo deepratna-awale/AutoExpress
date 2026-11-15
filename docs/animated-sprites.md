@@ -1,6 +1,6 @@
 # Animated sprites
 
-AutoExpress can turn every expression into a short looping animation, so a character card becomes a full set of 28 animated sprites, with an idle animation that fits the character.
+Emotica can turn every expression into a short looping animation, so a character card becomes a full set of 28 animated sprites, with an idle animation that fits the character.
 
 <table>
   <tr>
@@ -12,7 +12,7 @@ AutoExpress can turn every expression into a short looping animation, so a chara
   </tr>
 </table>
 
-These are the animated WebP files exactly as AutoExpress saves them (shrunk for this page), with a transparent background. Each one plays forever. The still under each clip is both its first and its last frame, so the loop has no seam, and the motion is kept small so it can keep playing beside a chat for hours without looking busy.
+These are the animated WebP files exactly as Emotica saves them (shrunk for this page), with a transparent background. Each one plays forever. The still under each clip is both its first and its last frame, so the loop has no seam, and the motion is kept small so it can keep playing beside a chat for hours without looking busy.
 
 <p align="center"><img src="../.github/readme/animated/frames.jpg" alt="Six frames from the idle and confusion loops, showing the small blink, breath and head movements" width="100%"></p>
 <p align="center"><sub>Six frames from two loops, half a second apart. The first and last frames match, so playback wraps around smoothly.</sub></p>
@@ -23,7 +23,7 @@ These are the animated WebP files exactly as AutoExpress saves them (shrunk for 
 3. **Neutral becomes the idle animation**: its motion comes from the character, see below.
 4. With **Remove background** on, the still is cut out and animated on a flat key color, and every frame is cut out again. The alpha is smoothed over time so the edges don't flicker, and the key color is taken back out of the edges. The animations stay transparent.
 
-The animations are made for a chatbot's expression display: they show the character reacting to the last chat message, not talking. The character never speaks, mouths words or lip syncs: with animation on, the Qwen-Image-Edit stills are made with the mouth closed (a surprised or laughing still with an open mouth would open and close it during the clip, which reads as talking), and the motion prompt keeps the lips still, and every motion is small, calm and in place so it can loop beside the chat for a long time. Strong emotions are kept restrained: anger is a frown and a small huff, fear a slight flinch and an uneasy glance. The motions are in [`animations.json`](../autoexpress_core/resources/animations.json).
+The animations are made for a chatbot's expression display: they show the character reacting to the last chat message, not talking. The character never speaks, mouths words or lip syncs: with animation on, the Qwen-Image-Edit stills are made with the mouth closed (a surprised or laughing still with an open mouth would open and close it during the clip, which reads as talking), and the motion prompt keeps the lips still, and every motion is small, calm and in place so it can loop beside the chat for a long time. Strong emotions are kept restrained: anger is a frown and a small huff, fear a slight flinch and an uneasy glance. The motions are in [`animations.json`](../emotica_core/resources/animations.json).
 
 Clips are 49 frames at 16 fps (3 seconds, 48 frames once the repeated loop frame is dropped), 480p on the short side, and are scaled back to the still's size. They're saved next to the PNGs as `<expression>.webp` (animated WebP, transparent, small; shown by SillyTavern and every browser), and optionally `.apng` and `.gif` (GIF only has on/off transparency).
 
@@ -34,7 +34,7 @@ Wan 2.2 and Qwen-Image-Edit are open-weight models that run on your own ComfyUI 
 A ComfyUI backend (local or on a rented GPU) with the Wan 2.2 files:
 
 ```bash
-python -m autoexpress_core.animation download /path/to/ComfyUI
+python -m emotica_core.animation download /path/to/ComfyUI
 ```
 
 That's about 38 GB: the high and low noise image to video models (fp8), the UMT5 text encoder, the Wan VAE and the optional 4-step LoRAs. A GPU with 24 GB of VRAM works; 48 GB or more is comfortable. [docs/runpod.md](runpod.md) has the pod, image and a setup script that installs everything.
@@ -45,7 +45,7 @@ The setup checklist in the app lists the Wan nodes and files with the command to
 
 ## Character cards and the idle animation
 
-Drop a character card (a SillyTavern / Tavern PNG, V1, V2 or V3) as the input image. AutoExpress reads the card from the PNG, fills in the output folder with the character's name and writes the idle motion from the card's description and personality: always breathing, blinking and a little hair and cloth sway, plus a gesture that matches the character's strongest trait (a playful sway and a wink, fidgeting and shy glances, a calm composed stance, a confident chin-up stance, ...).
+Drop a character card (a SillyTavern / Tavern PNG, V1, V2 or V3) as the input image. Emotica reads the card from the PNG, fills in the output folder with the character's name and writes the idle motion from the card's description and personality: always breathing, blinking and a little hair and cloth sway, plus a gesture that matches the character's strongest trait (a playful sway and a wink, fidgeting and shy glances, a calm composed stance, a confident chin-up stance, ...).
 
 You can edit the idle motion before generating, or let something else write it:
 
@@ -53,7 +53,7 @@ You can edit the idle motion before generating, or let something else write it:
 | --- | --- |
 | **From the card** | The card's description, personality, scenario and tags. |
 | **Card + wiki** | The card plus the character's page on the Fandom wiki of the card's tags (e.g. `naruto.fandom.com`), or Wikipedia, for known characters with a thin card. |
-| **Ask the LLM** | Any OpenAI compatible chat endpoint (OpenAI, OpenRouter, a local Ollama or LM Studio) writes the idle from the card and the wiki text, using what it knows about the character. Set `AUTOEXPRESS_LLM_URL` (e.g. `http://127.0.0.1:11434/v1`), `AUTOEXPRESS_LLM_MODEL` and, if needed, `AUTOEXPRESS_LLM_API_KEY`, or `POST /llm-settings`. Falls back to the card when the call fails. |
+| **Ask the LLM** | Any OpenAI compatible chat endpoint (OpenAI, OpenRouter, a local Ollama or LM Studio) writes the idle from the card and the wiki text, using what it knows about the character. Set `EMOTICA_LLM_URL` (e.g. `http://127.0.0.1:11434/v1`), `EMOTICA_LLM_MODEL` and, if needed, `EMOTICA_LLM_API_KEY`, or `POST /llm-settings`. Falls back to the card when the call fails. |
 
 Any picture works too; without a card, the idle is a calm breathing and blinking loop unless you type one.
 
@@ -95,4 +95,4 @@ Each finished expression in `GET /jobs/<id>` then has `"animation": "/image/<fol
 
 `POST /character-card` with `{"image": <data URI>, "idle_source": "card" | "web" | "llm"}` returns the parsed card and the idle motion. `GET /animation` says whether the connected WebUI can animate, with the defaults and each expression's motion.
 
-The expression motions are in [`autoexpress_core/resources/animations.json`](../autoexpress_core/resources/animations.json).
+The expression motions are in [`emotica_core/resources/animations.json`](../emotica_core/resources/animations.json).

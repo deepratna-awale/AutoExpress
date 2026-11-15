@@ -1,5 +1,5 @@
 {
-    "display_name": "AutoExpress",
+    "display_name": "Emotica",
     "loading_order": 100,
     "requires": [],
     "optional": [],
@@ -8,6 +8,6 @@
     "css": "sillytavern/style.css",
     "author": "Deepratna Awale",
     "version": "2.2.0",
-    "homePage": "https://github.com/deepratna-awale/AutoExpress",
+    "homePage": "https://github.com/deepratna-awale/Emotica",
     "auto_update": true
 }

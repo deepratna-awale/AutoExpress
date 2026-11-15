@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from autoexpress_core import civitai_key
+from emotica_core import civitai_key
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +18,7 @@ def test_explicit_beats_host_beats_env(monkeypatch):
     monkeypatch.setenv("CIVITAI_API_TOKEN", "from-env")
     host = civitai_key.webui_option_sources({"custom_api_key": "from-browser-plus"})
 
-    assert civitai_key.find_civitai_key(["", "typed"], host) == ("typed", "AutoExpress")
+    assert civitai_key.find_civitai_key(["", "typed"], host) == ("typed", "Emotica")
     assert civitai_key.find_civitai_key([None, " "], host) == ("from-browser-plus", "Civitai Browser+")
     assert civitai_key.find_civitai_key(None, []) == ("from-env", "$CIVITAI_API_TOKEN")
 

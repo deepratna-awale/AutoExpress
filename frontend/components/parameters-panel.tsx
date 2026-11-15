@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronRight, KeyRound, Link, Loader2, SlidersHorizontal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { AUTO_FAMILY, useAutoExpress, type ConnectionStatus } from "@/lib/store";
+import { AUTO_FAMILY, useEmotica, type ConnectionStatus } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Combobox } from "@/components/ui/combobox";
@@ -114,7 +114,7 @@ export function ParametersPanel() {
     setParam,
     adjustments,
     applyModelDefaults,
-  } = useAutoExpress();
+  } = useEmotica();
   const modelFamily = FAMILY_DEFAULTS[detectFamily(params.model)];
 
   const connected = connection === "connected";
@@ -207,7 +207,7 @@ export function ParametersPanel() {
                 <CollapsibleContent className="space-y-2 pt-2">
                   <p className="text-xs text-muted-foreground">
                     For a WebUI with a login (A1111/Forge <code>--api-auth</code>, SwarmUI or InvokeAI accounts) or behind a
-                    login proxy. It is only sent to this address, kept on the AutoExpress server, and never shown again.
+                    login proxy. It is only sent to this address, kept on the Emotica server, and never shown again.
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">

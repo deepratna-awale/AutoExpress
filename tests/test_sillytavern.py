@@ -11,7 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def test_manifest_points_at_the_extension_files():
     manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["display_name"] == "AutoExpress"
+    assert manifest["display_name"] == "Emotica"
     assert (ROOT / manifest["js"]).is_file()
     assert (ROOT / manifest["css"]).is_file()
 
@@ -23,7 +23,7 @@ def test_manifest_version_matches_the_package():
 
 
 def test_extension_labels_match_the_expressions():
-    from autoexpress_core import get_expressions
+    from emotica_core import get_expressions
 
     script = (ROOT / "sillytavern" / "index.js").read_text(encoding="utf-8")
     block = re.search(r"const EXPRESSIONS = \[(.*?)\];", script, re.S).group(1)
@@ -34,7 +34,7 @@ def test_extension_labels_match_the_expressions():
 pytest.importorskip("flask")
 pytest.importorskip("sd_parsers")
 
-from autoexpress import views  # noqa: E402
+from emotica import views  # noqa: E402
 
 ST = "http://localhost:8000"
 
@@ -42,7 +42,7 @@ ST = "http://localhost:8000"
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(views.settings, "cors_origins", ("http://localhost:8000", "http://127.0.0.1:8000"))
-    return views.autoexpress.test_client()
+    return views.emotica.test_client()
 
 
 def test_allowed_origin_gets_cors_headers(client):
@@ -88,11 +88,11 @@ def test_wildcard_allows_any_page(client, monkeypatch):
 
 
 def test_origins_from_environment(monkeypatch):
-    from autoexpress.config import DEFAULT_CORS_ORIGINS, Settings
+    from emotica.config import DEFAULT_CORS_ORIGINS, Settings
 
-    monkeypatch.delenv("AUTOEXPRESS_CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("EMOTICA_CORS_ORIGINS", raising=False)
     assert Settings.from_env().cors_origins == DEFAULT_CORS_ORIGINS
-    monkeypatch.setenv("AUTOEXPRESS_CORS_ORIGINS", "http://a:8000/, http://b:9000")
+    monkeypatch.setenv("EMOTICA_CORS_ORIGINS", "http://a:8000/, http://b:9000")
     assert Settings.from_env().cors_origins == ("http://a:8000", "http://b:9000")
-    monkeypatch.setenv("AUTOEXPRESS_CORS_ORIGINS", "")
+    monkeypatch.setenv("EMOTICA_CORS_ORIGINS", "")
     assert Settings.from_env().cors_origins == ()

@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from autoexpress_core import expression_loras
+from emotica_core import expression_loras
 
 
 @pytest.mark.parametrize(
@@ -31,7 +31,7 @@ def test_entries_are_complete(architecture):
     entries = expression_loras.loras_for(architecture)
     assert entries
     for entry in entries:
-        assert entry["name"].startswith("AutoExpress-")
+        assert entry["name"].startswith("AutoExpress-")  # the published LoRA files keep their names
         assert entry["civitai_version_id"]
         assert len(entry["sha256"]) == 64
         assert 0 < entry["weight"] <= 1
@@ -97,7 +97,7 @@ def test_apply_expression_weights_drops_lora_for_listed_expression():
 
 
 def test_build_prompt_applies_expression_weights():
-    from autoexpress_core import expression_sets
+    from emotica_core import expression_sets
 
     base = "<lora:AutoExpress-expressions-illustrious:0.6>, cinematic expression style"
     assert "AutoExpress-expressions-illustrious" not in expression_sets.build_prompt(base, "anger", "illustrious")

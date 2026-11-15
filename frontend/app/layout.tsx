@@ -6,10 +6,11 @@ import { Toaster } from "@/components/ui/sonner";
 import { LiveThemeProvider } from "@/lib/theme";
 
 export const metadata: Metadata = {
-  title: "Auto Express",
+  title: "Emotica",
   description: "Generate a full set of character expressions from one image",
   icons: {
     icon: [
+      { url: "/logo.svg", type: "image/svg+xml" },
       { url: "/favicon-rounded.png", type: "image/png" },
       { url: "/icon.png", type: "image/png" },
     ],
