@@ -13,7 +13,7 @@ import {
   type ExpressionOverrides,
   type ExpressionOverrideSettings,
 } from "@/lib/api";
-import { useAutoExpress } from "@/lib/store";
+import { useEmotica } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -92,14 +92,14 @@ interface ExpressionSettingsDialogProps {
 }
 
 /**
- * Advanced: each expression's own prompt and settings, saved with the character (Output/<name>/autoexpress_overrides.json)
+ * Advanced: each expression's own prompt and settings, saved with the character (Output/<name>/emotica_overrides.json)
  * and used on every run, plus a retry of a single expression with them.
  */
 export function ExpressionSettingsDialog({ open, onOpenChange, expression }: ExpressionSettingsDialogProps) {
   const {
     galleryDir, outputDirectory, images, method, params, intensity, familyDefaults, family, photoStyle, pose, posesAvailable,
     generating, imageDataUrl, retryExpression,
-  } = useAutoExpress();
+  } = useEmotica();
   const dir = galleryDir || resolveOutputDir(outputDirectory);
   const instruct = method !== INPAINT_METHOD;
   const [defaults, setDefaults] = useState<Record<string, string>>({});
@@ -128,7 +128,7 @@ export function ExpressionSettingsDialog({ open, onOpenChange, expression }: Exp
         api.expressionOverrides(dir),
       ]);
       if (!prompts || stored === null) {
-        toast.error("This AutoExpress server has no per-expression settings. Update it.");
+        toast.error("This Emotica server has no per-expression settings. Update it.");
         onOpenChange(false);
         return;
       }
@@ -197,7 +197,7 @@ export function ExpressionSettingsDialog({ open, onOpenChange, expression }: Exp
     try {
       const data = JSON.parse(await file.text());
       const imported: ExpressionOverrides = data?.expressions ?? data;
-      if (!imported || typeof imported !== "object") throw new Error("not an AutoExpress settings file");
+      if (!imported || typeof imported !== "object") throw new Error("not an Emotica settings file");
       if (await save(imported, true)) {
         setDrafts(Object.fromEntries(names.map((name) => [name, toDraft(imported[name], defaults[name])])));
         toast.success(`Imported settings for ${Object.keys(imported).length} expressions into Output/${dir}.`);

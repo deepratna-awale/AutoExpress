@@ -1,6 +1,6 @@
 # Running the ComfyUI workflows on RunPod
 
-AutoExpress talks to ComfyUI over its API, so ComfyUI can run on a rented GPU while AutoExpress runs on your own machine. This is the setup used to develop and test the expression, pose and animated sprite workflows.
+Emotica talks to ComfyUI over its API, so ComfyUI can run on a rented GPU while Emotica runs on your own machine. This is the setup used to develop and test the expression, pose and animated sprite workflows.
 
 ## Pod
 
@@ -27,7 +27,7 @@ RUNPOD_API_KEY=... python scripts/runpod/create_pod.py
 Open the pod's Jupyter (`https://<pod id>-8888.proxy.runpod.net`), start a terminal and run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/scripts/runpod/setup_comfyui.sh | bash
+curl -fsSL https://raw.githubusercontent.com/deepratna-awale/Emotica/main/scripts/runpod/setup_comfyui.sh | bash
 ```
 
 [`setup_comfyui.sh`](../scripts/runpod/setup_comfyui.sh) installs ComfyUI with the Impact Pack and Subpack and the See-through nodes (Live2D model kits), downloads the models and starts ComfyUI on port 8188. It installs into `~/ComfyUI` on the container disk (set `COMFYUI_DIR` to use a volume), and skips anything already there, so it's safe to run again. Set `SKIP_WAN=1`, `SKIP_QWEN=1` or `SKIP_SEETHROUGH=1` to leave out a model, and `CHECKPOINT_URL` to also download a checkpoint for face inpainting.
@@ -40,13 +40,13 @@ curl -fsSL https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/sc
 | See-through LayerDiff 3D and Marigold depth | [Live2D model kits](live2d.md) | Hugging Face cache (`layerdifforg/seethroughv0.0.2_layerdiff3d`, `layerdifforg/seethroughv0.0.1_marigold`), downloaded by the nodes on first use | 10 GB |
 | Any SDXL / SD 1.5 checkpoint | face inpainting | `checkpoints/` (Animagine XL 4.0 for anime, RealVisXL for photos were used in testing) | 7 GB |
 
-The same files can be fetched on any ComfyUI install with `python -m autoexpress_core.instruction_edit download <ComfyUI folder>` and `python -m autoexpress_core.animation download <ComfyUI folder>`.
+The same files can be fetched on any ComfyUI install with `python -m emotica_core.instruction_edit download <ComfyUI folder>` and `python -m emotica_core.animation download <ComfyUI folder>`.
 
 ### NSFW characters
 
-Every model AutoExpress downloads is open weights and runs locally on the pod, with no content filter: Qwen-Image-Edit 2511 and Wan 2.2 image to video edit and animate adult characters as they are, and AutoExpress's poses never add or remove clothing. Nothing is sent to an online service.
+Every model Emotica downloads is open weights and runs locally on the pod, with no content filter: Qwen-Image-Edit 2511 and Wan 2.2 image to video edit and animate adult characters as they are, and Emotica's poses never add or remove clothing. Nothing is sent to an online service.
 
-For face inpainting, the checkpoint decides what the model can draw. These uncensored checkpoints work with AutoExpress's prompt styles (picked automatically from the file name):
+For face inpainting, the checkpoint decides what the model can draw. These uncensored checkpoints work with Emotica's prompt styles (picked automatically from the file name):
 
 | Checkpoint | Style | Prompt style |
 |---|---|---|
@@ -61,16 +61,16 @@ Civitai downloads need your API key: `wget -O models/checkpoints/<name>.safetens
 
 No separate anime model is needed. The expressions and poses are edits of your own image, so its art style carries over, and Wan 2.2 keeps a drawn style through the animation. The anime checkpoints above only matter for face inpainting.
 
-## Connecting AutoExpress
+## Connecting Emotica
 
-In AutoExpress pick ComfyUI (or Auto) and enter `https://<pod id>-8188.proxy.runpod.net`. The setup checklist then shows which features the pod is ready for.
+In Emotica pick ComfyUI (or Auto) and enter `https://<pod id>-8188.proxy.runpod.net`. The setup checklist then shows which features the pod is ready for.
 
 On RTX PRO 6000 a Qwen-Image-Edit expression with a pose takes about 15 seconds and a 3 second Wan 2.2 clip (49 frames, 480p) about 90 seconds at the default 20 steps or 15 seconds with Fast (4 steps), so all 28 animated expressions take about an hour, or 15 to 30 minutes with Fast, including background removal.
 
 ### Animated sprites on a pod
 
-1. Run the setup script without `SKIP_WAN`, so the Wan 2.2 files are there (the checklist in AutoExpress lists them if any are missing).
-2. Connect AutoExpress to the pod as above, drop in the character card, and turn on **Animate sprites** (and **Remove background** for transparent sprites). In SillyTavern, tick **Animate** in the Generate dialog.
-3. The pod only renders the video. The clips come back to the AutoExpress machine, where the background is removed and they're saved as looping `Output/<character>/<expression>.webp` files, next to the stills, ready for Character Expressions. See [Animated sprites](animated-sprites.md) for examples.
+1. Run the setup script without `SKIP_WAN`, so the Wan 2.2 files are there (the checklist in Emotica lists them if any are missing).
+2. Connect Emotica to the pod as above, drop in the character card, and turn on **Animate sprites** (and **Remove background** for transparent sprites). In SillyTavern, tick **Animate** in the Generate dialog.
+3. The pod only renders the video. The clips come back to the Emotica machine, where the background is removed and they're saved as looping `Output/<character>/<expression>.webp` files, next to the stills, ready for Character Expressions. See [Animated sprites](animated-sprites.md) for examples.
 
 Stop the pod in the RunPod console when you're done; it bills by the hour while running.

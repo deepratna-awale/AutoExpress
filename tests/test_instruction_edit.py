@@ -6,10 +6,10 @@ import pathlib
 import pytest
 from PIL import Image
 
-from autoexpress_core import ExpressionGenerator, expression_names, instruction_edit
-from autoexpress_core.backends.a1111_api import A1111Client
-from autoexpress_core.backends.comfyui_api import ComfyUIClient
-from autoexpress_core.images import pil_to_b64
+from emotica_core import ExpressionGenerator, expression_names, instruction_edit
+from emotica_core.backends.a1111_api import A1111Client
+from emotica_core.backends.comfyui_api import ComfyUIClient
+from emotica_core.images import pil_to_b64
 
 from test_remote_backends import ComfySession, FakeResponse, comfy_routes, done_history
 
@@ -250,9 +250,9 @@ def test_generator_rejects_edit_mode_on_other_backends(face_image, fake_backend)
 
 
 def test_example_workflow_wires_the_instruction_node():
-    workflow = json.loads((ROOT / "example_workflows" / "AutoExpress Qwen-Image-Edit expressions.json").read_text())
+    workflow = json.loads((ROOT / "example_workflows" / "Emotica Qwen-Image-Edit expressions.json").read_text())
     types = {node["id"]: node["type"] for node in workflow["nodes"]}
-    assert "AutoExpressEditInstructions" in types.values() and "TextEncodeQwenImageEditPlus" in types.values()
+    assert "EmoticaEditInstructions" in types.values() and "TextEncodeQwenImageEditPlus" in types.values()
     links = {link[0]: link for link in workflow["links"]}
     for node in workflow["nodes"]:
         for slot in node["inputs"]:
@@ -262,7 +262,7 @@ def test_example_workflow_wires_the_instruction_node():
         for output in node["outputs"]:
             for link_id in output["links"]:
                 assert links[link_id][1] == node["id"]
-    instructions = next(n for n in workflow["nodes"] if n["type"] == "AutoExpressEditInstructions")
+    instructions = next(n for n in workflow["nodes"] if n["type"] == "EmoticaEditInstructions")
     prompt_link = instructions["outputs"][0]["links"][0]
     assert types[links[prompt_link][3]] == "TextEncodeQwenImageEditPlus"
 
@@ -306,18 +306,18 @@ def test_runs_as_a_script(tmp_path):
     import sys
 
     (tmp_path / "models").mkdir()
-    script = ROOT / "autoexpress_core" / "instruction_edit.py"
+    script = ROOT / "emotica_core" / "instruction_edit.py"
     result = subprocess.run([sys.executable, str(script), "check", str(tmp_path)], capture_output=True, text=True, cwd=tmp_path)
     assert result.returncode == 1 and result.stdout.count("missing:") == 4, result.stderr
 
 
 def test_example_workflow_wires_denoise_and_scale_widgets():
-    workflow = json.loads((ROOT / "example_workflows" / "AutoExpress Qwen-Image-Edit expressions.json").read_text())
+    workflow = json.loads((ROOT / "example_workflows" / "Emotica Qwen-Image-Edit expressions.json").read_text())
     nodes = {node["type"]: node for node in workflow["nodes"]}
     assert nodes["ImageScaleToTotalPixels"]["widgets_values"] == ["lanczos", 1, 1]
     denoise = next(slot for slot in nodes["KSampler"]["inputs"] if slot["name"] == "denoise")
     link = next(link for link in workflow["links"] if link[0] == denoise["link"])
-    assert link[1] == nodes["AutoExpressEditInstructions"]["id"] and link[2] == 3
+    assert link[1] == nodes["EmoticaEditInstructions"]["id"] and link[2] == 3
 
 
 def photo_routes():
@@ -368,7 +368,7 @@ def test_drawn_edits_keep_lightning_and_the_whole_image(face_image):
 
 
 def test_paste_face_keeps_the_original_outside_the_face():
-    from autoexpress_core.backends.comfyui_api import paste_face
+    from emotica_core.backends.comfyui_api import paste_face
 
     original, edited = Image.new("RGB", (200, 200), "red"), Image.new("RGB", (200, 200), "blue")
     mask = Image.new("L", (100, 100), 0)
@@ -400,7 +400,7 @@ def test_find_model_skips_the_layered_vae():
 
 
 def test_find_model_takes_a_short_lightning_lora_name():
-    from autoexpress_core.instruction_edit import find_model
+    from emotica_core.instruction_edit import find_model
     choices = ["qwen-2511-multiple-angles.safetensors", "qwen-edit-lightning-8.safetensors"]
     assert find_model("lightning_lora", choices) == "qwen-edit-lightning-8.safetensors"
     assert find_model("lightning_lora", ["qwen-image-lightning-4steps.safetensors"]) is None

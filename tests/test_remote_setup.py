@@ -9,13 +9,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from autoexpress.modules import expression_generator
-from autoexpress_core import expression_loras
-from autoexpress_core.backends.a1111_api import A1111Client
-from autoexpress_core.backends.base import BackendAuthError, BackendUnavailable
-from autoexpress_core.backends.comfyui_api import ComfyUIClient
-from autoexpress_core.backends.detect import detect_backend
-from autoexpress_core.backends.invokeai_api import InvokeAIClient
+from emotica.modules import expression_generator
+from emotica_core import expression_loras
+from emotica_core.backends.a1111_api import A1111Client
+from emotica_core.backends.base import BackendAuthError, BackendUnavailable
+from emotica_core.backends.comfyui_api import ComfyUIClient
+from emotica_core.backends.detect import detect_backend
+from emotica_core.backends.invokeai_api import InvokeAIClient
 
 from test_remote_backends import ComfySession, FakeResponse, InvokeSession, comfy_routes, done_history
 

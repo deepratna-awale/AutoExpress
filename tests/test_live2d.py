@@ -7,9 +7,9 @@ import zipfile
 import pytest
 from PIL import Image, ImageDraw
 
-from autoexpress_core.backends.comfyui_api import ComfyUIClient
-from autoexpress_core.images import b64_to_pil, pil_to_b64
-from autoexpress_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, outfits, prompt_data, psd, puppet, skeleton
+from emotica_core.backends.comfyui_api import ComfyUIClient
+from emotica_core.images import b64_to_pil, pil_to_b64
+from emotica_core.live2d import DECOMPOSE, character_lora, guidance, kit, layers, model_files, outfits, prompt_data, psd, puppet, skeleton
 
 from test_remote_backends import ComfySession, FakeResponse, comfy_routes
 
@@ -564,7 +564,7 @@ def test_comfyui_splits_layers_with_see_through():
     assert "group_offload" not in workflow["depth_model"]["inputs"]  # this version doesn't take it
     assert workflow["layers"]["inputs"]["seed"] == 7 and workflow["layers"]["inputs"]["resolution"] == 2048
     assert workflow["post"]["inputs"]["new_required"] == 5  # filled from object_info
-    assert workflow["save"]["inputs"]["filename_prefix"].startswith("autoexpress_live2d_")
+    assert workflow["save"]["inputs"]["filename_prefix"].startswith("emotica_live2d_")
 
 
 def test_comfyui_low_vram_uses_the_4bit_models_and_reports_missing_nodes():
@@ -600,7 +600,7 @@ def test_comfyui_refuses_another_jobs_layers():
 
 
 def test_other_backends_cant_split_layers():
-    from autoexpress_core.backends.a1111_api import A1111Client
+    from emotica_core.backends.a1111_api import A1111Client
 
     backend = A1111Client()
     assert not backend.can_decompose
@@ -1636,7 +1636,7 @@ def test_stockings_carry_on_into_the_shoes(tmp_path):
 
 
 def test_mouth_parts_cut_the_open_mouth_into_lips_teeth_tongue_and_inside():
-    from autoexpress_core.live2d import layers as L
+    from emotica_core.live2d import layers as L
 
     size = (200, 200)
     edited = Image.new("RGB", size, (250, 225, 210))

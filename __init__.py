@@ -21,8 +21,8 @@ except ImportError:
     except ImportError:
         pass
     else:
-        from .invokeai_nodes.autoexpress import AutoExpressExpressionPromptsInvocation  # noqa: F401
+        from .invokeai_nodes.emotica import EmoticaExpressionPromptsInvocation  # noqa: F401
 else:
-    from .autoexpress_comfy import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+    from .emotica_comfy import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

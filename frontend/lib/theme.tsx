@@ -1,5 +1,6 @@
 "use client";
 
+import "@/lib/legacy-storage";
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 
@@ -120,7 +121,7 @@ function derive(base: ThemeStyles, overrides: { light?: Partial<ThemeColors>; da
   };
 }
 
-// Deep navy and cyan of the original AutoExpress UI
+// Deep navy and cyan of the original Emotica UI
 const CLASSIC = derive(DEFAULT_STYLES, {
   dark: {
     background: "oklch(0.1950 0.0180 278.0000)",
@@ -192,7 +193,7 @@ const EMERALD = derive(DEFAULT_STYLES, {
 
 const THEME_PRESETS: Record<string, ThemePreset> = {
   default: { label: "Default", styles: DEFAULT_STYLES },
-  classic: { label: "AutoExpress Classic", styles: CLASSIC },
+  classic: { label: "Emotica Classic", styles: CLASSIC },
   rose: { label: "Rose", styles: ROSE },
   emerald: { label: "Emerald", styles: EMERALD },
 };
@@ -218,8 +219,8 @@ export function generateCSSVariables(state: ThemeState) {
   return `${cssBlock(":root", state.styles.light)}\n\n${cssBlock(".dark", state.styles.dark)}\n`;
 }
 
-const STORAGE_KEY = "autoexpress-theme";
-const STYLE_ELEMENT_ID = "autoexpress-live-theme";
+const STORAGE_KEY = "emotica-theme";
+const STYLE_ELEMENT_ID = "emotica-live-theme";
 
 interface LiveThemeContextValue {
   themeState: ThemeState;

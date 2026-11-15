@@ -5,13 +5,13 @@ import pytest
 import requests
 from PIL import Image
 
-from autoexpress_core import ExpressionGenerator, build_expression_payload
-from autoexpress_core.backends.base import FaceEditRequest, extract_loras, match_choice, normalize_url
-from autoexpress_core.backends.a1111_api import A1111Client, ForgeClient
-from autoexpress_core.backends.comfyui_api import ComfyUIClient, combo_options
-from autoexpress_core.backends.registry import REMOTE_BACKENDS, create_backend, describe_backends
-from autoexpress_core.backends.swarmui_api import SwarmUIClient
-from autoexpress_core.images import pil_to_b64
+from emotica_core import ExpressionGenerator, build_expression_payload
+from emotica_core.backends.base import FaceEditRequest, extract_loras, match_choice, normalize_url
+from emotica_core.backends.a1111_api import A1111Client, ForgeClient
+from emotica_core.backends.comfyui_api import ComfyUIClient, combo_options
+from emotica_core.backends.registry import REMOTE_BACKENDS, create_backend, describe_backends
+from emotica_core.backends.swarmui_api import SwarmUIClient
+from emotica_core.images import pil_to_b64
 
 
 class FakeResponse:
@@ -231,7 +231,7 @@ def comfy_routes(history):
     routes = {f"GET /object_info/{node}": {node: spec} for node, spec in info.items()}
     routes.update(
         {
-            "POST /upload/image": {"name": "autoexpress_x.png", "subfolder": "", "type": "input"},
+            "POST /upload/image": {"name": "emotica_x.png", "subfolder": "", "type": "input"},
             "POST /prompt": {"prompt_id": "p1", "number": 1, "node_errors": {}},
             "GET /history/p1": history,
             "GET /view?": None,
@@ -281,7 +281,7 @@ def test_comfyui_builds_face_detailer_workflow(payload):
     assert detailer["model"] == ["lora_0", 0] and detailer["clip"] == ["clip_skip", 0]
     assert detailer["some_new_input"] == 7  # filled from object_info
     assert "sam_threshold" not in detailer  # not declared by this server
-    assert workflow["image"]["inputs"]["image"] == "autoexpress_x.png"
+    assert workflow["image"]["inputs"]["image"] == "emotica_x.png"
 
     # Saved PNGs read back like A1111's
     parameters = result.info["parameters"]
@@ -396,7 +396,7 @@ def test_swarmui_error_returns_none(payload):
 
 
 # InvokeAI -----------------------------------------------------------------
-from autoexpress_core.backends.invokeai_api import InvokeAIClient, scheduler_name  # noqa: E402
+from emotica_core.backends.invokeai_api import InvokeAIClient, scheduler_name  # noqa: E402
 
 INVOKE_MODELS = {
     "main": [

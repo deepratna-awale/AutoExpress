@@ -1,0 +1,1051 @@
+import dataclasses
+import os
+import threading
+import time
+import uuid
+
+from flask import Flask, g, jsonify, render_template, request, send_from_directory
+from loguru import logger as log
+from PIL import Image, UnidentifiedImageError
+from werkzeug.exceptions import HTTPException
+from werkzeug.utils import secure_filename
+
+from emotica import frontend
+from emotica.config import Settings, configure_logging
+from emotica.jobs import CANCELLED, COMPLETED, FINISHED, LIVE2D_KIT, JobManager, JobSpec, run_expression_job
+from emotica.modules import expression_sets, image_parser
+from emotica.modules.expression_loras import CIVITAI_KEY_ENV
+from emotica.validation import (
+    ValidationError,
+    resolve_inside,
+    safe_dir_name,
+    validate_animation,
+    validate_generate,
+    validate_live2d,
+    validate_overrides,
+)
+from emotica_core import animation, background, character_card, expression_loras, get_expressions, instruction_edit, resolve_flavor
+from emotica_core import overrides as expression_overrides
+from emotica_core.generator import default_expression_prompt
+from emotica_core.live2d import DECOMPOSE, character_lora, guidance as live2d_guidance
+from emotica_core.live2d import layers as live2d_layers
+from emotica_core.backends.base import (
+    BackendAuthError,
+    BackendError,
+    BackendNotReady,
+    BackendTimeout,
+    BackendUnavailable,
+    HeaderError,
+    connection_fix,
+    normalize_url,
+    parse_headers,
+    redact_url,
+    same_origin,
+    split_credentials,
+)
+from emotica_core.backends.detect import detect_backend, not_a_webui
+from emotica_core.backends.registry import AUTO, REMOTE_BACKENDS, create_backend, describe_backends
+from emotica_core.civitai_key import find_civitai_key
+
+settings = Settings.from_env()
+configure_logging(settings)
+
+emotica = Flask(__name__)
+emotica.register_blueprint(frontend.frontend)
+emotica.config["UPLOAD_FOLDER"] = str(settings.upload_dir)
+emotica.config["MAX_CONTENT_LENGTH"] = settings.max_upload_mb * 1024 * 1024
+Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
+
+settings.upload_dir.mkdir(parents=True, exist_ok=True)
+settings.output_dir.mkdir(parents=True, exist_ok=True)
+
+
+class AppState:
+    """The WebUI the sidebar is connected to. Running jobs keep their own backend."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.detected = None
+        kind = settings.backend
+        if kind == AUTO:
+            kind = self._detect_at_startup()
+        elif kind not in REMOTE_BACKENDS:
+            log.warning(f"Unknown EMOTICA_BACKEND '{settings.backend}', using a1111.")
+            kind = "a1111"
+        self.backend = create_backend(kind, settings.backend_url, **settings.connection_options())
+
+    def _detect_at_startup(self) -> str:
+        if not settings.backend_url:
+            return "a1111"
+        try:
+            detection = detect_backend(settings.backend_url, **settings.connection_options())
+        except (BackendError, ValueError) as e:
+            log.warning(f"Could not detect the WebUI at {settings.backend_url}: {e}")
+            return "a1111"
+        self.detected = detection.kind
+        return detection.kind or "a1111"
+
+    def connect(self, kind: str, url: str | None, login: dict | None = None):
+        """
+        Switch WebUI and/or URL. kind "auto" asks the WebUI what it is.
+
+        login holds what the user sent of username, password, token, headers and forget_login;
+        see resolve_login for how it combines with the login already in use.
+
+        Raises:
+            ValueError: Unknown id, a bad URL or malformed extra headers.
+            BackendError: "auto" could not reach the WebUI, was refused, or found no supported WebUI.
+        """
+        if kind != AUTO and kind not in REMOTE_BACKENDS:
+            raise ValueError(f"Unknown backend '{kind}'.")
+        default_url = REMOTE_BACKENDS[kind].default_url if kind in REMOTE_BACKENDS else None
+        url, credentials = resolve_login(current_backend(), url, default_url, login or {})
+        options = {**settings.connection_options(url), **credentials}
+        detected = None
+        if kind == AUTO:
+            detection = detect_backend(url, **options)
+            if not detection.kind:
+                raise not_a_webui(url, detection)
+            kind = detected = detection.kind
+        backend = create_backend(kind, url, **options)
+        with self.lock:
+            self.backend = backend
+            self.detected = detected
+        return backend
+
+
+LOGIN_FIELDS = ("username", "password", "token", "headers")
+# A fixed message, so nothing typed into the headers (a secret value) is ever sent back.
+HEADERS_HELP = (
+    "Extra headers must be Name: value lines, one per line (or a JSON object). Host, Content-Type, "
+    "Content-Length and other headers Emotica sets itself can't be replaced, and values can't contain line breaks."
+)
+
+
+def resolve_login(current, url: str | None, default_url: str | None, data: dict) -> tuple[str | None, dict]:
+    """
+    The URL without credentials in it, and the login to use for it.
+
+    A field the user sent replaces the one in use, an empty one clears it, and a field left out is kept,
+    but only while the WebUI stays on the same host: a login is never carried to another address.
+    For a new host the environment's login applies when it belongs to that host. A username and
+    password written into the URL win over everything else. forget_login drops the kept login.
+
+    Raises:
+        ValueError: A bad URL or malformed extra headers.
+    """
+    if url and "@" in url:
+        url, url_user, url_password = split_credentials(normalize_url(url, default_url or ""))
+        if url_user:
+            data = {**data, "username": url_user, "password": url_password}
+    target = url or default_url
+    if current is not None and not data.get("forget_login") and same_origin(target, current.get_url()):
+        kept = {
+            "username": current.connection.username,
+            "password": current.connection.password,
+            "token": current.connection.token,
+            "headers": dict(current.connection.headers or {}),
+        }
+    else:
+        kept = settings.credentials_for(target)
+
+    login = dict(kept)
+    for key in LOGIN_FIELDS:
+        if key not in data:
+            continue
+        value = data[key]
+        if key == "headers":
+            login[key] = parse_headers(value)
+        else:
+            login[key] = (str(value).strip() if key == "username" else str(value)) if value else None
+    # A different account doesn't keep the old account's password.
+    if "username" in data and "password" not in data and login["username"] != kept["username"]:
+        login["password"] = None
+    # Kept even when empty, so create_backend replaces the defaults instead of keeping them.
+    login["headers"] = login["headers"] or {}
+    return url, login
+
+
+state = AppState()
+jobs = JobManager(run_expression_job, history=settings.job_history)
+
+is_realistic = False
+model_family = expression_sets.AUTO
+lora_settings = {
+    "enabled": True,
+    "lora_dir": os.environ.get("EMOTICA_LORA_DIR", ""),
+    "civitai_api_key": os.environ.get(CIVITAI_KEY_ENV, ""),
+}
+
+
+# An OpenAI compatible chat endpoint that writes the idle motion from the character card (optional).
+llm_settings = {
+    "url": os.environ.get(animation.LLM_URL_ENV, ""),
+    "api_key": os.environ.get(animation.LLM_KEY_ENV, ""),
+    "model": os.environ.get(animation.LLM_MODEL_ENV, ""),
+}
+
+
+def civitai_key_for(backend) -> tuple[str | None, str | None]:
+    """The key typed into Emotica, else one the WebUI's Civitai extension or node has, else the environment."""
+    explicit = lora_settings["civitai_api_key"] or None
+    return find_civitai_key(explicit, () if explicit else backend.civitai_key_sources())
+
+
+def current_backend():
+    with state.lock:
+        return state.backend
+
+
+def error_response(code: str, message: str, http_status: int, **extra):
+    body = {"status": "Failed", "message": message, "error": {"code": code, "message": message, **extra}}
+    return jsonify(body), http_status
+
+
+# Request logging ------------------------------------------------------------
+@emotica.before_request
+def start_request():
+    g.request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    g.started = time.monotonic()
+    g.log_context = log.contextualize(request_id=g.request_id)
+    g.log_context.__enter__()
+
+
+CORS_HEADERS = "Content-Type, X-Request-ID"
+
+
+def allowed_origin(origin: str | None) -> str | None:
+    """The Origin to echo back when that web page may call the API (EMOTICA_CORS_ORIGINS), else None."""
+    if not origin:
+        return None
+    if "*" in settings.cors_origins:
+        return "*"
+    return origin if origin.rstrip("/") in settings.cors_origins else None
+
+
+def add_cors_headers(response) -> None:
+    """Let pages such as SillyTavern (its Emotica extension) call the API from the browser."""
+    origin = allowed_origin(request.headers.get("Origin"))
+    if origin is None:
+        return
+    response.headers["Access-Control-Allow-Origin"] = origin
+    if origin != "*":
+        response.headers.add("Vary", "Origin")
+    response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
+    if request.method == "OPTIONS":
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = CORS_HEADERS
+        response.headers["Access-Control-Max-Age"] = "600"
+        # Chrome's Private Network Access: a page on a public address calling Emotica on this machine or the LAN.
+        if request.headers.get("Access-Control-Request-Private-Network") == "true":
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+
+
+@emotica.after_request
+def finish_request(response):
+    response.headers["X-Request-ID"] = g.get("request_id", "-")
+    add_cors_headers(response)
+    if request.path.startswith("/static/") or request.path in ("/health",):
+        return response
+    elapsed = (time.monotonic() - g.get("started", time.monotonic())) * 1000
+    log.info(f"{request.method} {request.path} -> {response.status_code} in {elapsed:.0f} ms")
+    return response
+
+
+@emotica.teardown_request
+def end_request(_error=None):
+    context = g.pop("log_context", None)
+    if context is not None:
+        context.__exit__(None, None, None)
+
+
+@emotica.errorhandler(ValidationError)
+def handle_validation_error(e: ValidationError):
+    return error_response(e.code, str(e), 400, fields=e.errors)
+
+
+@emotica.errorhandler(BackendError)
+def handle_backend_error(e: BackendError):
+    fix = getattr(e, "fix", None)
+    if fix is None and isinstance(e, (BackendUnavailable, BackendTimeout, BackendAuthError)):
+        fix = connection_fix(e)
+    extra = {"fix": dataclasses.asdict(fix)} if fix else {}
+    return error_response(e.code, str(e), e.http_status, **extra)
+
+
+@emotica.errorhandler(HTTPException)
+def handle_http_error(e: HTTPException):
+    if request.path.startswith("/static/") or request.path == "/":
+        return e
+    return error_response(e.name.lower().replace(" ", "_"), e.description, e.code)
+
+
+@emotica.errorhandler(Exception)
+def handle_unexpected_error(e: Exception):
+    log.exception(f"Unhandled error on {request.method} {request.path}")
+    return error_response("internal_error", "Internal error, see the server log.", 500)
+
+
+# Emotica UI
+@emotica.route("/", methods=["GET"])
+def index():
+    if frontend.is_built():
+        return frontend.index()
+    return classic()
+
+
+@emotica.route("/classic", methods=["GET"])
+def classic():
+    return render_template("index.html", backends=describe_backends(include_auto=True), selected=AUTO)
+
+
+# Health and WebUI status ----------------------------------------------------
+@emotica.route("/health", methods=["GET"])
+def health():
+    """Liveness of Emotica itself; does not call the WebUI."""
+    active = jobs.active
+    return jsonify({"status": "ok", "backend": current_backend().kind, "active_job": active.id if active else None})
+
+
+@emotica.route("/backend/status", methods=["GET"])
+def backend_status():
+    """Is the selected WebUI reachable and ready, with its version where it reports one."""
+    return jsonify(current_backend().health())
+
+
+@emotica.route("/backend/capabilities", methods=["GET"])
+def backend_capabilities():
+    """
+    Everything Emotica needs on the selected WebUI, checked over its API, item by item.
+
+    Each missing item carries a fix (steps, commands to copy, links), so the UI can walk the user through it.
+    """
+    report = current_backend().check_capabilities()
+    report["detected"] = state.detected is not None
+    return jsonify(report)
+
+
+@emotica.route("/backends", methods=["GET"])
+def list_backends():
+    backend = current_backend()
+    return jsonify(
+        {
+            "selected": backend.kind,
+            "detected": state.detected is not None,
+            "url": backend.get_url(),
+            "login": backend.auth_summary(),
+            "backends": describe_backends(include_auto=True),
+        }
+    )
+
+
+# Stable diffusion API Calls
+@emotica.route("/interrupt", methods=["POST"])
+def interrupt_generation():
+    """Cancel the running job and anything queued after it."""
+    cancelled = jobs.cancel_all()
+    log.info(f"Interrupt: cancelled {cancelled} job(s).")
+    return jsonify(True)
+
+
+@emotica.route("/get-models")
+def get_models():
+    return jsonify(current_backend().models)
+
+
+@emotica.route("/get-samplers")
+def get_samplers():
+    return jsonify(current_backend().samplers)
+
+
+@emotica.route("/get-schedulers")
+def get_schedulers():
+    return jsonify(current_backend().schedulers)
+
+
+@emotica.route("/get-loras")
+def get_loras():
+    return jsonify(current_backend().loras)
+
+# End of Stable diffusion API Calls
+
+# Image uploaded
+@emotica.route("/upload", methods=["POST"])
+def upload_file():
+    if "file" not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files["file"]
+
+    if file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({"error": "Only png, jpg, jpeg, gif and webp images are accepted."}), 400
+
+    stem, ext = file.filename.rsplit(".", 1)
+    filename = secure_filename(f"{secure_filename(stem) or 'image'}_{uuid.uuid4().hex[:8]}.{ext.lower()}")
+    filepath = os.path.join(emotica.config["UPLOAD_FOLDER"], filename)
+    file.save(filepath)
+
+    try:
+        with Image.open(filepath) as image:
+            image.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as e:
+        os.remove(filepath)
+        log.info(f"Rejected upload {filename}: {e}")
+        return jsonify({"error": "Not a readable image."}), 400
+
+    full_image_data = {"cleaned_data": None, "uncleaned_data": None, "width": None, "height": None}
+    full_image_data["cleaned_data"] = image_parser.generate_cleaned_parameters(filepath)
+    full_image_data["uncleaned_data"] = image_parser.generate_uncleaned_params(filepath)
+    full_image_data["width"], full_image_data["height"] = image_parser.get_size_from_image_metadata(filepath)
+    card = character_card.read_card(filepath)
+    full_image_data["character"] = card.to_dict() if card else None
+
+    return jsonify(full_image_data), 200
+
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in {"png", "jpg", "jpeg", "gif", "webp"}
+
+
+# Try connecting to SD
+@emotica.route("/receive_data", methods=["POST"])
+def receive_data():
+    """
+    Pick the WebUI backend and set its URL.
+
+    Body: {"text": url, "backend": id (optional, keeps the current one),
+           "username", "password", "token", "headers" (optional: a sent field replaces the one in use,
+           an empty one clears it, a missing one is kept while the host stays the same),
+           "forget_login": true (optional, drop the kept login)}
+
+    The response never contains a password, token or header value: "login" only says which are set.
+    """
+    data = request.get_json(silent=True) or {}
+    url = data.get("text")
+    kind = data.get("backend") or current_backend().kind
+    login = {key: data[key] for key in (*LOGIN_FIELDS, "forget_login") if key in data}
+
+    try:
+        backend = state.connect(kind, url, login)
+    except ValueError as e:
+        log.info(f"Could not connect to {kind} at {redact_url(url)}: {redact_url(str(e))}")
+        if kind != AUTO and kind not in REMOTE_BACKENDS:
+            return jsonify({"error": f"Unknown WebUI backend. Choose one of: {', '.join([AUTO, *REMOTE_BACKENDS])}."}), 400
+        if isinstance(e, HeaderError):
+            return jsonify({"error": HEADERS_HELP}), 400
+        return jsonify({"error": "Not a valid http(s) URL."}), 400
+
+    if not url:
+        log.info(f"No url found, defaulting to {backend.get_url()}")
+    log.info(f"{backend.label} URL set to: {backend.get_url()}")
+
+    return jsonify(
+        {
+            "status": "success",
+            "backend": backend.kind,
+            "name": backend.label,
+            "url": backend.get_url(),
+            "detected": kind == AUTO,
+            "login": backend.auth_summary(),
+        }
+    )
+
+
+# Generate Images
+@emotica.route("/generate", methods=["POST"])
+def generate():
+    """
+    Queue the expressions for generation.
+
+    By default the request waits until the job finishes, like before. Send
+    "wait": false to get a job id back immediately (HTTP 202) and follow it
+    with GET /jobs/<id>.
+
+    "method": "instruct" uses the instruction edit mode (Qwen-Image-Edit, ComfyUI
+    only) instead of face inpainting; see GET /edit-methods.
+
+    "remove_background": true saves every expression with a transparent
+    background (rembg); see GET /background-removal.
+
+    "pose": true also changes the pose with each expression (a small sprite
+    gesture from the current pose, outfit and background kept). It needs the
+    instruction edit mode on the backend, whichever method is used.
+
+    "overrides": {expression: {"prompt", "settings"}} gives single expressions their
+    own prompt and settings (see GET /expression-overrides). The ones saved in the
+    output folder apply too unless "use_saved_overrides": false; the request's win.
+    "save_overrides": true remembers the request's in the folder for later runs.
+    To retry one expression, send "expressions": [name] (and "seed": -1 for a new take).
+    """
+    request_data = validate_generate(request.get_json(silent=True), settings.max_image_pixels)
+    backend = current_backend()
+    job_settings = dict(request_data["settings"])
+    family = resolve_flavor(model_family, job_settings.get("ad_checkpoint"), is_realistic)
+    family_defaults = expression_sets.family_defaults(family)
+    method = request_data["method"]
+    if method is None:
+        # Realistic families default to the instruction edit where the WebUI has it; inpainting barely moves a photo.
+        method = family_defaults["method"] if family_defaults["method"] in backend.edit_methods else instruction_edit.INPAINT
+    if method not in backend.edit_methods:
+        raise ValidationError(
+            {"method": f"{backend.label} has no {instruction_edit.METHODS[method]['name']} mode. Use the ComfyUI backend for it."}
+        )
+
+    if job_settings.get("pose") and instruction_edit.INSTRUCT not in backend.edit_methods:
+        raise ValidationError({"pose": f"Poses need Qwen-Image-Edit, which {backend.label} doesn't have. Use the ComfyUI backend for them."})
+
+    for lora_name, lora_strength in request_data["loras"]:
+        job_settings["ad_prompt"] = f"{job_settings.get('ad_prompt', '')} <lora:{lora_name}:{lora_strength}>, "
+
+    if method == instruction_edit.INSTRUCT:
+        expressions = list(instruction_edit.get_instructions(request_data["expressions"]))
+    else:
+        expressions = list(get_expressions(family, request_data["expressions"]))
+    if not expressions:
+        raise ValidationError({"expressions": "None of the requested expressions exist."})
+
+    background_model = None
+    if request_data["remove_background"]:
+        if not background.available():
+            raise ValidationError(
+                {"remove_background": f"Background removal needs rembg. Install it with {background.INSTALL_COMMAND}, then restart Emotica."}
+            )
+        photo = job_settings.get("edit_style", family_defaults["edit_style"]) == "photo" or is_realistic
+        background_model = background.model_for(photo)
+
+    output_path = resolve_inside(settings.output_dir, request_data["output_name"])
+    if output_path is None:
+        raise ValidationError({"output_dir": "Invalid folder name."})
+
+    if request_data["save_overrides"] and request_data["overrides"]:
+        expression_overrides.save(output_path, expression_overrides.merge(expression_overrides.load(output_path), request_data["overrides"]))
+    saved = expression_overrides.load(output_path) if request_data["use_saved_overrides"] else {}
+    wanted = set(expressions)
+    custom = {name: entry for name, entry in expression_overrides.merge(saved, request_data["overrides"]).items() if name in wanted}
+    if custom:
+        job_settings["expression_overrides"] = custom
+
+    animate = request_data["animation"]
+    if animate is not None and not backend.can_animate:
+        raise ValidationError({"animate": f"{backend.label} can't animate sprites. Use the ComfyUI backend with Wan 2.2 for them."})
+    style = instruction_edit.PHOTO if job_settings.get("edit_style", family_defaults["edit_style"]) == "photo" or is_realistic else instruction_edit.ILLUSTRATION
+
+    log.info(f"Generation parameters: { {k: v for k, v in job_settings.items()} }")
+
+    # A fresh client per job, so switching WebUI or interrupting never touches another job.
+    job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
+    # Fail fast instead of waiting behind queued jobs to find out the WebUI is down.
+    for needed in dict.fromkeys(
+        [method] + ([instruction_edit.INSTRUCT] if job_settings.get("pose") else []) + ([animation.ANIMATE] if animate is not None else [])
+    ):
+        ready, message = job_backend.check_ready(needed)
+        if not ready:
+            raise job_backend.last_error or BackendNotReady(message)
+    civitai_api_key = None
+    if lora_settings["enabled"] and method == instruction_edit.INPAINT:
+        civitai_api_key, source = civitai_key_for(job_backend)
+        if source:
+            log.info(f"Civitai API key from {source}")
+    job = jobs.submit(
+        JobSpec(
+            backend=job_backend,
+            image=request_data["image"],
+            settings=job_settings,
+            output_name=request_data["output_name"],
+            output_path=str(output_path),
+            expressions=expressions,
+            family=family,
+            is_realistic=is_realistic,
+            # Off for families whose models the expression LoRAs don't help (realistic photos).
+            use_expression_loras=lora_settings["enabled"] and family_defaults["expression_loras"],
+            lora_dir=lora_settings["lora_dir"] or None,
+            civitai_api_key=civitai_api_key,
+            method=method,
+            background_model=background_model,
+            animate=with_llm(animate),
+            style=style,
+        )
+    )
+    return job_response(job, request_data["wait"])
+
+
+def with_llm(animate: dict | None) -> dict | None:
+    """The animation settings plus the LLM endpoint, when the idle motion is to be written by the LLM."""
+    if animate is None or animate.get("idle_source") != "llm":
+        return animate
+    return {**animate, "llm": {key: value or None for key, value in llm_settings.items()}}
+
+
+def job_response(job, wait: bool):
+    """202 with the job id, or wait for the job and report how it ended."""
+    if not wait:
+        return jsonify({"status": "queued", "job_id": job.id, "job": job.to_dict(include_step=False)}), 202
+
+    job.done.wait()
+    result = job.to_dict(include_step=False)
+    if job.status == COMPLETED:
+        return jsonify({"status": "success", "message": f"Generated {job.total} expressions.", "job": result})
+    if job.status == CANCELLED:
+        return jsonify({"status": "cancelled", "message": "Generation was interrupted.", "job": result})
+    error = job.error or {"code": "backend_error", "message": "Generation failed."}
+    status = BackendError.status_for(error.get("code")) if error.get("code") != "internal_error" else 500
+    return jsonify({"status": "Failed", "message": error["message"], "error": error, "job": result}), status
+
+
+@emotica.route("/animate", methods=["POST"])
+def animate_existing():
+    """
+    Animate the expression stills already in an output folder (from an earlier /generate).
+
+    Body: {"output_dir": folder, "expressions": [names] (optional, default every <name>.png there),
+           "animation": {...} (see /generate), "image": the character card or picture (optional, for the idle motion),
+           "remove_background": bool (cut transparent stills' frames with the photo model instead), "wait": bool}
+    """
+    data = request.get_json(silent=True) or {}
+    backend = current_backend()
+    if not backend.can_animate:
+        raise ValidationError({"animate": f"{backend.label} can't animate sprites. Use the ComfyUI backend with Wan 2.2 for them."})
+    animate = validate_animation(data.get("animation"))
+    output_name = safe_dir_name(data.get("output_dir"))
+    output_path = resolve_inside(settings.output_dir, output_name)
+    if output_path is None or not output_path.is_dir():
+        raise ValidationError({"output_dir": "No such output folder."})
+    names = sorted(path.stem for path in output_path.glob("*.png"))
+    wanted = data.get("expressions")
+    if wanted is not None:
+        if not isinstance(wanted, list) or not all(isinstance(name, str) for name in wanted):
+            raise ValidationError({"expressions": "must be a list of expression names"})
+        names = [name for name in names if name in {w.strip().lower() for w in wanted}]
+    if not names:
+        raise ValidationError({"expressions": "No expression stills to animate in that folder."})
+    image = data.get("image") if isinstance(data.get("image"), str) else ""
+    job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
+    ready, message = job_backend.check_ready(animation.ANIMATE)
+    if not ready:
+        raise job_backend.last_error or BackendNotReady(message)
+    photo = bool(data.get("photo")) or is_realistic
+    job = jobs.submit(
+        JobSpec(
+            backend=job_backend,
+            image=image,
+            settings={},
+            output_name=output_name,
+            output_path=str(output_path),
+            expressions=names,
+            family=model_family,
+            is_realistic=photo,
+            method=instruction_edit.INPAINT,
+            background_model=background.model_for(photo) if background.available() else None,
+            animate=with_llm(animate),
+            style=instruction_edit.PHOTO if photo else instruction_edit.ILLUSTRATION,
+            animate_existing=True,
+        )
+    )
+    return job_response(job, data.get("wait", True) is not False)
+
+
+@emotica.route("/character-card", methods=["POST"])
+def read_character_card():
+    """
+    The character card in an image (V1/V2/V3 PNG or card JSON) and the idle motion for its animated sprites.
+
+    Body: {"image": base64 or data URI, "persona": text (optional, instead of a card), "name": text (optional),
+           "idle_source": "card" | "web" | "llm"}
+    """
+    data = request.get_json(silent=True) or {}
+    source = data.get("idle_source") or "card"
+    if source not in ("card", "web", "llm"):
+        raise ValidationError({"idle_source": "must be card, web or llm"})
+    card = character_card.read_card(data["image"]) if isinstance(data.get("image"), str) and data["image"] else None
+    persona = data.get("persona") if isinstance(data.get("persona"), str) else ""
+    if card is None and data.get("name"):
+        card = character_card.CharacterCard(name=str(data["name"])[:200], description=persona[:8000])
+    motion, origin = animation.resolve_idle_motion(card, persona[:8000], source, {key: value or None for key, value in llm_settings.items()})
+    return jsonify({"character": card.to_dict() if card else None, "idle_motion": motion, "idle_source": origin})
+
+
+@emotica.route("/animation", methods=["GET"])
+def get_animation_info():
+    """Whether the selected WebUI can animate sprites, the formats, defaults and the per-expression motions."""
+    backend = current_backend()
+    defaults = animation.AnimationSettings()
+    return jsonify(
+        {
+            "available": backend.can_animate,
+            "backend": backend.kind,
+            "formats": list(animation.FORMATS),
+            "defaults": {"frames": defaults.frames, "fps": defaults.fps, "resolution": defaults.resolution, "formats": list(defaults.formats), "loop": True},
+            "motions": animation.motions(),
+            "llm": {"configured": bool(llm_settings["url"]), "model": llm_settings["model"]},
+            "vram_note": animation.VRAM_NOTE,
+        }
+    )
+
+
+# Live2D model kits ------------------------------------------------------------
+@emotica.route("/live2d", methods=["GET"])
+def get_live2d_info():
+    """Whether the selected WebUI can build Live2D model kits, what it's missing, and which pictures work best."""
+    backend = current_backend()
+    ready, message = (False, f"{backend.label} can't split a character into layers. Use ComfyUI with the See-through nodes.")
+    if backend.can_decompose:
+        ready, message = backend.check_ready(DECOMPOSE)
+    defaults = live2d_layers.SplitSettings()
+    fix = getattr(backend.last_error, "fix", None) if not ready else None
+    return jsonify(
+        {
+            "available": backend.can_decompose,
+            "ready": ready,
+            "message": "ok" if ready else message,
+            "fix": dataclasses.asdict(fix) if fix else None,
+            "backend": backend.kind,
+            "variant_methods": [m for m in ("instruct", "inpaint") if m in backend.edit_methods],
+            "defaults": {"resolution": defaults.resolution, "steps": defaults.steps, "seed": defaults.seed, "low_vram": defaults.low_vram},
+            "advice": live2d_guidance.ADVICE,
+            "vram_note": live2d_layers.VRAM_NOTE,
+        }
+    )
+
+
+@emotica.route("/live2d/check", methods=["POST"])
+def check_live2d_pictures():
+    """Check pictures for a Live2D model. Body: {"images": [base64 ...]}. Returns a report per picture and the best one."""
+    data = request.get_json(silent=True) or {}
+    images = data.get("images")
+    if isinstance(images, str):
+        images = [images]
+    if not isinstance(images, list) or not images:
+        raise ValidationError({"images": "Send at least one picture."})
+    from emotica.validation import MAX_LIVE2D_IMAGES, decode_image
+
+    if len(images) > MAX_LIVE2D_IMAGES:
+        raise ValidationError({"images": f"Send at most {MAX_LIVE2D_IMAGES} pictures."})
+    decoded = [decode_image(image, settings.max_image_pixels) for image in images]
+    ranked = live2d_guidance.rank_images(decoded)
+    reports = [None] * len(decoded)
+    for index, report in ranked:
+        reports[index] = report
+    return jsonify({"best": ranked[0][0], "reports": reports, "advice": live2d_guidance.ADVICE})
+
+
+@emotica.route("/live2d/character-lora", methods=["POST"])
+def find_character_lora():
+    """
+    Look for the character's LoRA on Civitai.
+
+    Body: {"name": character name (optional), "image": character card (optional, for its name), "checkpoint": the
+           face inpainting checkpoint (optional, picks the LoRA's base model)}.
+    Returns the matches, best first, each with whether the WebUI already has it and how to install it if not.
+    """
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip() if isinstance(data.get("name"), str) else ""
+    if not name and isinstance(data.get("image"), str) and data["image"]:
+        card = character_card.read_card(data["image"])
+        name = card.name if card else ""
+    if not name:
+        raise ValidationError({"name": "Type the character's name, or send a character card."})
+    backend = current_backend()
+    checkpoint = data.get("checkpoint") if isinstance(data.get("checkpoint"), str) else None
+    architecture = expression_loras.guess_architecture(checkpoint or (backend.models[:1] or [""])[0], model_family if model_family != "auto" else None)
+    api_key, _ = civitai_key_for(backend)
+    try:
+        found = character_lora.search(name, architecture, api_key)
+    except OSError as e:
+        return error_response("civitai_unreachable", f"Couldn't reach Civitai: {e}", 502)
+    installed_names = backend.lora_stems
+    results = []
+    for entry in found[:5]:
+        installed = expression_loras._installed_name(entry, lora_dir=lora_settings["lora_dir"] or None, installed_names=installed_names or None)
+        results.append(
+            {
+                "entry": entry,
+                "installed_name": installed,
+                "page": expression_loras.civitai_page(entry),
+                "install": None if installed else expression_loras.manual_install(entry, backend.label, "its models/loras folder"),
+            }
+        )
+    return jsonify({"name": name, "architecture": architecture, "results": results})
+
+
+@emotica.route("/live2d", methods=["POST"])
+def build_live2d_kit():
+    """
+    Build a Live2D model kit from pictures of a character (ComfyUI with the See-through nodes).
+
+    Body: {"images": [base64 ...], "name": folder name, "output_dir": parent folder (default "live2d"),
+           "settings": {resolution, steps, seed, low_vram, base_index, variants: auto|instruct|inpaint|none,
+                        remove_background, plus ad_* / edit_* settings for the eyes-closed and mouth-open edits},
+           "character_lora": {"entry", "installed_name"} from /live2d/character-lora (optional), "wait": bool}
+    Returns a job (GET /jobs/<id>); when it completes, job.live2d has the kit's zip, PSDs and preview.
+    """
+    request_data = validate_live2d(request.get_json(silent=True), settings.max_image_pixels)
+    backend = current_backend()
+    if not backend.can_decompose:
+        raise ValidationError({"backend": f"{backend.label} can't split a character into layers. Use ComfyUI with the See-through nodes."})
+    output_path = resolve_inside(settings.output_dir, request_data["output_name"])
+    if output_path is None:
+        raise ValidationError({"output_dir": "Invalid folder name."})
+    job_backend = create_backend(backend.kind, backend.get_url(), options=backend.connection)
+    ready, message = job_backend.check_ready(DECOMPOSE)
+    if not ready:
+        raise job_backend.last_error or BackendNotReady(message)
+    job = jobs.submit(
+        JobSpec(
+            backend=job_backend,
+            image="",
+            settings={},
+            output_name=request_data["output_name"],
+            output_path=str(output_path),
+            expressions=[LIVE2D_KIT],
+            live2d={
+                "images": request_data["images"],
+                "name": request_data["name"],
+                "settings": request_data["settings"],
+                "character_lora": request_data["character_lora"],
+            },
+        )
+    )
+    return job_response(job, request_data["wait"])
+
+
+@emotica.route("/llm-settings", methods=["GET", "POST"])
+def llm_settings_route():
+    """The OpenAI compatible endpoint that writes idle motions (url, model; the API key is write-only)."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        for key in ("url", "model", "api_key"):
+            if key in data:
+                value = (data.get(key) or "").strip()
+                if key == "url" and value and not value.startswith(("http://", "https://")):
+                    raise ValidationError({"url": "must be an http(s) URL"})
+                llm_settings[key] = value
+    return jsonify({"url": llm_settings["url"], "model": llm_settings["model"], "has_api_key": bool(llm_settings["api_key"])})
+
+
+# Jobs -----------------------------------------------------------------------
+@emotica.route("/jobs", methods=["GET"])
+def list_jobs():
+    return jsonify({"jobs": [job.to_dict(include_step=False) for job in jobs.list()]})
+
+
+@emotica.route("/jobs/<job_id>", methods=["GET"])
+def get_job(job_id):
+    job = jobs.get(job_id)
+    if job is None:
+        return error_response("not_found", f"No job {job_id}.", 404)
+    return jsonify(job.to_dict())
+
+
+@emotica.route("/jobs/<job_id>/cancel", methods=["POST"])
+def cancel_job(job_id):
+    job = jobs.cancel(job_id)
+    if job is None:
+        return error_response("not_found", f"No job {job_id}.", 404)
+    return jsonify(job.to_dict(include_step=False)), (200 if job.status in FINISHED else 202)
+
+
+# Results --------------------------------------------------------------------
+@emotica.route("/images/<path:subpath>")
+def list_images(subpath):
+    directory = resolve_inside(settings.output_dir, subpath)
+    if directory is None:
+        return jsonify({"error": "Invalid folder"}), 400
+    if not directory.is_dir():
+        log.info(f"Directory not found: {directory}")
+        return jsonify({"error": "Directory not found"}), 404
+    files = sorted(f.name for f in directory.iterdir() if f.is_file())
+    return jsonify(files)
+
+
+@emotica.route("/image/<path:filename>")
+def get_image(filename):
+    """Endpoint to serve images from the entire output directory."""
+    return send_from_directory(settings.output_dir, filename)
+
+
+@emotica.route("/toggle", methods=["POST"])
+def handle_toggle():
+    global is_realistic
+    data = request.get_json(silent=True) or {}
+    is_realistic = bool(data.get("isRealistic"))
+
+    return jsonify({"message": f"Is realistic status set to {is_realistic}"})
+
+
+@emotica.route("/expression-families", methods=["GET"])
+def get_expression_families():
+    return jsonify(
+        {"selected": model_family, "families": expression_sets.list_families()}
+    )
+
+
+@emotica.route("/expression-family", methods=["POST"])
+def set_expression_family():
+    global model_family
+    family = (request.get_json(silent=True) or {}).get("family") or expression_sets.AUTO
+
+    if family != expression_sets.AUTO:
+        try:
+            expression_sets.load_family(family)
+        except KeyError:
+            return jsonify({"error": f"Unknown expression family: {family}"}), 400
+
+    model_family = family
+    log.info(f"Expression family set to {model_family}")
+    return jsonify({"message": f"Expression family set to {model_family}"})
+
+
+@emotica.route("/expression-defaults", methods=["GET"])
+def get_expression_defaults():
+    """
+    The calibrated defaults (method, intensity, edit_style) of the family a checkpoint uses.
+
+    Query: checkpoint (the selected model), family (optional, else the selected prompt style).
+    """
+    family_choice = request.args.get("family") or model_family
+    try:
+        family = resolve_flavor(family_choice, request.args.get("checkpoint"), is_realistic)
+    except KeyError:
+        return error_response("invalid_request", f"Unknown expression family: {family_choice}", 400)
+    return jsonify({"family": family, "defaults": expression_sets.family_defaults(family)})
+
+
+@emotica.route("/expression-overrides", methods=["GET"])
+def get_expression_overrides():
+    """
+    The per-expression prompts and settings saved for a character.
+
+    Query: output_dir (the character's output folder), download=1 to get the file as an attachment (export).
+    """
+    output_name = safe_dir_name(request.args.get("output_dir"))
+    folder = resolve_inside(settings.output_dir, output_name)
+    if folder is None:
+        raise ValidationError({"output_dir": "Invalid folder name."})
+    document = expression_overrides.document(expression_overrides.load(folder))
+    if request.args.get("download") in ("1", "true"):
+        response = jsonify(document)
+        response.headers["Content-Disposition"] = f'attachment; filename="{output_name}_{expression_overrides.FILE_NAME}"'
+        return response
+    return jsonify({**document, "output_dir": output_name, "settings": list(expression_overrides.SETTINGS)})
+
+
+@emotica.route("/expression-overrides", methods=["PUT", "POST"])
+def put_expression_overrides():
+    """
+    Save a character's per-expression prompts and settings (replacing what was there), e.g. an imported file.
+
+    Body: {"output_dir": folder, "expressions": {expression: {"prompt", "settings"}}}. An empty mapping clears them.
+    """
+    data = request.get_json(silent=True) or {}
+    output_name = safe_dir_name(data.get("output_dir"))
+    folder = resolve_inside(settings.output_dir, output_name)
+    if folder is None:
+        raise ValidationError({"output_dir": "Invalid folder name."})
+    custom = validate_overrides(data.get("expressions") or {})
+    unknown = sorted(set(custom) - set(instruction_edit.instruction_names()))
+    if unknown:
+        raise ValidationError({"expressions": f"Unknown expressions: {', '.join(unknown)}."})
+    expression_overrides.save(folder, custom)
+    log.info(f"Saved per-expression overrides for {output_name}: {', '.join(custom) or 'none'}")
+    return jsonify({**expression_overrides.document(custom), "output_dir": output_name})
+
+
+@emotica.route("/expression-prompt", methods=["POST"])
+def get_expression_prompt():
+    """
+    The default wording of expressions: the text a per-expression "prompt" override replaces.
+
+    Body: {"expressions": [names] (default all), "method", "ad_checkpoint", "family" (default the selected
+    prompt style), "expression_intensity", "edit_style", "pose"}. Returns {"prompts": {name: text}, "kind":
+    "tags" (face inpainting) or "instruction" (instruction edit)}.
+    """
+    data = request.get_json(silent=True) or {}
+    method = data.get("method") or instruction_edit.INPAINT
+    if method not in (instruction_edit.INPAINT, instruction_edit.INSTRUCT):
+        raise ValidationError({"method": "must be inpaint or instruct"})
+    intensity = data.get("expression_intensity")
+    if intensity is not None:
+        try:
+            intensity = min(max(float(intensity), 0.0), 1.0)
+        except (TypeError, ValueError):
+            raise ValidationError({"expression_intensity": "must be a number"}) from None
+    names = data.get("expressions") or instruction_edit.instruction_names()
+    if not isinstance(names, list):
+        raise ValidationError({"expressions": "must be a list of expression names"})
+    prompts = {}
+    for name in names:
+        try:
+            prompts[str(name).strip().lower()] = default_expression_prompt(
+                str(name),
+                method,
+                family=data.get("family") or model_family,
+                checkpoint=data.get("ad_checkpoint"),
+                intensity=intensity,
+                style=data.get("edit_style"),
+                is_realistic=is_realistic,
+                pose=bool(data.get("pose")),
+            )
+        except KeyError:
+            continue
+    return jsonify({"prompts": prompts, "kind": "instruction" if method == instruction_edit.INSTRUCT else "tags"})
+
+
+@emotica.route("/edit-methods", methods=["GET"])
+def get_edit_methods():
+    """The ways to change an expression, and which of them the selected WebUI can do."""
+    backend = current_backend()
+    return jsonify(
+        {
+            "backend": backend.kind,
+            "methods": [
+                {"id": method_id, **info, "available": method_id in backend.edit_methods}
+                for method_id, info in instruction_edit.METHODS.items()
+            ],
+            "vram_note": instruction_edit.VRAM_NOTE,
+        }
+    )
+
+
+@emotica.route("/background-removal", methods=["GET"])
+def get_background_removal():
+    """Whether exports can have their background removed, and which rembg models are used."""
+    return jsonify(
+        {
+            "available": background.available(),
+            "models": {"illustration": background.model_for(False), "photo": background.model_for(True)},
+            "install_command": background.INSTALL_COMMAND,
+        }
+    )
+
+
+@emotica.route("/expression-loras", methods=["GET"])
+def get_expression_lora_settings():
+    return jsonify(
+        {
+            "enabled": lora_settings["enabled"],
+            "lora_dir": lora_settings["lora_dir"],
+            "has_civitai_api_key": bool(lora_settings["civitai_api_key"]),
+            "civitai_key_source": civitai_key_for(current_backend())[1],
+        }
+    )
+
+
+@emotica.route("/expression-loras", methods=["POST"])
+def set_expression_lora_settings():
+    data = request.get_json(silent=True) or {}
+
+    if "enabled" in data:
+        lora_settings["enabled"] = bool(data["enabled"])
+    if "lora_dir" in data:
+        lora_settings["lora_dir"] = (data["lora_dir"] or "").strip()
+    if data.get("civitai_api_key"):
+        lora_settings["civitai_api_key"] = data["civitai_api_key"].strip()
+
+    log.info(
+        f"Expression LoRAs {'on' if lora_settings['enabled'] else 'off'}, "
+        f"LoRA folder: {lora_settings['lora_dir'] or 'auto'}"
+    )
+    return get_expression_lora_settings()

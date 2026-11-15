@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, ExternalLink, X } from "lucide-react";
 
 import type { JobNote } from "@/lib/api";
-import { useAutoExpress } from "@/lib/store";
+import { useEmotica } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -35,7 +35,7 @@ function NoteRow({ note }: { note: JobNote }) {
 
 /** Notes from the last finished run, such as expression LoRAs the WebUI lacks. */
 export function JobNotes() {
-  const { job } = useAutoExpress();
+  const { job } = useEmotica();
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 

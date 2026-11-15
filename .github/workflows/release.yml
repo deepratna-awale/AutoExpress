@@ -66,17 +66,17 @@ jobs:
             echo
             echo "### Downloads"
             echo
-            echo "- **ComfyUI**: install AutoExpress from ComfyUI-Manager or the [Comfy Registry](https://registry.comfy.org/nodes/autoexpress)."
-            echo "- **AUTOMATIC1111 / Forge / reForge / SD.Next**: Extensions > Install from URL, paste \`https://github.com/deepratna-awale/AutoExpress\`."
-            echo "- **SillyTavern**: Extensions > Install extension, paste \`https://github.com/deepratna-awale/AutoExpress\`, and run the standalone app below alongside it."
-            echo "- **Standalone app, Windows**: download \`autoexpress-$TAG-Windows_Release.zip\`, extract it and run \`run.bat\`."
-            echo "- **Standalone app, Linux**: download \`autoexpress-$TAG-Linux_Release.zip\`, extract it and run \`./run.sh\`."
-            echo "- **Standalone app, macOS**: download \`autoexpress-$TAG-macOS_Release.zip\` (Apple silicon, macOS 14+) or \`autoexpress-$TAG-macOS-Intel_Release.zip\` (no Remove background), extract it and run \`./run.sh\` in Terminal."
-            echo "- **Standalone app, Docker**: \`docker run -p 5000:5000 ghcr.io/deepratna-awale/autoexpress:$VERSION\`"
-            echo "- **From source**: see the [README](https://github.com/deepratna-awale/AutoExpress#readme)."
+            echo "- **ComfyUI**: install Emotica from ComfyUI-Manager or the [Comfy Registry](https://registry.comfy.org/nodes/autoexpress)."
+            echo "- **AUTOMATIC1111 / Forge / reForge / SD.Next**: Extensions > Install from URL, paste \`https://github.com/deepratna-awale/Emotica\`."
+            echo "- **SillyTavern**: Extensions > Install extension, paste \`https://github.com/deepratna-awale/Emotica\`, and run the standalone app below alongside it."
+            echo "- **Standalone app, Windows**: download \`emotica-$TAG-Windows_Release.zip\`, extract it and run \`run.bat\`."
+            echo "- **Standalone app, Linux**: download \`emotica-$TAG-Linux_Release.zip\`, extract it and run \`./run.sh\`."
+            echo "- **Standalone app, macOS**: download \`emotica-$TAG-macOS_Release.zip\` (Apple silicon, macOS 14+) or \`emotica-$TAG-macOS-Intel_Release.zip\` (no Remove background), extract it and run \`./run.sh\` in Terminal."
+            echo "- **Standalone app, Docker**: \`docker run -p 5000:5000 ghcr.io/deepratna-awale/emotica:$VERSION\`"
+            echo "- **From source**: see the [README](https://github.com/deepratna-awale/Emotica#readme)."
             if [ -n "$PREV_TAG" ]; then
               echo
-              echo "**Full changelog**: https://github.com/deepratna-awale/AutoExpress/compare/$PREV_TAG...$TAG"
+              echo "**Full changelog**: https://github.com/deepratna-awale/Emotica/compare/$PREV_TAG...$TAG"
             fi
           } > release_notes.md
 
@@ -86,8 +86,8 @@ jobs:
         run: |
           # Create a clean archive without .git, __pycache__, etc.
           mkdir -p artifacts
-          git archive --format=zip --prefix=autoexpress-${{ steps.tag.outputs.tag }}/ HEAD > artifacts/autoexpress-${{ steps.tag.outputs.tag }}-source.zip
-          git archive --format=tar.gz --prefix=autoexpress-${{ steps.tag.outputs.tag }}/ HEAD > artifacts/autoexpress-${{ steps.tag.outputs.tag }}-source.tar.gz
+          git archive --format=zip --prefix=emotica-${{ steps.tag.outputs.tag }}/ HEAD > artifacts/emotica-${{ steps.tag.outputs.tag }}-source.zip
+          git archive --format=tar.gz --prefix=emotica-${{ steps.tag.outputs.tag }}/ HEAD > artifacts/emotica-${{ steps.tag.outputs.tag }}-source.tar.gz
       
       - name: Download the release zips
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -100,7 +100,7 @@ jobs:
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: AutoExpress ${{ steps.tag.outputs.tag }}
+          name: Emotica ${{ steps.tag.outputs.tag }}
           body_path: ${{ steps.changelog.outputs.changelog_file }}
           prerelease: ${{ steps.prerelease.outputs.prerelease }}
           draft: false
@@ -114,4 +114,4 @@ jobs:
         if: steps.prerelease.outputs.prerelease == 'false'
         run: |
           echo "✅ Release ${{ steps.tag.outputs.tag }} created successfully!"
-          echo "🎉 This is now the latest stable release of AutoExpress"
+          echo "🎉 This is now the latest stable release of Emotica"

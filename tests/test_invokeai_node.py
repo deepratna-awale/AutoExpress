@@ -8,7 +8,7 @@ import types
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PACKAGE = "AutoExpress"  # InvokeAI names the pack after the cloned folder
+PACKAGE = "Emotica"  # InvokeAI names the pack after the cloned folder
 
 
 class _Model:
@@ -51,7 +51,7 @@ def invoke_pack(monkeypatch):
 
 def test_root_init_registers_the_invokeai_node(invoke_pack):
     assert invoke_pack.NODE_CLASS_MAPPINGS == {}
-    node = invoke_pack.AutoExpressExpressionPromptsInvocation(prompt_style="pony", expressions="joy, anger")
+    node = invoke_pack.EmoticaExpressionPromptsInvocation(prompt_style="pony", expressions="joy, anger")
     out = node.invoke(context=None)
     assert sorted(out.names) == ["anger", "joy"]
     assert len(out.prompts) == 2 and all("score_9" in p for p in out.prompts)
@@ -60,8 +60,8 @@ def test_root_init_registers_the_invokeai_node(invoke_pack):
 def test_root_init_registers_nothing_outside_a_host(monkeypatch):
     monkeypatch.delitem(sys.modules, "folder_paths", raising=False)
     monkeypatch.setitem(sys.modules, "invokeai", None)
-    spec = importlib.util.spec_from_file_location("autoexpress_plain", ROOT / "__init__.py")
+    spec = importlib.util.spec_from_file_location("emotica_plain", ROOT / "__init__.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.NODE_CLASS_MAPPINGS == {}
-    assert not hasattr(module, "AutoExpressExpressionPromptsInvocation")
+    assert not hasattr(module, "EmoticaExpressionPromptsInvocation")

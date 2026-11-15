@@ -16,11 +16,11 @@ pytest.importorskip("sd_parsers")
 from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
 from test_app import FakeWebUI, client  # noqa: E402,F401
 
-from autoexpress_mcp.__main__ import bearer_guard, parse_args  # noqa: E402
-from autoexpress_mcp.client import AppError, AutoExpressClient, describe_error  # noqa: E402
-from autoexpress_mcp.server import GUIDE_PATH, Settings, build_server  # noqa: E402
+from emotica_mcp.__main__ import bearer_guard, parse_args  # noqa: E402
+from emotica_mcp.client import AppError, EmoticaClient, describe_error  # noqa: E402
+from emotica_mcp.server import GUIDE_PATH, Settings, build_server  # noqa: E402
 
-APP = "http://autoexpress.test"
+APP = "http://emotica.test"
 
 
 class FlaskResponse:
@@ -64,7 +64,7 @@ def png_b64(color=(200, 150, 120), size=(64, 96)):
 @pytest.fixture
 def mcp(client, tmp_path):  # noqa: F811
     session = FlaskSession(client)
-    app = AutoExpressClient(APP, session=session)
+    app = EmoticaClient(APP, session=session)
     server = build_server(Settings(app_url=APP, results_dir=str(tmp_path / "results")), client=app)
     server.session = session
     return server
@@ -87,12 +87,12 @@ def call(server, name, arguments=None):
 def test_lists_every_tool_with_a_description(mcp):
     tools = asyncio.run(mcp.list_tools())
     names = {tool.name for tool in tools}
-    assert {"autoexpress_status", "connect_webui", "check_capabilities", "generate_expressions", "retry_expression", "wait_for_job", "get_result_image", "save_results", "build_live2d_kit"} <= names
+    assert {"emotica_status", "connect_webui", "check_capabilities", "generate_expressions", "retry_expression", "wait_for_job", "get_result_image", "save_results", "build_live2d_kit"} <= names
     assert all(tool.description for tool in tools)
 
 
 def test_status_reports_app_and_webui(mcp):
-    status = call(mcp, "autoexpress_status")
+    status = call(mcp, "emotica_status")
     assert status["app"]["status"] == "ok"
     assert status["webui"]["selected"] == "fake"
     assert "comfyui" in status["webui_choices"]
@@ -156,7 +156,7 @@ def test_expression_prompts_list_all_28(mcp):
 
 
 def test_local_files_can_be_turned_off(client, tmp_path):  # noqa: F811
-    app = AutoExpressClient(APP, allow_local_files=False, session=FlaskSession(client))
+    app = EmoticaClient(APP, allow_local_files=False, session=FlaskSession(client))
     server = build_server(Settings(app_url=APP, allow_local_files=False), client=app)
     with pytest.raises(ToolError, match="doesn't read local files"):
         call(server, "generate_expressions", {"image": str(tmp_path / "x.png"), "character": "Mira"})
@@ -165,8 +165,8 @@ def test_local_files_can_be_turned_off(client, tmp_path):  # noqa: F811
 
 
 def test_unreachable_app_says_how_to_start_it():
-    app = AutoExpressClient("http://127.0.0.1:9", timeout=1)
-    with pytest.raises(AppError, match="python -m autoexpress"):
+    app = EmoticaClient("http://127.0.0.1:9", timeout=1)
+    with pytest.raises(AppError, match="python -m emotica"):
         app.get("/health")
 
 
@@ -178,10 +178,10 @@ def test_describe_error_keeps_fix_steps():
 
 
 def test_guide_resource_is_the_skill(mcp):
-    contents = asyncio.run(mcp.read_resource("autoexpress://guide"))
+    contents = asyncio.run(mcp.read_resource("emotica://guide"))
     text = contents[0].content if hasattr(contents[0], "content") else contents[0].text
     assert text == GUIDE_PATH.read_text(encoding="utf-8")
-    assert text.startswith("---\nname: autoexpress\n")
+    assert text.startswith("---\nname: emotica\n")
 
 
 def test_skill_mentions_every_tool(mcp):
@@ -189,7 +189,7 @@ def test_skill_mentions_every_tool(mcp):
     docs = (GUIDE_PATH.parents[2] / "docs" / "mcp.md").read_text(encoding="utf-8")
     for tool in asyncio.run(mcp.list_tools()):
         assert f"`{tool.name}" in docs, tool.name
-    for tool in ("autoexpress_status", "connect_webui", "check_capabilities", "generate_expressions", "wait_for_job", "retry_expression", "save_results"):
+    for tool in ("emotica_status", "connect_webui", "check_capabilities", "generate_expressions", "wait_for_job", "retry_expression", "save_results"):
         assert tool in guide
 
 

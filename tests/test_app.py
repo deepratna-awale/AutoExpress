@@ -11,11 +11,11 @@ from PIL import Image
 pytest.importorskip("flask")
 pytest.importorskip("sd_parsers")
 
-from autoexpress import views  # noqa: E402
-from autoexpress_core import background  # noqa: E402
-from autoexpress_core.backends import registry  # noqa: E402
-from autoexpress_core.backends.base import BackendNotReady, BackendUnavailable, RemoteBackend  # noqa: E402
-from autoexpress_core.images import pil_to_b64  # noqa: E402
+from emotica import views  # noqa: E402
+from emotica_core import background  # noqa: E402
+from emotica_core.backends import registry  # noqa: E402
+from emotica_core.backends.base import BackendNotReady, BackendUnavailable, RemoteBackend  # noqa: E402
+from emotica_core.images import pil_to_b64  # noqa: E402
 
 
 class FakeWebUI(RemoteBackend):
@@ -67,13 +67,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(views.settings, "upload_dir", tmp_path / "up")
     (tmp_path / "out").mkdir()
     (tmp_path / "up").mkdir()
-    monkeypatch.setitem(views.autoexpress.config, "UPLOAD_FOLDER", str(tmp_path / "up"))
+    monkeypatch.setitem(views.emotica.config, "UPLOAD_FOLDER", str(tmp_path / "up"))
     monkeypatch.setitem(views.lora_settings, "enabled", False)
     FakeWebUI.delay, FakeWebUI.fail_at, FakeWebUI.ready, FakeWebUI.calls = 0.0, None, True, 0
     FakeWebUI.started = threading.Event()
     FakeWebUI.civitai_key = None
     views.state.connect("fake", None)
-    yield views.autoexpress.test_client()
+    yield views.emotica.test_client()
     views.jobs.cancel_all()
     views.state.connect("a1111", None)
 
@@ -252,7 +252,7 @@ def test_civitai_key_comes_from_the_webui_unless_typed_in(client, monkeypatch):
 
     typed = secrets.token_hex(8)
     monkeypatch.setitem(views.lora_settings, "civitai_api_key", typed)
-    assert views.civitai_key_for(views.current_backend()) == (typed, "AutoExpress")
+    assert views.civitai_key_for(views.current_backend()) == (typed, "Emotica")
 
 
 class FakeEditWebUI(FakeWebUI):
@@ -335,7 +335,7 @@ def test_expression_defaults_follow_the_checkpoint(client):
 
 
 def test_auto_detects_the_webui_and_reports_capabilities(client, monkeypatch):
-    from autoexpress_core.backends.detect import Detection
+    from emotica_core.backends.detect import Detection
 
     seen = {}
 
@@ -366,8 +366,8 @@ def test_auto_detects_the_webui_and_reports_capabilities(client, monkeypatch):
 
 
 def test_auto_detect_failures_explain_what_to_do(client, monkeypatch):
-    from autoexpress_core.backends.base import BackendUnavailable
-    from autoexpress_core.backends.detect import Detection
+    from emotica_core.backends.base import BackendUnavailable
+    from emotica_core.backends.detect import Detection
 
     def unreachable(url, **options):
         raise BackendUnavailable("Could not reach the WebUI.")
@@ -380,7 +380,7 @@ def test_auto_detect_failures_explain_what_to_do(client, monkeypatch):
 
     monkeypatch.setattr(views, "detect_backend", lambda url, **options: Detection(None, tried=["GET /x"]))
     response = client.post("/receive_data", json={"text": "http://10.0.0.5:7860", "backend": "auto"})
-    assert response.status_code == 409 and "not a WebUI AutoExpress supports" in response.get_json()["message"]
+    assert response.status_code == 409 and "not a WebUI Emotica supports" in response.get_json()["message"]
     assert "--api" in response.get_json()["error"]["fix"]["commands"]
 
     # RunPod's proxy answers on ports the pod doesn't expose
@@ -576,12 +576,12 @@ class FakeLayerWebUI(FakeWebUI):
         pass
 
     def instruction_edit(self, image, instruction, settings):
-        from autoexpress_core.images import b64_to_pil
+        from emotica_core.images import b64_to_pil
 
         return b64_to_pil(image).convert("RGB")
 
     def decompose_layers(self, image, settings):
-        from autoexpress_core.live2d.layers import Part
+        from emotica_core.live2d.layers import Part
 
         face = Image.new("RGBA", (settings.resolution, settings.resolution), (0, 0, 0, 0))
         face.paste((250, 220, 200, 255), (300, 200, 700, 700))
@@ -630,7 +630,7 @@ def test_live2d_builds_a_kit_job(client, monkeypatch, tmp_path):
 
 
 def test_live2d_character_lora_search(client, monkeypatch):
-    from autoexpress_core.live2d import character_lora
+    from emotica_core.live2d import character_lora
 
     seen = {}
 

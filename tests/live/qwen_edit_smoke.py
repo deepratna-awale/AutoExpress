@@ -16,8 +16,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from PIL import Image  # noqa: E402
 
-from autoexpress_core import ExpressionGenerator, instruction_edit, make_sprite_sheet  # noqa: E402
-from autoexpress_core.backends.comfyui_api import ComfyUIClient  # noqa: E402
+from emotica_core import ExpressionGenerator, instruction_edit, make_sprite_sheet  # noqa: E402
+from emotica_core.backends.comfyui_api import ComfyUIClient  # noqa: E402
 
 
 def main() -> int:

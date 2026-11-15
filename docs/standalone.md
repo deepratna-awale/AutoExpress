@@ -1,9 +1,9 @@
-# AutoExpress standalone app
+# Emotica standalone app
 
-The standalone app is a small web server that talks to a WebUI over its API, locally or on a remote GPU (RunPod, a home server, and so on). Use it when you'd rather keep AutoExpress out of your WebUI, or when the WebUI runs somewhere else.
+The standalone app is a small web server that talks to a WebUI over its API, locally or on a remote GPU (RunPod, a home server, and so on). Use it when you'd rather keep Emotica out of your WebUI, or when the WebUI runs somewhere else.
 
 <p align="center">
-  <img src="../.github/readme/nextjs_ui.jpg" alt="The AutoExpress web interface: the WebUI connection with its setup checklist, the generation settings, the dropped image with its prompt, and the generated expressions" width="100%">
+  <img src="../.github/readme/nextjs_ui.jpg" alt="The Emotica web interface: the WebUI connection with its setup checklist, the generation settings, the dropped image with its prompt, and the generated expressions" width="100%">
 </p>
 
 It gives matching results whichever WebUI does the work:
@@ -14,31 +14,31 @@ It gives matching results whichever WebUI does the work:
 
 ## Pre-built releases (recommended)
 
-Download the latest release for your platform from the [Releases page](https://github.com/deepratna-awale/AutoExpress/releases), extract it and run `run.bat` (Windows) or `./run.sh` (Linux, macOS). Then open [http://127.0.0.1:5000](http://127.0.0.1:5000). Releases include their own Python with every dependency built for that platform, and the web interface, so nothing else needs installing.
+Download the latest release for your platform from the [Releases page](https://github.com/deepratna-awale/Emotica/releases), extract it and run `run.bat` (Windows) or `./run.sh` (Linux, macOS). Then open [http://127.0.0.1:5000](http://127.0.0.1:5000). Releases include their own Python with every dependency built for that platform, and the web interface, so nothing else needs installing.
 
 ## Docker
 
 ```bash
-docker pull ghcr.io/deepratna-awale/autoexpress
-docker run -p 5000:5000 ghcr.io/deepratna-awale/autoexpress
+docker pull ghcr.io/deepratna-awale/emotica
+docker run -p 5000:5000 ghcr.io/deepratna-awale/emotica
 ```
 
-Each release publishes the image with its version (`ghcr.io/deepratna-awale/autoexpress:2.1.0`) and as `latest`. The old `deepratna/autoexpress` image on Docker Hub is from 2024 and no longer updated.
+Each release publishes the image with its version (`ghcr.io/deepratna-awale/emotica:2.1.0`) and as `latest`. The old `deepratna/emotica` image on Docker Hub is from 2024 and no longer updated.
 
-The container runs as an unprivileged user with uid 1000. If you mount a folder for the results, make it writable by that user (`-v "$PWD/Output:/AutoExpress/Output"` after `chown 1000 Output`). Build with `--build-arg PRELOAD_REMBG_MODELS="isnet-anime u2net_human_seg"` to include the background removal models in the image instead of downloading them on first use.
+The container runs as an unprivileged user with uid 1000. If you mount a folder for the results, make it writable by that user (`-v "$PWD/Output:/Emotica/Output"` after `chown 1000 Output`). Build with `--build-arg PRELOAD_REMBG_MODELS="isnet-anime u2net_human_seg"` to include the background removal models in the image instead of downloading them on first use.
 
 ## From source
 
-Needs [Python](https://www.python.org/downloads/) 3.11+ (on Debian/Ubuntu also `python3-venv`) and, to build the web interface yourself, [Node.js](https://nodejs.org/) 20.9+ (26 recommended) with [pnpm](https://pnpm.io/) or corepack. Without Node.js, AutoExpress downloads the prebuilt web interface from its GitHub release on first start.
+Needs [Python](https://www.python.org/downloads/) 3.11+ (on Debian/Ubuntu also `python3-venv`) and, to build the web interface yourself, [Node.js](https://nodejs.org/) 20.9+ (26 recommended) with [pnpm](https://pnpm.io/) or corepack. Without Node.js, Emotica downloads the prebuilt web interface from its GitHub release on first start.
 
 ```bash
-git clone https://github.com/deepratna-awale/AutoExpress.git
-cd AutoExpress
+git clone https://github.com/deepratna-awale/Emotica.git
+cd Emotica
 ./install.sh            # Windows: install.bat
 ./run.sh                # Windows: run.bat
 ```
 
-`install` creates `.venv`, installs the Python dependencies (the exact versions in `uv.lock` when [uv](https://docs.astral.sh/uv/) is installed) and builds the web interface into `frontend/out`. Run it again after pulling updates. It reuses `.venv`; `--clean` starts over and `--skip-frontend` installs only the Python side. Without Node.js it skips the build, and the app downloads the prebuilt web interface for its version (or the latest release's) when it starts. Set `AUTOEXPRESS_DOWNLOAD_FRONTEND=false` to turn that off. `run` starts the production server; set `AUTOEXPRESS_PORT`, `AUTOEXPRESS_BACKEND_URL` and the other [settings](../autoexpress/config.py) as environment variables. `run_debug` starts Flask's debug server on 127.0.0.1 for development.
+`install` creates `.venv`, installs the Python dependencies (the exact versions in `uv.lock` when [uv](https://docs.astral.sh/uv/) is installed) and builds the web interface into `frontend/out`. Run it again after pulling updates. It reuses `.venv`; `--clean` starts over and `--skip-frontend` installs only the Python side. Without Node.js it skips the build, and the app downloads the prebuilt web interface for its version (or the latest release's) when it starts. Set `EMOTICA_DOWNLOAD_FRONTEND=false` to turn that off. `run` starts the production server; set `EMOTICA_PORT`, `EMOTICA_BACKEND_URL` and the other [settings](../emotica/config.py) as environment variables. `run_debug` starts Flask's debug server on 127.0.0.1 for development.
 
 Or by hand:
 
@@ -46,7 +46,7 @@ Or by hand:
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[standalone]"
-python -m autoexpress              # production server on 0.0.0.0:5000
+python -m emotica              # production server on 0.0.0.0:5000
 ```
 
 The web interface is built with Next.js. Release zips and the Docker image already include it, and `install` builds it from source. To build it by hand:
@@ -61,13 +61,13 @@ Flask then serves it at [http://127.0.0.1:5000](http://127.0.0.1:5000). Without 
 
 ## Using it
 
-1. Paste your WebUI's address and press connect. AutoExpress detects which WebUI it is, checks that everything it needs is installed, and reads the model, sampler, scheduler and LoRA lists from it.
+1. Paste your WebUI's address and press connect. Emotica detects which WebUI it is, checks that everything it needs is installed, and reads the model, sampler, scheduler and LoRA lists from it.
 2. Drop, paste or browse for a character image. Every parameter is filled in from its metadata. If the image's checkpoint, sampler or scheduler isn't on the connected WebUI, the closest installed one from the same model family is used, with a note under the field.
 3. Choose a prompt style, enter a character name (the output folder) and press **Generate**. A progress bar shows the current expression, results appear in the gallery as they finish, and **Interrupt** cancels the job.
 
 Results are saved to `Output/<character name>/`.
 
-Tick **Remove background** to save every expression with a transparent background, so only the character is left (for SillyTavern sprites, VN engines and overlays). It runs [rembg](https://github.com/danielgatis/rembg) on the AutoExpress machine, not on the WebUI: `isnet-anime` for drawn characters and `u2net_human_seg` for photos (the **Photo** style or a realistic prompt style). Each model downloads once on first use (about 170 MB) and takes a few seconds per image on a CPU. Set `AUTOEXPRESS_BACKGROUND_MODEL` to use another rembg model, such as `birefnet-portrait` on a machine with a GPU.
+Tick **Remove background** to save every expression with a transparent background, so only the character is left (for SillyTavern sprites, VN engines and overlays). It runs [rembg](https://github.com/danielgatis/rembg) on the Emotica machine, not on the WebUI: `isnet-anime` for drawn characters and `u2net_human_seg` for photos (the **Photo** style or a realistic prompt style). Each model downloads once on first use (about 170 MB) and takes a few seconds per image on a CPU. Set `EMOTICA_BACKGROUND_MODEL` to use another rembg model, such as `birefnet-portrait` on a machine with a GPU.
 
 With a ComfyUI backend, the **Method** dropdown switches between **Face inpainting** (FaceDetailer) and **Instruction edit** ([Qwen-Image-Edit](comfyui.md#instruction-edit-mode-qwen-image-edit), which needs its models on the ComfyUI side).
 
@@ -84,13 +84,13 @@ When one expression of a set comes out wrong, press the **Retry** button (the ci
 - **Expression prompt**: the expression's tags in face inpainting (your character prompt, quality tags and LoRAs are still added), or the whole edit instruction in instruction edit mode. **Reset to default** brings the original wording back.
 - **Seed, intensity, denoising, steps, CFG scale, negative prompt** (edit steps and CFG for instruction edit): empty boxes use the shared settings, shown greyed out.
 
-With **Remember** on, the edits are saved with the character in `Output/<name>/autoexpress_overrides.json`, and every later run for that character uses them, the whole set as well as retries. The same dialog for all 28 expressions is under **Advanced: per-expression prompts and settings** at the bottom of the settings. **Export** downloads the file and **Import** loads one, to keep a character's tuned set or share it.
+With **Remember** on, the edits are saved with the character in `Output/<name>/emotica_overrides.json`, and every later run for that character uses them, the whole set as well as retries. The same dialog for all 28 expressions is under **Advanced: per-expression prompts and settings** at the bottom of the settings. **Export** downloads the file and **Import** loads one, to keep a character's tuned set or share it.
 
 ## Supported WebUIs
 
-Paste the WebUI's address and press connect. The WebUI can run anywhere: on this machine, elsewhere on your network, or on a hosted GPU such as RunPod (`https://<pod-id>-7860.proxy.runpod.net`), behind https, a reverse-proxy sub-path or a login. With **Detect automatically** (the default) AutoExpress asks the address which WebUI it is. Pick one in the **WebUI** dropdown to skip detection.
+Paste the WebUI's address and press connect. The WebUI can run anywhere: on this machine, elsewhere on your network, or on a hosted GPU such as RunPod (`https://<pod-id>-7860.proxy.runpod.net`), behind https, a reverse-proxy sub-path or a login. With **Detect automatically** (the default) Emotica asks the address which WebUI it is. Pick one in the **WebUI** dropdown to skip detection.
 
-After connecting, AutoExpress checks over the WebUI's API that everything it needs is there, such as ADetailer and its face model, ComfyUI's Impact Pack, checkpoints and samplers. Each missing piece is listed with steps for that WebUI, commands to copy and download links. Fix them, then press **Re-check**. The same report is at `GET /backend/capabilities`.
+After connecting, Emotica checks over the WebUI's API that everything it needs is there, such as ADetailer and its face model, ComfyUI's Impact Pack, checkpoints and samplers. Each missing piece is listed with steps for that WebUI, commands to copy and download links. Fix them, then press **Re-check**. The same report is at `GET /backend/capabilities`.
 
 | WebUI | Usual address | What it needs | How the face is repainted |
 | ----- | --------------- | ------------- | ------------------------- |
@@ -121,28 +121,28 @@ Open **Login** under the WebUI URL (it opens by itself when the WebUI refuses th
 
 How the login is kept safe:
 
-- It stays on the AutoExpress server. The page only learns which fields are set (and the username), never a password, token or header value; empty secret fields keep the saved ones, and **Forget login** clears them.
+- It stays on the Emotica server. The page only learns which fields are set (and the username), never a password, token or header value; empty secret fields keep the saved ones, and **Forget login** clears them.
 - It belongs to one host. Reconnecting to the same address, from the app or the SillyTavern extension, keeps it; another address never receives it. Extra headers are dropped if the WebUI redirects to another host, and ComfyUI's progress websocket uses the same login.
 - Passwords never reach the log: URLs are logged without credentials and error tracebacks don't print local variables.
 
-The same settings can come from the environment: `AUTOEXPRESS_BACKEND_USERNAME`, `AUTOEXPRESS_BACKEND_PASSWORD`, `AUTOEXPRESS_BACKEND_TOKEN` and `AUTOEXPRESS_BACKEND_HEADERS` (`Name: value` lines or a JSON object). With `AUTOEXPRESS_BACKEND_URL` set they are only sent to that host.
+The same settings can come from the environment: `EMOTICA_BACKEND_USERNAME`, `EMOTICA_BACKEND_PASSWORD`, `EMOTICA_BACKEND_TOKEN` and `EMOTICA_BACKEND_HEADERS` (`Name: value` lines or a JSON object). With `EMOTICA_BACKEND_URL` set they are only sent to that host.
 
 ## Configuration
 
-Every setting is an environment variable, listed with defaults in [autoexpress/config.py](../autoexpress/config.py). The most useful ones:
+Every setting is an environment variable, listed with defaults in [emotica/config.py](../emotica/config.py). The most useful ones:
 
 | Variable | Default | |
 | --- | --- | --- |
-| `AUTOEXPRESS_BACKEND` / `AUTOEXPRESS_BACKEND_URL` | `auto` / none | WebUI to connect to at startup (`auto` detects it from the URL) |
-| `AUTOEXPRESS_REQUEST_TIMEOUT` / `AUTOEXPRESS_JOB_TIMEOUT` | `30` / `1800` s | Quick calls / one expression |
-| `AUTOEXPRESS_RETRIES` | `2` | Retries with backoff on connection errors and 502/503/504 |
-| `AUTOEXPRESS_OUTPUT_DIR` | `./Output` | Where expressions are saved |
-| `AUTOEXPRESS_LORA_DIR` | unset | The WebUI's LoRA folder, for expression LoRA downloads |
-| `AUTOEXPRESS_MAX_UPLOAD_MB` | `32` | Request size limit |
-| `AUTOEXPRESS_LOG_JSON` / `AUTOEXPRESS_LOG_FILE` | off | JSON log lines, rotated log file |
-| `AUTOEXPRESS_BACKGROUND_MODEL` | `isnet-anime` / `u2net_human_seg` | rembg model for **Remove background** (drawn / photo) |
-| `AUTOEXPRESS_HOST` / `AUTOEXPRESS_PORT` | `0.0.0.0` / `5000` | Listen address |
-| `AUTOEXPRESS_CORS_ORIGINS` | `http://localhost:8000,http://127.0.0.1:8000` | Web pages that may call the API from the browser, such as SillyTavern for the [SillyTavern extension](sillytavern.md). Comma separated, `*` for any page, empty for none |
+| `EMOTICA_BACKEND` / `EMOTICA_BACKEND_URL` | `auto` / none | WebUI to connect to at startup (`auto` detects it from the URL) |
+| `EMOTICA_REQUEST_TIMEOUT` / `EMOTICA_JOB_TIMEOUT` | `30` / `1800` s | Quick calls / one expression |
+| `EMOTICA_RETRIES` | `2` | Retries with backoff on connection errors and 502/503/504 |
+| `EMOTICA_OUTPUT_DIR` | `./Output` | Where expressions are saved |
+| `EMOTICA_LORA_DIR` | unset | The WebUI's LoRA folder, for expression LoRA downloads |
+| `EMOTICA_MAX_UPLOAD_MB` | `32` | Request size limit |
+| `EMOTICA_LOG_JSON` / `EMOTICA_LOG_FILE` | off | JSON log lines, rotated log file |
+| `EMOTICA_BACKGROUND_MODEL` | `isnet-anime` / `u2net_human_seg` | rembg model for **Remove background** (drawn / photo) |
+| `EMOTICA_HOST` / `EMOTICA_PORT` | `0.0.0.0` / `5000` | Listen address |
+| `EMOTICA_CORS_ORIGINS` | `http://localhost:8000,http://127.0.0.1:8000` | Web pages that may call the API from the browser, such as SillyTavern for the [SillyTavern extension](sillytavern.md). Comma separated, `*` for any page, empty for none |
 
 Generation runs as a queued job on one worker thread, so several clicks or clients never send overlapping requests to the WebUI. Each job keeps its own connection, so switching WebUI doesn't disturb a running job. Every response carries an `X-Request-ID`, which also appears in the log lines.
 
@@ -150,9 +150,9 @@ Generation runs as a queued job on one worker thread, so several clicks or clien
 
 | Route | |
 | --- | --- |
-| `GET /health` | AutoExpress is up (does not call the WebUI) |
+| `GET /health` | Emotica is up (does not call the WebUI) |
 | `GET /backend/status` | Selected WebUI: `ready`, `message`, `error`, `latency_ms`, `info` (version etc.) |
-| `GET /backend/capabilities` | What the selected WebUI has for AutoExpress: `ready`, `missing`, and `items` of `{key, label, ok, detail, required, fix: {steps, commands, links}}` |
+| `GET /backend/capabilities` | What the selected WebUI has for Emotica: `ready`, `missing`, and `items` of `{key, label, ok, detail, required, fix: {steps, commands, links}}` |
 | `GET /backends` | WebUIs you can pick (`auto` first), the selected one and its URL |
 | `POST /receive_data` | `{"text": url, "backend": "auto" or an id, "username", "password", "token"}` (all optional). Returns the WebUI it connected to |
 | `GET /get-models`, `/get-samplers`, `/get-schedulers`, `/get-loras` | Lists from the selected WebUI (`[]` when unreachable) |

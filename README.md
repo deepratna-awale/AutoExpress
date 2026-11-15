@@ -1,18 +1,18 @@
-<h1 align="center"><img src="autoexpress/static/ico/favicon-rounded.png" alt="" width="28"> AutoExpress</h1>
+<h1 align="center"><img src="emotica/static/ico/logo.svg" alt="" width="28"> Emotica</h1>
 
 <p align="center"><b>One character image in, a full set of 28 facial expressions out.</b></p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/deepratna-awale/AutoExpress" alt="MIT license"></a>
-  <a href="https://github.com/deepratna-awale/AutoExpress/releases"><img src="https://img.shields.io/github/v/release/deepratna-awale/AutoExpress" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/deepratna-awale/Emotica" alt="MIT license"></a>
+  <a href="https://github.com/deepratna-awale/Emotica/releases"><img src="https://img.shields.io/github/v/release/deepratna-awale/Emotica" alt="Latest release"></a>
   <a href="https://registry.comfy.org/nodes/autoexpress"><img src="https://img.shields.io/badge/Comfy%20Registry-autoexpress-blue" alt="Comfy Registry"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
 </p>
 
-AutoExpress repaints a character's face with 28 different emotions and keeps everything else the same: pose, outfit, background and art style. It's made for expression sprites, such as [SillyTavern](https://github.com/SillyTavern/SillyTavern) character cards and visual novels.
+Emotica (formerly AutoExpress) repaints a character's face with 28 different emotions and keeps everything else the same: pose, outfit, background and art style. It's made for expression sprites, such as [SillyTavern](https://github.com/SillyTavern/SillyTavern) character cards and visual novels.
 
 <p align="center">
-  <img src=".github/readme/hero.jpg" alt="One input image and the joy, anger, sadness, surprise and embarrassment expressions AutoExpress made from it" width="100%">
+  <img src=".github/readme/hero.jpg" alt="One input image and the joy, anger, sadness, surprise and embarrassment expressions Emotica made from it" width="100%">
 </p>
 
 ## Features
@@ -21,7 +21,7 @@ AutoExpress repaints a character's face with 28 different emotions and keeps eve
 - **Sprites straight into SillyTavern.** The SillyTavern extension makes a character's expression sprites from its avatar and puts them in Character Expressions as they finish.
 - **Prompts tuned per model family.** Separate expression prompts for Danbooru-tag anime models, Pony, Illustrious/NoobAI, SDXL and natural-language models such as Flux. **Auto** picks the family from the checkpoint name.
 - **Expression LoRAs.** It downloads and applies the right expression LoRA for the checkpoint, reusing a Civitai key you already have set up.
-- **Login for protected WebUIs.** Username and password, a token or extra headers (such as Cloudflare Access) for a WebUI behind a login. They stay on the AutoExpress server and never reach the page or the log.
+- **Login for protected WebUIs.** Username and password, a token or extra headers (such as Cloudflare Access) for a WebUI behind a login. They stay on the Emotica server and never reach the page or the log.
 - **Retry one expression.** Make a single expression again with a new seed, or with its own prompt, intensity and settings, and save those with the character for every later run.
 - **Two ways to edit.** Face inpainting uses ADetailer or FaceDetailer. Instruction editing uses Qwen-Image-Edit on ComfyUI, which also works on photos.
 - **Animated sprites.** Every expression can become a seamless looping animation that keeps playing for as long as it's shown (Wan 2.2 image to video on ComfyUI), transparent if you like, with an idle animation written from the character card. [Examples](#animated-sprites).
@@ -70,32 +70,32 @@ The clips are made with Wan 2.2 image to video on ComfyUI and saved with a trans
 
 ## Installation
 
-Pick the setup you already use. They all share the same expression prompts and generation logic. Inside a WebUI, AutoExpress runs in-process, so the WebUI doesn't need `--api`.
+Pick the setup you already use. They all share the same expression prompts and generation logic. Inside a WebUI, Emotica runs in-process, so the WebUI doesn't need `--api`.
 
 | You use | Install | Guide |
 | --- | --- | --- |
-| AUTOMATIC1111, Forge, reForge, SD.Next | **Extensions → Available**, search for **AutoExpress**. Needs [ADetailer](https://github.com/Bing-su/adetailer). | [docs/a1111.md](docs/a1111.md) |
-| ComfyUI (and SwarmUI) | ComfyUI Manager, or `comfy node install autoexpress`. Needs [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and Subpack. | [docs/comfyui.md](docs/comfyui.md) |
+| AUTOMATIC1111, Forge, reForge, SD.Next | **Extensions → Available**, search for **Emotica**. Needs [ADetailer](https://github.com/Bing-su/adetailer). | [docs/a1111.md](docs/a1111.md) |
+| ComfyUI (and SwarmUI) | ComfyUI Manager, or `comfy node install emotica`. Needs [Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and Subpack. | [docs/comfyui.md](docs/comfyui.md) |
 | InvokeAI | **Nodes → Git Repository URL** with this repo's URL | [docs/invokeai.md](docs/invokeai.md) |
-| Standalone app (drives any of the above) | [Release zip](https://github.com/deepratna-awale/AutoExpress/releases) or `docker run -p 5000:5000 ghcr.io/deepratna-awale/autoexpress` | [docs/standalone.md](docs/standalone.md) |
+| Standalone app (drives any of the above) | [Release zip](https://github.com/deepratna-awale/Emotica/releases) or `docker run -p 5000:5000 ghcr.io/deepratna-awale/emotica` | [docs/standalone.md](docs/standalone.md) |
 | SillyTavern | **Extensions → Install extension** with this repo's URL. Needs the standalone app running. | [docs/sillytavern.md](docs/sillytavern.md) |
 
 Fooocus has no extension system, so it isn't supported.
 
 ## Quick start
 
-1. Install AutoExpress for your WebUI (see above), then open the **AutoExpress** tab, a ready-made ComfyUI workflow from [`example_workflows/`](example_workflows/), or the standalone app at http://127.0.0.1:5000.
+1. Install Emotica for your WebUI (see above), then open the **Emotica** tab, a ready-made ComfyUI workflow from [`example_workflows/`](example_workflows/), or the standalone app at http://127.0.0.1:5000.
 2. Drop in a character image. The prompt, checkpoint, sampler and seed are read from its metadata when it has any.
 3. Leave **Prompt Style** on **Auto**, pick the expressions you want, and press **Generate**.
 4. The results are saved as `joy.png`, `anger.png` and so on, ready to [use as SillyTavern sprites](docs/sillytavern.md). The [SillyTavern extension](docs/sillytavern.md#the-sillytavern-extension) does this step for you.
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/a1111.md"><img src=".github/readme/a1111_tab.jpg" alt="The AutoExpress tab in AUTOMATIC1111"></a><br><sub>AutoExpress tab in AUTOMATIC1111</sub></td>
-    <td width="50%"><a href="docs/comfyui.md"><img src=".github/readme/comfyui_graph.jpg" alt="AutoExpress nodes in ComfyUI"></a><br><sub>AutoExpress nodes in ComfyUI</sub></td>
+    <td width="50%"><a href="docs/a1111.md"><img src=".github/readme/a1111_tab.jpg" alt="The Emotica tab in AUTOMATIC1111"></a><br><sub>Emotica tab in AUTOMATIC1111</sub></td>
+    <td width="50%"><a href="docs/comfyui.md"><img src=".github/readme/comfyui_graph.jpg" alt="Emotica nodes in ComfyUI"></a><br><sub>Emotica nodes in ComfyUI</sub></td>
   </tr>
   <tr>
-    <td colspan="2"><a href="docs/standalone.md"><img src=".github/readme/nextjs_ui.jpg" alt="The standalone AutoExpress web interface"></a><br><sub>Standalone web interface</sub></td>
+    <td colspan="2"><a href="docs/standalone.md"><img src=".github/readme/nextjs_ui.jpg" alt="The standalone Emotica web interface"></a><br><sub>Standalone web interface</sub></td>
   </tr>
   <tr>
     <td width="50%"><a href="docs/standalone.md#retrying-one-expression"><img src=".github/readme/ui_retry.jpg" alt="Retrying one expression with its own prompt and settings"></a><br><sub>Retry one expression with its own prompt and settings</sub></td>

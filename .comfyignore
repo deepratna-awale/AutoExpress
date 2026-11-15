@@ -1,8 +1,8 @@
 # Left out of the Comfy Registry archive. ComfyUI only needs __init__.py,
-# autoexpress_comfy/ and autoexpress_core/ (plus README, LICENSE, pyproject.toml).
+# emotica_comfy/ and emotica_core/ (plus README, LICENSE, pyproject.toml).
 
 # Standalone Flask app and its installers
-autoexpress/
+emotica/
 frontend/
 Output/
 uploads/
@@ -19,6 +19,7 @@ RELEASE_README.md
 uv.lock
 
 # MCP server and the assistant skill
+emotica_mcp/
 autoexpress_mcp/
 skills/
 

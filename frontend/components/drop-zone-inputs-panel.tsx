@@ -2,7 +2,7 @@
 
 import { AlertTriangle, Loader2, Play, RefreshCw } from "lucide-react";
 
-import { useAutoExpress } from "@/lib/store";
+import { useEmotica } from "@/lib/store";
 import { expressionName } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -32,7 +32,7 @@ export function DropZoneInputsPanel({ onViewImages }: DropZoneInputsPanelProps) 
     generate,
     interrupt,
     loadImages,
-  } = useAutoExpress();
+  } = useEmotica();
   const progress = generating && job ? job.progress : null;
 
   const handleLoadImages = () => {
@@ -127,7 +127,7 @@ export function DropZoneInputsPanel({ onViewImages }: DropZoneInputsPanelProps) 
           <p className="text-xs text-muted-foreground">
             {backgroundRemoval.available
               ? "Saves each expression with a transparent background, only the character is kept."
-              : `Needs rembg on the AutoExpress server: ${backgroundRemoval.install_command}`}
+              : `Needs rembg on the Emotica server: ${backgroundRemoval.install_command}`}
           </p>
         </div>
       )}

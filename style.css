@@ -1,10 +1,10 @@
-/* AutoExpress tab */
-.autoexpress-refresh {
+/* Emotica tab */
+.emotica-refresh {
     max-width: 2.5em;
     min-width: 2.5em !important;
     align-self: end;
 }
 
-#autoexpress_status {
+#emotica_status {
     min-height: 1.5em;
 }

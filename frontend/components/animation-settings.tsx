@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 
-import { useAutoExpress } from "@/lib/store";
+import { useEmotica } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -27,7 +27,7 @@ export function AnimationSettings() {
     setAnimationFast,
     imageDataUrl,
     generating,
-  } = useAutoExpress();
+  } = useEmotica();
   if (!animationInfo) return null;
   const on = animate && animationInfo.available;
 
@@ -80,7 +80,7 @@ export function AnimationSettings() {
                 size="sm"
                 className="h-7 text-xs"
                 disabled={!imageDataUrl || suggestingIdle || generating || (source === "llm" && !animationInfo.llm.configured)}
-                title={source === "llm" && !animationInfo.llm.configured ? "Set AUTOEXPRESS_LLM_URL (any OpenAI compatible endpoint) to use an LLM." : undefined}
+                title={source === "llm" && !animationInfo.llm.configured ? "Set EMOTICA_LLM_URL (any OpenAI compatible endpoint) to use an LLM." : undefined}
                 onClick={() => suggestIdleMotion(source)}
               >
                 {label}

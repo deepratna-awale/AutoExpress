@@ -1,4 +1,4 @@
-"""The prebuilt web interface download for source installs without Node.js (autoexpress/frontend.py)."""
+"""The prebuilt web interface download for source installs without Node.js (emotica/frontend.py)."""
 
 import io
 import zipfile
@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("flask")
 
-from autoexpress import frontend  # noqa: E402
+from emotica import frontend  # noqa: E402
 
 
 def zipped(files: dict) -> bytes:
@@ -22,7 +22,7 @@ def zipped(files: dict) -> bytes:
 def out(tmp_path, monkeypatch):
     target = tmp_path / "frontend" / "out"
     monkeypatch.setattr(frontend, "FRONTEND_DIR", target)
-    monkeypatch.delenv("AUTOEXPRESS_DOWNLOAD_FRONTEND", raising=False)
+    monkeypatch.delenv("EMOTICA_DOWNLOAD_FRONTEND", raising=False)
     return target
 
 
@@ -82,5 +82,5 @@ def test_rejects_paths_outside_the_folder(out):
 
 
 def test_can_be_turned_off(out, monkeypatch):
-    monkeypatch.setenv("AUTOEXPRESS_DOWNLOAD_FRONTEND", "false")
+    monkeypatch.setenv("EMOTICA_DOWNLOAD_FRONTEND", "false")
     assert not frontend.ensure_built("9.9.9", fetch=lambda url: pytest.fail("downloaded"))

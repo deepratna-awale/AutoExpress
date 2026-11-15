@@ -2,9 +2,9 @@
 
 import pytest
 
-from autoexpress_core import ExpressionGenerator, expression_sets
-from autoexpress_core import intensity as expression_intensity
-from autoexpress_core.payload import find_nested_key
+from emotica_core import ExpressionGenerator, expression_sets
+from emotica_core import intensity as expression_intensity
+from emotica_core.payload import find_nested_key
 
 
 def test_resolve_clamps_and_defaults():
@@ -77,7 +77,7 @@ def test_strip_weights_keeps_escaped_parentheses():
 
 
 def test_photo_offsets_per_expression():
-    from autoexpress_core import instruction_edit
+    from emotica_core import instruction_edit
 
     # With plain photo sentences every expression reads at the same value.
     assert instruction_edit.expression_intensity_for("anger", 0.2, "photo") == 0.2

@@ -1,14 +1,14 @@
 # Live2D model kits
 
-AutoExpress can turn pictures of a character into a **Live2D model kit**: the character split
+Emotica can turn pictures of a character into a **Live2D model kit**: the character split
 into the layers of a Live2D model, with the hidden areas painted in, blink and mouth art, and
 expressions and motions for the 28 emotions that the
 [SillyTavern Live2D extension](https://github.com/SillyTavern/Extension-Live2d) plays.
 
 Every kit has two ways to a moving character:
 
-- **A ready-to-play puppet.** AutoExpress rigs the layers itself and saves them in its own open
-  format, which the SillyTavern Live2D extension plays when the AutoExpress extension is installed
+- **A ready-to-play puppet.** Emotica rigs the layers itself and saves them in its own open
+  format, which the SillyTavern Live2D extension plays when the Emotica extension is installed
   too. It blinks, breathes, turns its head, follows the cursor, sways its hair and plays the 28
   expressions straight away. See [Ready-to-play puppet](#ready-to-play-puppet).
 - **The source of a full Live2D model.** Live2D models play from a `.moc3` file, and only Live2D
@@ -54,7 +54,7 @@ In the web app, open the sidebar and choose **Tools > Live2D model kit**.
 
 1. **Add pictures** of the character (up to 8). Each one gets a score and a list of checks. The
    best one is used, or click another to use it instead.
-2. **Character name**, then **Find LoRA**: AutoExpress looks for the character's LoRA on Civitai,
+2. **Character name**, then **Find LoRA**: Emotica looks for the character's LoRA on Civitai,
    for the base model of your checkpoint. When the WebUI has it, **Use** it and the eyes-closed and
    mouth-open edits are made with face inpainting and that LoRA, so they stay on model. Without
    one, Qwen-Image-Edit makes them from the picture alone. A LoRA the WebUI doesn't have is listed
@@ -74,7 +74,7 @@ The layer split sees one picture, so that picture decides most of the result.
 - Waist up or full body, so the body, arms and hair get their own parts. A face crop only gives a head.
 - At least 1280 px on the short side, sharp, no heavy glow or grain.
 - A plain or transparent background, and nothing in front of the character. A busy background is
-  removed first when rembg is installed (with BiRefNet, which keeps fine hair; set `AUTOEXPRESS_BACKGROUND_MODEL` to use another rembg model).
+  removed first when rembg is installed (with BiRefNet, which keeps fine hair; set `EMOTICA_BACKGROUND_MODEL` to use another rembg model).
 - Arms a little away from the body, hair not covering the eyes, nothing cut off at the top or sides.
 - Even better: the same picture with the eyes closed and the mouth open, drawn by the artist, or a
   turnaround sheet (front, three-quarter, side) to pick the front view from.
@@ -216,9 +216,9 @@ writes the layers:
 ### Using it in SillyTavern
 
 1. Install both extensions in SillyTavern (**Extensions > Install extension**): the
-   [Live2D extension](https://github.com/SillyTavern/Extension-Live2d) and AutoExpress
-   (`https://github.com/deepratna-awale/AutoExpress`, see [SillyTavern](sillytavern.md)). The
-   AutoExpress extension is what lets the Live2D extension open puppets; the AutoExpress app doesn't
+   [Live2D extension](https://github.com/SillyTavern/Extension-Live2d) and Emotica
+   (`https://github.com/deepratna-awale/Emotica`, see [SillyTavern](sillytavern.md)). The
+   Emotica extension is what lets the Live2D extension open puppets; the Emotica app doesn't
    need to be running for that.
 2. Unzip `<name>_puppet.zip` into SillyTavern's `data/<user>/assets/live2d` (you get
    `assets/live2d/<name>/<name>.puppet.model.json`), or into the character's own `live2d` folder.
@@ -324,7 +324,7 @@ embarrassment. The reactions are the puppet's own emotions, listed in its `React
 plays them itself, and after a few seconds the puppet goes back to the emotion from before.
 
 **Emotions in SillyTavern.** The Live2D extension only asks the local and Extras classifiers for a
-message's emotion, so with an LLM classifier every message would show neutral. The AutoExpress
+message's emotion, so with an LLM classifier every message would show neutral. The Emotica
 extension takes the emotion Character Expressions found (with whichever API it uses) and plays it on
 the character's puppet with the Live2D extension's mapping.
 
@@ -369,7 +369,7 @@ with a bigger `hair`. Reload the puppet after editing.
 For a kit made before puppets existed, or after touching up the layer PNGs:
 
 ```bash
-python -m autoexpress_core.live2d puppet path/to/kit_folder
+python -m emotica_core.live2d puppet path/to/kit_folder
 ```
 
 ## Rigging it in Cubism Editor
@@ -389,7 +389,7 @@ python -m autoexpress_core.live2d puppet path/to/kit_folder
 Copy `runtime/` into the exported model folder and run:
 
 ```bash
-python -m autoexpress_core.live2d attach path/to/exported_model_folder
+python -m emotica_core.live2d attach path/to/exported_model_folder
 ```
 
 It writes one expression and one short reaction motion per emotion plus the idle, registers them
@@ -421,13 +421,13 @@ Their output is not a Live2D model, so the SillyTavern Live2D extension can't lo
 ## Command line and API
 
 ```bash
-python -m autoexpress_core.live2d check picture.png more.png        # check pictures and print the advice
-python -m autoexpress_core.live2d kit --url http://127.0.0.1:8188 --name mira picture.png
-python -m autoexpress_core.live2d lora "Mira" --arch illustrious     # look for a character LoRA
-python -m autoexpress_core.live2d kit --url http://127.0.0.1:8188 --name mira --undress --adult picture.png   # the undress chain, picture's pose
-python -m autoexpress_core.live2d attach path/to/model_folder        # add the 28 emotions to a rigged model
-python -m autoexpress_core.live2d attach --fixed-pose path/to/model_folder   # the fixed-pose runtime: no arm motion, touch reactions
-python -m autoexpress_core.live2d puppet path/to/kit_folder          # make the ready-to-play puppet from a kit
+python -m emotica_core.live2d check picture.png more.png        # check pictures and print the advice
+python -m emotica_core.live2d kit --url http://127.0.0.1:8188 --name mira picture.png
+python -m emotica_core.live2d lora "Mira" --arch illustrious     # look for a character LoRA
+python -m emotica_core.live2d kit --url http://127.0.0.1:8188 --name mira --undress --adult picture.png   # the undress chain, picture's pose
+python -m emotica_core.live2d attach path/to/model_folder        # add the 28 emotions to a rigged model
+python -m emotica_core.live2d attach --fixed-pose path/to/model_folder   # the fixed-pose runtime: no arm motion, touch reactions
+python -m emotica_core.live2d puppet path/to/kit_folder          # make the ready-to-play puppet from a kit
 ```
 
 | Endpoint | What it does |

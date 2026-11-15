@@ -1,5 +1,6 @@
 "use client";
 
+import "@/lib/legacy-storage";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -73,10 +74,10 @@ export const DEFAULT_PARAMETERS: Parameters = {
 export const AUTO_FAMILY = "auto";
 const POLL_INTERVAL_MS = 2500;
 const JOB_POLL_INTERVAL_MS = 1500;
-const SETTINGS_KEY = "autoexpress-connection";
-const REMOVE_BACKGROUND_KEY = "autoexpress-remove-background";
-const POSE_KEY = "autoexpress-pose";
-const ANIMATE_KEY = "autoexpress-animate";
+const SETTINGS_KEY = "emotica-connection";
+const REMOVE_BACKGROUND_KEY = "emotica-remove-background";
+const POSE_KEY = "emotica-pose";
+const ANIMATE_KEY = "emotica-animate";
 
 const AUTH_ERROR = "backend_auth";
 
@@ -112,7 +113,7 @@ interface Options {
   loras: string[];
 }
 
-interface AutoExpressState {
+interface EmoticaState {
   // Connection
   backends: BackendInfo[] | null;
   backend: string;
@@ -214,7 +215,7 @@ interface AutoExpressState {
   loadImages: (dir?: string, refresh?: boolean) => Promise<void>;
 }
 
-const AutoExpressContext = createContext<AutoExpressState | undefined>(undefined);
+const EmoticaContext = createContext<EmoticaState | undefined>(undefined);
 
 function toNumber(value: unknown, fallback: number) {
   const n = typeof value === "number" ? value : parseFloat(String(value));
@@ -275,7 +276,7 @@ function readDataUrl(file: File) {
   });
 }
 
-export function AutoExpressProvider({ children }: { children: React.ReactNode }) {
+export function EmoticaProvider({ children }: { children: React.ReactNode }) {
   const [backends, setBackends] = useState<BackendInfo[] | null>(null);
   const [backend, setBackendState] = useState("a1111");
   const [apiUrl, setApiUrl] = useState("");
@@ -907,7 +908,7 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     }
   }, [job]);
 
-  const value = useMemo<AutoExpressState>(
+  const value = useMemo<EmoticaState>(
     () => ({
       backends,
       backend,
@@ -989,11 +990,11 @@ export function AutoExpressProvider({ children }: { children: React.ReactNode })
     ]
   );
 
-  return <AutoExpressContext.Provider value={value}>{children}</AutoExpressContext.Provider>;
+  return <EmoticaContext.Provider value={value}>{children}</EmoticaContext.Provider>;
 }
 
-export function useAutoExpress() {
-  const context = useContext(AutoExpressContext);
-  if (!context) throw new Error("useAutoExpress must be used within an AutoExpressProvider");
+export function useEmotica() {
+  const context = useContext(EmoticaContext);
+  if (!context) throw new Error("useEmotica must be used within an EmoticaProvider");
   return context;
 }

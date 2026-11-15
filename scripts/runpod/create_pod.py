@@ -1,5 +1,5 @@
 """
-Create a RunPod GPU pod for AutoExpress's ComfyUI workflows, with the image and ports from docs/runpod.md.
+Create a RunPod GPU pod for Emotica's ComfyUI workflows, with the image and ports from docs/runpod.md.
 
     RUNPOD_API_KEY=... [JUPYTER_PASSWORD=...] python scripts/runpod/create_pod.py [--gpu "NVIDIA RTX PRO 6000 Blackwell Server Edition"] [--community]
 
@@ -31,7 +31,7 @@ GPUS = [
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--name", default="autoexpress-comfyui")
+    parser.add_argument("--name", default="emotica-comfyui")
     parser.add_argument("--gpu", action="append", help="GPU type id to use (repeat to give fallbacks); default: a list of 48 GB+ GPUs")
     parser.add_argument("--disk", type=int, default=200, help="Container disk in GB (the models take about 80 GB)")
     parser.add_argument("--volume", type=int, default=0, help="Pod volume in GB, mounted at /workspace (default none: RunPod's 20 GB default is too small for the models)")
@@ -72,7 +72,7 @@ def main(argv=None) -> int:
     print(f"Jupyter:  https://{pod_id}-8888.proxy.runpod.net  (password {where})")
     print(f"ComfyUI:  https://{pod_id}-8188.proxy.runpod.net  (after the setup script)")
     print("In a Jupyter terminal run:")
-    print("  curl -fsSL https://raw.githubusercontent.com/deepratna-awale/AutoExpress/main/scripts/runpod/setup_comfyui.sh | bash")
+    print("  curl -fsSL https://raw.githubusercontent.com/deepratna-awale/Emotica/main/scripts/runpod/setup_comfyui.sh | bash")
     return 0
 
 

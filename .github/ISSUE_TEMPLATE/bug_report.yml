@@ -5,7 +5,7 @@ body:
   - type: dropdown
     id: integration
     attributes:
-      label: Where do you run AutoExpress?
+      label: Where do you run Emotica?
       options:
         - AUTOMATIC1111 / Forge / reForge / SD.Next extension
         - ComfyUI nodes

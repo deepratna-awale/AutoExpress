@@ -18,12 +18,12 @@ echo.
 set "PYTHON=.venv\Scripts\python.exe"
 if exist "runtime\python.exe" set "PYTHON=runtime\python.exe"
 if not exist "%PYTHON%" (
-    echo AutoExpress isn't installed yet. Run install.bat first.
+    echo Emotica isn't installed yet. Run install.bat first.
     pause
     exit /b 1
 )
 
 :: The debugger allows running code from the browser, so only listen locally.
-if not defined AUTOEXPRESS_HOST set AUTOEXPRESS_HOST=127.0.0.1
-if not defined AUTOEXPRESS_PORT set AUTOEXPRESS_PORT=5000
-"%PYTHON%" -m flask --app autoexpress run --debug --host=%AUTOEXPRESS_HOST% --port=%AUTOEXPRESS_PORT%
+if not defined EMOTICA_HOST set EMOTICA_HOST=127.0.0.1
+if not defined EMOTICA_PORT set EMOTICA_PORT=5000
+"%PYTHON%" -m flask --app emotica run --debug --host=%EMOTICA_HOST% --port=%EMOTICA_PORT%

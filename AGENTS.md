@@ -1,13 +1,13 @@
-# AutoExpress guide for AI agents
+# Emotica guide for AI agents
 
 This file is for AI coding agents and assistants (and the people driving them) that set up, run,
-extend or automate AutoExpress. It says what the project does, what each feature needs, which tools
+extend or automate Emotica. It says what the project does, what each feature needs, which tools
 make deployment easy, and the rules to keep. People new to the project should start with the
 [README](README.md) and the [docs](docs/README.md); this guide links to them instead of repeating them.
 
-## What AutoExpress is
+## What Emotica is
 
-AutoExpress makes a character's 28 expression sprites (the emotions SillyTavern's classifier
+Emotica makes a character's 28 expression sprites (the emotions SillyTavern's classifier
 detects: admiration, amusement, anger ... surprise) from one image. It doesn't run a model itself: it
 drives a Stable Diffusion WebUI over its API (or from inside it), repainting only the face with face
 inpainting or editing the whole picture with Qwen-Image-Edit. On top of that it can animate the
@@ -19,7 +19,7 @@ a Live2D-style puppet.
 | Expressions (face inpainting) | 28 PNGs in `Output/<character>/` | Any supported WebUI (below) with a face detector | [standalone.md](docs/standalone.md) |
 | Expressions (instruction edit) | Same, edited by Qwen-Image-Edit 2511 | ComfyUI with the Qwen models (31 GB, 24 GB+ VRAM) | [comfyui.md](docs/comfyui.md) |
 | Poses | A gesture per expression, same outfit | Qwen-Image-Edit on ComfyUI | [comfyui.md](docs/comfyui.md) |
-| Remove background | Transparent sprites | Nothing on the WebUI (rembg runs in AutoExpress) | [standalone.md](docs/standalone.md) |
+| Remove background | Transparent sprites | Nothing on the WebUI (rembg runs in Emotica) | [standalone.md](docs/standalone.md) |
 | Expression LoRAs | Stronger, cleaner expressions | A Civitai key for downloads | [expression-loras.md](docs/expression-loras.md) |
 | Animated sprites | Looping WebP/APNG/GIF per expression, a persona idle | Wan 2.2 I2V 14B on ComfyUI (38 GB, 48 GB+ VRAM is comfortable) | [animated-sprites.md](docs/animated-sprites.md) |
 | Live2D model kits and puppets | A ready-to-play puppet for the SillyTavern Live2D extension, a Cubism-ready PSD, 28 expressions and motions | ComfyUI with the See-through nodes (10 GB of models, 20-24 GB VRAM at the default 2048 px); Qwen-Image-Edit for blink/mouth art and swappable clothing | [live2d.md](docs/live2d.md) |
@@ -31,43 +31,43 @@ Pick by where the WebUI is and what the user wants:
 
 | Where | How | When |
 | --- | --- | --- |
-| Inside A1111 / Forge / reForge / SD.Next | Install the repo URL as an extension: an **AutoExpress** tab that uses ADetailer in-process | The user already lives in that WebUI |
-| Inside ComfyUI | The custom nodes (`AutoExpress Expression Prompts`, `Edit Instructions`, `Save Expressions`, `Sprite Sheet` ...) and the workflows in `example_workflows/` | Node graphs; also published to the Comfy Registry |
+| Inside A1111 / Forge / reForge / SD.Next | Install the repo URL as an extension: an **Emotica** tab that uses ADetailer in-process | The user already lives in that WebUI |
+| Inside ComfyUI | The custom nodes (`Emotica Expression Prompts`, `Edit Instructions`, `Save Expressions`, `Sprite Sheet` ...) and the workflows in `example_workflows/` | Node graphs; also published to the Comfy Registry |
 | Inside InvokeAI | The Expression Prompts node in `invokeai_nodes/` | InvokeAI users |
-| Standalone app | `python -m autoexpress` (or a release zip, or Docker), web UI and HTTP API on port 5000, drives any supported WebUI anywhere | Automation, remote GPUs, SillyTavern, every newer feature (animation, Live2D) |
+| Standalone app | `python -m emotica` (or a release zip, or Docker), web UI and HTTP API on port 5000, drives any supported WebUI anywhere | Automation, remote GPUs, SillyTavern, every newer feature (animation, Live2D) |
 
 For automation, use the standalone app and its HTTP API, or the [MCP server](docs/mcp.md)
-(`python -m autoexpress_mcp`) on top of it. To use AutoExpress for someone rather than change its code, follow
-[skills/autoexpress/SKILL.md](skills/autoexpress/SKILL.md).
+(`python -m emotica_mcp`) on top of it. To use Emotica for someone rather than change its code, follow
+[skills/emotica/SKILL.md](skills/emotica/SKILL.md).
 
 ### Standalone app
 
 ```bash
-git clone https://github.com/deepratna-awale/AutoExpress.git && cd AutoExpress
+git clone https://github.com/deepratna-awale/Emotica.git && cd Emotica
 ./install.sh && ./run.sh                     # Windows: install.bat, run.bat
 # or, for development
-uv sync --extra standalone && uv run python -m autoexpress
+uv sync --extra standalone && uv run python -m emotica
 # or
-docker run -p 5000:5000 ghcr.io/deepratna-awale/autoexpress
+docker run -p 5000:5000 ghcr.io/deepratna-awale/emotica
 ```
 
 Open `http://127.0.0.1:5000`. Configuration is environment variables (all in
-[autoexpress/config.py](autoexpress/config.py)); the ones an agent usually sets:
+[emotica/config.py](emotica/config.py)); the ones an agent usually sets:
 
 | Variable | Use |
 | --- | --- |
-| `AUTOEXPRESS_BACKEND_URL` (+ `AUTOEXPRESS_BACKEND`, default `auto`) | Connect to a WebUI at startup |
-| `AUTOEXPRESS_BACKEND_USERNAME` / `_PASSWORD` / `_TOKEN` | WebUIs behind a login or a proxy |
-| `AUTOEXPRESS_PORT`, `AUTOEXPRESS_HOST` | Listen address (on macOS port 5000 is taken by AirPlay: use another, such as 5055) |
-| `AUTOEXPRESS_OUTPUT_DIR` | Where results go (default `./Output`) |
-| `AUTOEXPRESS_CORS_ORIGINS` | Pages allowed to call the API from a browser (SillyTavern's address is in by default) |
+| `EMOTICA_BACKEND_URL` (+ `EMOTICA_BACKEND`, default `auto`) | Connect to a WebUI at startup |
+| `EMOTICA_BACKEND_USERNAME` / `_PASSWORD` / `_TOKEN` | WebUIs behind a login or a proxy |
+| `EMOTICA_PORT`, `EMOTICA_HOST` | Listen address (on macOS port 5000 is taken by AirPlay: use another, such as 5055) |
+| `EMOTICA_OUTPUT_DIR` | Where results go (default `./Output`) |
+| `EMOTICA_CORS_ORIGINS` | Pages allowed to call the API from a browser (SillyTavern's address is in by default) |
 | `CIVITAI_API_KEY` | Expression LoRA and character LoRA downloads (also found in WebUI Civitai extensions) |
-| `AUTOEXPRESS_LLM_URL`, `_MODEL`, `_API_KEY` | An OpenAI compatible LLM that writes idle animations from a character's persona |
+| `EMOTICA_LLM_URL`, `_MODEL`, `_API_KEY` | An OpenAI compatible LLM that writes idle animations from a character's persona |
 
 ## The backend it needs
 
-AutoExpress needs a WebUI to do the image work. It can run anywhere: the same machine, the LAN, or a
-rented GPU. Never assume it is local: AutoExpress detects the WebUI from its API, checks over the API
+Emotica needs a WebUI to do the image work. It can run anywhere: the same machine, the LAN, or a
+rented GPU. Never assume it is local: Emotica detects the WebUI from its API, checks over the API
 that everything is installed, and only uses the filesystem as a shortcut when the WebUI happens to be
 on the same machine.
 
@@ -87,8 +87,8 @@ and `fix.links`: read it and do what it says rather than guessing. `GET /animati
 Model downloads onto a ComfyUI install:
 
 ```bash
-python -m autoexpress_core.instruction_edit check|download <ComfyUI folder>   # Qwen-Image-Edit
-python -m autoexpress_core.animation check|download <ComfyUI folder>          # Wan 2.2
+python -m emotica_core.instruction_edit check|download <ComfyUI folder>   # Qwen-Image-Edit
+python -m emotica_core.animation check|download <ComfyUI folder>          # Wan 2.2
 # See-through (Live2D): git clone https://github.com/jtydhr88/ComfyUI-See-through into custom_nodes/,
 # pip install its requirements, restart ComfyUI; its models download on first use.
 ```
@@ -105,7 +105,7 @@ for RunPod is in [docs/runpod.md](docs/runpod.md) and `scripts/runpod/`:
    `scripts/runpod/setup_comfyui.sh`. It installs the Impact Pack, See-through, Qwen-Image-Edit and
    Wan 2.2 and starts ComfyUI on 8188. `SKIP_QWEN=1`, `SKIP_WAN=1`, `SKIP_SEETHROUGH=1` leave parts
    out; `CHECKPOINT_URL` adds a checkpoint; `COMFYUI_DIR=/workspace/ComfyUI` puts it on a volume.
-3. **Connect**: point AutoExpress at `https://<pod id>-8188.proxy.runpod.net`.
+3. **Connect**: point Emotica at `https://<pod id>-8188.proxy.runpod.net`.
 4. **Stop the pod when done.** It bills by the hour: `POST https://rest.runpod.io/v1/pods/<id>/stop`
    with `Authorization: Bearer $RUNPOD_API_KEY`, or the console.
 
@@ -154,37 +154,37 @@ curl -s -o joy.png $API/image/Mira/joy.png         # results
 Command line equivalents for the Live2D tools:
 
 ```bash
-python -m autoexpress_core.live2d check picture.png                     # picture advice
-python -m autoexpress_core.live2d kit --url <ComfyUI URL> --name mira picture.png
-python -m autoexpress_core.live2d kit --url <ComfyUI URL> --name mira --outfits --adult picture.png   # swappable clothing (drawn adults only)
-python -m autoexpress_core.live2d kit --url <ComfyUI URL> --name mira --undress --adult picture.png   # undress chain, picture's pose (fixed-pose puppet)
-python -m autoexpress_core.live2d puppet path/to/kit_folder              # puppet from a kit
-python -m autoexpress_core.live2d attach path/to/cubism_model_folder     # 28 emotions on a rigged model
-python -m autoexpress_core.live2d lora "Character Name" --arch illustrious
+python -m emotica_core.live2d check picture.png                     # picture advice
+python -m emotica_core.live2d kit --url <ComfyUI URL> --name mira picture.png
+python -m emotica_core.live2d kit --url <ComfyUI URL> --name mira --outfits --adult picture.png   # swappable clothing (drawn adults only)
+python -m emotica_core.live2d kit --url <ComfyUI URL> --name mira --undress --adult picture.png   # undress chain, picture's pose (fixed-pose puppet)
+python -m emotica_core.live2d puppet path/to/kit_folder              # puppet from a kit
+python -m emotica_core.live2d attach path/to/cubism_model_folder     # 28 emotions on a rigged model
+python -m emotica_core.live2d lora "Character Name" --arch illustrious
 ```
 
 ## SillyTavern
 
-Install `https://github.com/deepratna-awale/AutoExpress` from SillyTavern's **Extensions > Install
-extension**. It needs the standalone app running and reachable (`AUTOEXPRESS_CORS_ORIGINS` must allow
+Install `https://github.com/deepratna-awale/Emotica` from SillyTavern's **Extensions > Install
+extension**. It needs the standalone app running and reachable (`EMOTICA_CORS_ORIGINS` must allow
 SillyTavern's address; the default covers `http://localhost:8000` and `http://127.0.0.1:8000`). It
-also lets the [Live2D extension](https://github.com/SillyTavern/Extension-Live2d) play AutoExpress
+also lets the [Live2D extension](https://github.com/SillyTavern/Extension-Live2d) play Emotica
 puppets: put a puppet folder in `data/<user>/assets/live2d` and pick its `.puppet.model.json`.
 
 ## Working on the code
 
 | Path | What it is |
 | --- | --- |
-| `autoexpress_core/` | Shared core: prompt sets (`resources/expressions/*.json`), payloads, the generation loop, WebUI backends (`backends/`), instruction edit, animation, background removal, Live2D (`live2d/`) |
-| `autoexpress/` | The standalone Flask app: `views.py` (HTTP API), `jobs.py` (queue), `validation.py`, `config.py` |
+| `emotica_core/` | Shared core: prompt sets (`resources/expressions/*.json`), payloads, the generation loop, WebUI backends (`backends/`), instruction edit, animation, background removal, Live2D (`live2d/`) |
+| `emotica/` | The standalone Flask app: `views.py` (HTTP API), `jobs.py` (queue), `validation.py`, `config.py` |
 | `frontend/` | The Next.js interface (static export served by Flask) |
-| `scripts/autoexpress_tab.py` | The A1111-family extension tab |
-| `autoexpress_comfy/`, `__init__.py` | ComfyUI nodes |
+| `scripts/emotica_tab.py` | The A1111-family extension tab |
+| `emotica_comfy/`, `__init__.py` | ComfyUI nodes |
 | `invokeai_nodes/` | InvokeAI node |
 | `sillytavern/` | The SillyTavern extension (`manifest.json` at the repo root points to it) |
 | `scripts/runpod/` | Pod creation and ComfyUI setup |
-| `autoexpress_mcp/` | The MCP server, a client of the standalone app's HTTP API (a new route usually wants a tool) |
-| `skills/autoexpress/` | The assistant skill (keep it in step with the tools and routes) |
+| `emotica_mcp/` | The MCP server, a client of the standalone app's HTTP API (a new route usually wants a tool) |
+| `skills/emotica/` | The assistant skill (keep it in step with the tools and routes) |
 | `tests/` | pytest, with mocked WebUI APIs (no GPU needed); `tests/live/` needs a real ComfyUI |
 
 Checks before a change is done:
@@ -197,7 +197,7 @@ cd frontend && pnpm build                      # for interface changes (and npx 
 Conventions:
 
 - Keep the 28 expression keys identical across prompt sets. A new WebUI is a backend in
-  `autoexpress_core/backends/` registered in `registry.py`, with tests in `tests/test_remote_backends.py`.
+  `emotica_core/backends/` registered in `registry.py`, with tests in `tests/test_remote_backends.py`.
   The HTTP side (detection, transport, logins, each WebUI's request steps) belongs in
   [sdmux](https://github.com/deepratna-awale/sdmux); a backend drives an sdmux client (`self.client`).
 - A missing dependency on the WebUI is reported as a capability with step-by-step fixes, not as a
@@ -205,7 +205,7 @@ Conventions:
 - Update the docs and add a line to `CHANGELOG.md` (under Unreleased) when users will notice a change.
 - Dependencies live in `pyproject.toml` (`dependencies` for the WebUI extension and nodes, the
   `standalone` extra for the app); run `uv lock` after changing them (CI checks `uv lock --check`).
-- Releases: bump the version in `pyproject.toml`, `autoexpress_core/__init__.py`,
+- Releases: bump the version in `pyproject.toml`, `emotica_core/__init__.py`,
   `frontend/package.json` and the root `manifest.json` (a test checks they match), turn the
   Unreleased changelog section into `## X.Y.Z (date)` (it becomes the release notes), merge, then push
   a `vX.Y.Z` tag. The tag builds the platform zips and the web interface zip, publishes the Docker
@@ -225,6 +225,6 @@ Conventions:
   public online service.
 - Swappable clothing in Live2D kits draws nudity, so it only runs for drawn adult characters with an
   explicit adult confirmation (`outfit_layers` or `undress_chain`, + `adult_confirmed`); photos and child-coded names or
-  descriptions are refused in `autoexpress_core/live2d/outfits.py`. Keep those checks, and use SFW
+  descriptions are refused in `emotica_core/live2d/outfits.py`. Keep those checks, and use SFW
   characters for tests and public examples. Images that show inner wear or less are named
   `INTERNAL_` and never go in previews or contact sheets.

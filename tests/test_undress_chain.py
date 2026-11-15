@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from autoexpress_core.images import b64_to_pil
-from autoexpress_core.live2d import (
+from emotica_core.images import b64_to_pil
+from emotica_core.live2d import (
     fixed_pose,
     garments,
     kit,
@@ -445,8 +445,8 @@ def test_build_kit_with_the_undress_chain(tmp_path, monkeypatch):
 
 
 def test_the_api_takes_the_undress_chain_switch():
-    from autoexpress.validation import validate_live2d
-    from autoexpress_core.images import pil_to_b64
+    from emotica.validation import validate_live2d
+    from emotica_core.images import pil_to_b64
 
     body = {"images": [pil_to_b64(figure())], "name": "mira", "settings": {"undress_chain": True, "adult_confirmed": True}}
     assert validate_live2d(body, 10**8)["settings"]["undress_chain"] is True

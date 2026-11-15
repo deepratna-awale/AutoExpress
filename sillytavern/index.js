@@ -1,24 +1,24 @@
 /**
- * AutoExpress for SillyTavern.
+ * Emotica for SillyTavern.
  *
  * Makes a character's expression sprites from one image: the extension sends the
- * character's avatar (or another image) to the AutoExpress app, which repaints the
+ * character's avatar (or another image) to the Emotica app, which repaints the
  * face on whatever WebUI it drives (A1111, Forge, SD.Next, ComfyUI, SwarmUI,
  * InvokeAI, local or remote), and uploads each finished expression into the
  * character's sprite folder as it arrives.
  *
- * Everything runs in the browser through the AutoExpress HTTP API, so the app must
- * allow SillyTavern's address (AUTOEXPRESS_CORS_ORIGINS, which includes
+ * Everything runs in the browser through the Emotica HTTP API, so the app must
+ * allow SillyTavern's address (EMOTICA_CORS_ORIGINS, which includes
  * http://localhost:8000 and http://127.0.0.1:8000 by default).
  */
 
-import { installPuppetLoader, livePuppets } from '../autoexpress_core/resources/puppet.js';
+import { installPuppetLoader, livePuppets } from '../emotica_core/resources/puppet.js';
 
-const MODULE = 'autoexpress';
-const LOG_PREFIX = '[AutoExpress]';
+const MODULE = 'emotica';
+const LOG_PREFIX = '[Emotica]';
 const POLL_MS = 1500;
 
-/** SillyTavern's built-in expression labels (the same 28 AutoExpress generates). */
+/** SillyTavern's built-in expression labels (the same 28 Emotica generates). */
 const EXPRESSIONS = [
     'admiration', 'amusement', 'anger', 'annoyance', 'approval', 'caring', 'confusion',
     'curiosity', 'desire', 'disappointment', 'disapproval', 'disgust', 'embarrassment', 'excitement',
@@ -53,7 +53,7 @@ function ctx() {
 
 function settings() {
     const all = ctx().extensionSettings;
-    all[MODULE] = Object.assign({}, structuredClone(DEFAULT_SETTINGS), all[MODULE] || {});
+    all[MODULE] = Object.assign({}, structuredClone(DEFAULT_SETTINGS), all[MODULE] || all.autoexpress || {});  // autoexpress: settings saved under the former name
     return all[MODULE];
 }
 
@@ -69,9 +69,9 @@ function titleCase(label) {
     return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-// AutoExpress API --------------------------------------------------------------
+// Emotica API --------------------------------------------------------------
 
-class AutoExpressError extends Error {
+class EmoticaError extends Error {
     constructor(message, { status = 0, code = '', fix = null } = {}) {
         super(message);
         this.status = status;
@@ -97,13 +97,13 @@ async function api(path, { method = 'GET', json, body, raw = false } = {}) {
     try {
         response = await fetch(serverUrl() + path, init);
     } catch (error) {
-        throw new AutoExpressError(
-            `Can't reach AutoExpress at ${serverUrl()}. Start it (python -m autoexpress, run.sh/run.bat or Docker) and check that it allows this page's address, ${location.origin}, in AUTOEXPRESS_CORS_ORIGINS.`,
+        throw new EmoticaError(
+            `Can't reach Emotica at ${serverUrl()}. Start it (python -m emotica, run.sh/run.bat or Docker) and check that it allows this page's address, ${location.origin}, in EMOTICA_CORS_ORIGINS.`,
             { code: 'unreachable' },
         );
     }
     if (raw) {
-        if (!response.ok) throw new AutoExpressError(`AutoExpress answered ${response.status} for ${path}.`, { status: response.status });
+        if (!response.ok) throw new EmoticaError(`Emotica answered ${response.status} for ${path}.`, { status: response.status });
         return response;
     }
 
@@ -115,8 +115,8 @@ async function api(path, { method = 'GET', json, body, raw = false } = {}) {
     }
     if (!response.ok) {
         const error = data?.error;
-        const message = (typeof error === 'object' ? error?.message : error) || data?.message || `AutoExpress answered ${response.status} for ${path}.`;
-        throw new AutoExpressError(message, { status: response.status, code: error?.code || '', fix: error?.fix || null });
+        const message = (typeof error === 'object' ? error?.message : error) || data?.message || `Emotica answered ${response.status} for ${path}.`;
+        throw new EmoticaError(message, { status: response.status, code: error?.code || '', fix: error?.fix || null });
     }
     return data;
 }
@@ -130,7 +130,7 @@ function fixHtml(fix) {
     return `${steps ? `<ol>${steps}</ol>` : ''}${commands ? `<div>${commands}</div>` : ''}${links ? `<div>${links}</div>` : ''}`;
 }
 
-function showError(error, title = 'AutoExpress') {
+function showError(error, title = 'Emotica') {
     console.error(LOG_PREFIX, error);
     const message = escapeHtml(error?.message || String(error));
     toastr.error(`${message}${fixHtml(error?.fix)}`, title, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 30000 });
@@ -222,7 +222,7 @@ async function uploadSprite(character, folder, label, spriteName, blob, extensio
 // Connection status -------------------------------------------------------------
 
 async function checkConnection({ quiet = false } = {}) {
-    const status = $('#autoexpress_status');
+    const status = $('#emotica_status');
     status.removeClass('ok warn error').html('<i class="fa-solid fa-spinner fa-spin"></i> Checking…');
     try {
         await api('/health');
@@ -235,7 +235,7 @@ async function checkConnection({ quiet = false } = {}) {
     try {
         report = await api('/backend/capabilities');
     } catch (error) {
-        status.addClass('error').html(`<i class="fa-solid fa-circle-xmark"></i> AutoExpress is running, but: ${escapeHtml(error.message)}`);
+        status.addClass('error').html(`<i class="fa-solid fa-circle-xmark"></i> Emotica is running, but: ${escapeHtml(error.message)}`);
         return null;
     }
     const where = `${escapeHtml(report.name)} at ${escapeHtml(report.url)}`;
@@ -251,14 +251,14 @@ async function checkConnection({ quiet = false } = {}) {
 }
 
 async function connectWebUI() {
-    const webuiUrl = String($('#autoexpress_webui_url').val() || '').trim();
+    const webuiUrl = String($('#emotica_webui_url').val() || '').trim();
     if (!webuiUrl) {
         return checkConnection();
     }
     try {
         const result = await api('/receive_data', { method: 'POST', json: { text: webuiUrl, backend: 'auto' } });
-        toastr.success(`AutoExpress now uses ${result.name} at ${result.url}.`, 'AutoExpress');
-        $('#autoexpress_webui_url').val('');
+        toastr.success(`Emotica now uses ${result.name} at ${result.url}.`, 'Emotica');
+        $('#emotica_webui_url').val('');
     } catch (error) {
         showError(error, 'Connecting the WebUI');
     }
@@ -299,57 +299,57 @@ function dialogHtml(options, choices) {
         ...options.models.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`)].join('');
     const instruct = options.methods.some((m) => m.id === 'instruct');
     const expressionBoxes = EXPRESSIONS.map((e) => `
-        <label class="checkbox_label autoexpress-expression">
-            <input type="checkbox" name="autoexpress_expression" value="${e}"> <span>${titleCase(e)}</span>
+        <label class="checkbox_label emotica-expression">
+            <input type="checkbox" name="emotica_expression" value="${e}"> <span>${titleCase(e)}</span>
         </label>`).join('');
 
     return `
-    <div class="autoexpress-dialog">
+    <div class="emotica-dialog">
         <h3>Generate expression sprites</h3>
-        <div class="autoexpress-columns">
-            <div class="autoexpress-source">
-                <img id="autoexpress_preview" alt="Input image">
-                <label for="autoexpress_character">Character</label>
-                <select id="autoexpress_character" class="text_pole">${characterOptions}</select>
-                <small id="autoexpress_folder_note"></small>
-                <label class="checkbox_label"><input type="radio" name="autoexpress_source" value="avatar" checked> Use the avatar</label>
-                <label class="checkbox_label"><input type="radio" name="autoexpress_source" value="file"> Use another image</label>
-                <input id="autoexpress_file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+        <div class="emotica-columns">
+            <div class="emotica-source">
+                <img id="emotica_preview" alt="Input image">
+                <label for="emotica_character">Character</label>
+                <select id="emotica_character" class="text_pole">${characterOptions}</select>
+                <small id="emotica_folder_note"></small>
+                <label class="checkbox_label"><input type="radio" name="emotica_source" value="avatar" checked> Use the avatar</label>
+                <label class="checkbox_label"><input type="radio" name="emotica_source" value="file"> Use another image</label>
+                <input id="emotica_file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
                 <small>A larger, uncropped image of the character (with its generation settings, if it has them) gives better sprites than a small avatar.</small>
             </div>
-            <div class="autoexpress-options">
-                <label for="autoexpress_checkpoint">Checkpoint</label>
-                <select id="autoexpress_checkpoint" class="text_pole">${modelOptions}</select>
-                <label for="autoexpress_family">Prompt style</label>
-                <select id="autoexpress_family" class="text_pole">${familyOptions}</select>
-                <label for="autoexpress_method">Method</label>
-                <select id="autoexpress_method" class="text_pole">${methodOptions}</select>
-                <label class="checkbox_label"><input id="autoexpress_custom_intensity" type="checkbox"> Expression intensity <span id="autoexpress_intensity_value"></span></label>
-                <input id="autoexpress_intensity" type="range" min="0" max="1" step="0.05">
-                <label for="autoexpress_prompt">Character prompt <small>(optional, read from the image when it has one)</small></label>
-                <textarea id="autoexpress_prompt" class="text_pole" rows="2" placeholder="1girl, long silver hair, blue eyes, ..."></textarea>
-                <label class="checkbox_label ${options.background ? '' : 'disabled'}" title="${options.background ? 'Cut every sprite out of its background (rembg on the AutoExpress server).' : 'Needs rembg on the AutoExpress server.'}">
-                    <input id="autoexpress_remove_background" type="checkbox" ${options.background ? '' : 'disabled'}> Remove background
+            <div class="emotica-options">
+                <label for="emotica_checkpoint">Checkpoint</label>
+                <select id="emotica_checkpoint" class="text_pole">${modelOptions}</select>
+                <label for="emotica_family">Prompt style</label>
+                <select id="emotica_family" class="text_pole">${familyOptions}</select>
+                <label for="emotica_method">Method</label>
+                <select id="emotica_method" class="text_pole">${methodOptions}</select>
+                <label class="checkbox_label"><input id="emotica_custom_intensity" type="checkbox"> Expression intensity <span id="emotica_intensity_value"></span></label>
+                <input id="emotica_intensity" type="range" min="0" max="1" step="0.05">
+                <label for="emotica_prompt">Character prompt <small>(optional, read from the image when it has one)</small></label>
+                <textarea id="emotica_prompt" class="text_pole" rows="2" placeholder="1girl, long silver hair, blue eyes, ..."></textarea>
+                <label class="checkbox_label ${options.background ? '' : 'disabled'}" title="${options.background ? 'Cut every sprite out of its background (rembg on the Emotica server).' : 'Needs rembg on the Emotica server.'}">
+                    <input id="emotica_remove_background" type="checkbox" ${options.background ? '' : 'disabled'}> Remove background
                 </label>
                 <label class="checkbox_label ${instruct ? '' : 'disabled'}" title="${instruct ? 'Also change the pose a little with each expression, keeping the outfit and background.' : 'Needs Qwen-Image-Edit on ComfyUI.'}">
-                    <input id="autoexpress_pose" type="checkbox" ${instruct ? '' : 'disabled'}> Change the pose too
+                    <input id="emotica_pose" type="checkbox" ${instruct ? '' : 'disabled'}> Change the pose too
                 </label>
                 <label class="checkbox_label ${options.animation ? '' : 'disabled'}" title="${options.animation ? 'Turn every sprite into a short looping animation (animated WebP, Wan 2.2). Neutral becomes the idle animation, made from the character card. Transparent with Remove background on.' : 'Needs Wan 2.2 on a ComfyUI backend.'}">
-                    <input id="autoexpress_animate" type="checkbox" ${options.animation ? '' : 'disabled'}> Animate (idle from the character card)
+                    <input id="emotica_animate" type="checkbox" ${options.animation ? '' : 'disabled'}> Animate (idle from the character card)
                 </label>
-                <label class="checkbox_label" title="Upload each new sprite next to the existing one (joy-autoexpress.png) instead of replacing it. Turn on 'Allow multiple sprites' in Character Expressions to use both.">
-                    <input id="autoexpress_keep_existing" type="checkbox"> Keep existing sprites (add as alternates)
+                <label class="checkbox_label" title="Upload each new sprite next to the existing one (joy-emotica.png) instead of replacing it. Turn on 'Allow multiple sprites' in Character Expressions to use both.">
+                    <input id="emotica_keep_existing" type="checkbox"> Keep existing sprites (add as alternates)
                 </label>
             </div>
         </div>
-        <div class="autoexpress-expressions-header">
+        <div class="emotica-expressions-header">
             <b>Expressions</b>
-            <span class="menu_button" data-autoexpress-select="all">All</span>
-            <span class="menu_button" data-autoexpress-select="none">None</span>
-            <span class="menu_button" data-autoexpress-select="missing" title="Only the expressions this character has no sprite for yet">Missing</span>
-            <small id="autoexpress_count"></small>
+            <span class="menu_button" data-emotica-select="all">All</span>
+            <span class="menu_button" data-emotica-select="none">None</span>
+            <span class="menu_button" data-emotica-select="missing" title="Only the expressions this character has no sprite for yet">Missing</span>
+            <small id="emotica_count"></small>
         </div>
-        <div class="autoexpress-expressions">${expressionBoxes}</div>
+        <div class="emotica-expressions">${expressionBoxes}</div>
     </div>`;
 }
 
@@ -366,12 +366,12 @@ async function openDialog() {
 
 async function showDialog() {
     if (activeJob) {
-        toastr.info('AutoExpress is already generating sprites. Cancel it in the AutoExpress settings first.', 'AutoExpress');
+        toastr.info('Emotica is already generating sprites. Cancel it in the Emotica settings first.', 'Emotica');
         return;
     }
     const context = ctx();
     if (!context.characters?.length) {
-        toastr.warning('Create or import a character first.', 'AutoExpress');
+        toastr.warning('Create or import a character first.', 'Emotica');
         return;
     }
     try {
@@ -381,7 +381,7 @@ async function showDialog() {
         return;
     }
 
-    const loading = toastr.info('Asking AutoExpress for the WebUI\'s models and options…', 'AutoExpress', { timeOut: 0, extendedTimeOut: 0 });
+    const loading = toastr.info('Asking Emotica for the WebUI\'s models and options…', 'Emotica', { timeOut: 0, extendedTimeOut: 0 });
     let options;
     try {
         options = await loadOptions();
@@ -394,13 +394,13 @@ async function showDialog() {
     let pickedFile = null;
     let spritesByFolder = {};
 
-    const character = () => context.characters[Number(root.find('#autoexpress_character').val())];
-    const selected = () => root.find('input[name="autoexpress_expression"]:checked').map((_, el) => el.value).get();
-    const updateCount = () => root.find('#autoexpress_count').text(`${selected().length} of ${EXPRESSIONS.length}`);
+    const character = () => context.characters[Number(root.find('#emotica_character').val())];
+    const selected = () => root.find('input[name="emotica_expression"]:checked').map((_, el) => el.value).get();
+    const updateCount = () => root.find('#emotica_count').text(`${selected().length} of ${EXPRESSIONS.length}`);
     const updateIntensity = () => {
-        const on = root.find('#autoexpress_custom_intensity').prop('checked');
-        root.find('#autoexpress_intensity').prop('disabled', !on);
-        root.find('#autoexpress_intensity_value').text(on ? Number(root.find('#autoexpress_intensity').val()).toFixed(2) : '(the model\'s default)');
+        const on = root.find('#emotica_custom_intensity').prop('checked');
+        root.find('#emotica_intensity').prop('disabled', !on);
+        root.find('#emotica_intensity_value').text(on ? Number(root.find('#emotica_intensity').val()).toFixed(2) : '(the model\'s default)');
     };
     const updatePreview = async () => {
         const c = character();
@@ -408,40 +408,40 @@ async function showDialog() {
         const folder = spriteFolder(c);
         if (!(folder in spritesByFolder)) spritesByFolder[folder] = await existingSprites(folder);
         const count = new Set(spritesByFolder[folder].map((x) => x.label)).size;
-        root.find('#autoexpress_folder_note').text(`Sprites go to characters/${folder}/ (${count} expression${count === 1 ? '' : 's'} there now).`);
-        const useFile = root.find('input[name="autoexpress_source"]:checked').val() === 'file' && pickedFile;
-        root.find('#autoexpress_preview').attr('src', useFile ? URL.createObjectURL(pickedFile) : `/characters/${encodeURIComponent(c.avatar)}`);
+        root.find('#emotica_folder_note').text(`Sprites go to characters/${folder}/ (${count} expression${count === 1 ? '' : 's'} there now).`);
+        const useFile = root.find('input[name="emotica_source"]:checked').val() === 'file' && pickedFile;
+        root.find('#emotica_preview').attr('src', useFile ? URL.createObjectURL(pickedFile) : `/characters/${encodeURIComponent(c.avatar)}`);
     };
 
-    root.find('#autoexpress_checkpoint').val(options.models.includes(s.checkpoint) ? s.checkpoint : '');
-    root.find('#autoexpress_family').val(options.families.some((f) => f.id === s.family) ? s.family : 'auto');
-    root.find('#autoexpress_method').val(options.methods.some((m) => m.id === s.method) ? s.method : '');
-    root.find('#autoexpress_custom_intensity').prop('checked', s.customIntensity);
-    root.find('#autoexpress_intensity').val(s.intensity);
-    root.find('#autoexpress_prompt').val(s.prompt);
-    root.find('#autoexpress_remove_background').prop('checked', options.background && s.removeBackground);
-    root.find('#autoexpress_pose').prop('checked', !root.find('#autoexpress_pose').prop('disabled') && s.pose);
-    root.find('#autoexpress_animate').prop('checked', options.animation && s.animate);
-    root.find('#autoexpress_keep_existing').prop('checked', s.keepExisting);
-    root.find('input[name="autoexpress_expression"]').each((_, el) => { el.checked = s.selected.includes(el.value); });
+    root.find('#emotica_checkpoint').val(options.models.includes(s.checkpoint) ? s.checkpoint : '');
+    root.find('#emotica_family').val(options.families.some((f) => f.id === s.family) ? s.family : 'auto');
+    root.find('#emotica_method').val(options.methods.some((m) => m.id === s.method) ? s.method : '');
+    root.find('#emotica_custom_intensity').prop('checked', s.customIntensity);
+    root.find('#emotica_intensity').val(s.intensity);
+    root.find('#emotica_prompt').val(s.prompt);
+    root.find('#emotica_remove_background').prop('checked', options.background && s.removeBackground);
+    root.find('#emotica_pose').prop('checked', !root.find('#emotica_pose').prop('disabled') && s.pose);
+    root.find('#emotica_animate').prop('checked', options.animation && s.animate);
+    root.find('#emotica_keep_existing').prop('checked', s.keepExisting);
+    root.find('input[name="emotica_expression"]').each((_, el) => { el.checked = s.selected.includes(el.value); });
 
-    root.on('change', 'input[name="autoexpress_expression"]', updateCount);
-    root.on('input change', '#autoexpress_custom_intensity, #autoexpress_intensity', updateIntensity);
-    root.on('change', '#autoexpress_character', () => { pickedFile = null; root.find('input[name="autoexpress_source"][value="avatar"]').prop('checked', true); updatePreview(); });
-    root.on('change', 'input[name="autoexpress_source"]', function () {
-        if (this.value === 'file' && !pickedFile) root.find('#autoexpress_file').trigger('click');
+    root.on('change', 'input[name="emotica_expression"]', updateCount);
+    root.on('input change', '#emotica_custom_intensity, #emotica_intensity', updateIntensity);
+    root.on('change', '#emotica_character', () => { pickedFile = null; root.find('input[name="emotica_source"][value="avatar"]').prop('checked', true); updatePreview(); });
+    root.on('change', 'input[name="emotica_source"]', function () {
+        if (this.value === 'file' && !pickedFile) root.find('#emotica_file').trigger('click');
         updatePreview();
     });
-    root.on('change', '#autoexpress_file', function () {
+    root.on('change', '#emotica_file', function () {
         pickedFile = this.files?.[0] || null;
-        root.find(`input[name="autoexpress_source"][value="${pickedFile ? 'file' : 'avatar'}"]`).prop('checked', true);
+        root.find(`input[name="emotica_source"][value="${pickedFile ? 'file' : 'avatar'}"]`).prop('checked', true);
         updatePreview();
     });
-    root.on('click', '[data-autoexpress-select]', async function () {
-        const mode = this.dataset.autoexpressSelect;
+    root.on('click', '[data-emotica-select]', async function () {
+        const mode = this.dataset.emoticaSelect;
         const folder = spriteFolder(character());
         const have = new Set((spritesByFolder[folder] || []).map((x) => x.label));
-        root.find('input[name="autoexpress_expression"]').each((_, el) => {
+        root.find('input[name="emotica_expression"]').each((_, el) => {
             el.checked = mode === 'all' || (mode === 'missing' && !have.has(el.value));
         });
         updateCount();
@@ -458,7 +458,7 @@ async function showDialog() {
         allowVerticalScrolling: true,
         onClosing: (p) => {
             if (p.result === context.POPUP_RESULT.AFFIRMATIVE && selected().length === 0) {
-                toastr.warning('Pick at least one expression.', 'AutoExpress');
+                toastr.warning('Pick at least one expression.', 'Emotica');
                 return false;
             }
             return true;
@@ -468,21 +468,21 @@ async function showDialog() {
     if (result !== context.POPUP_RESULT.AFFIRMATIVE) return;
 
     Object.assign(s, {
-        checkpoint: String(root.find('#autoexpress_checkpoint').val() || ''),
-        family: String(root.find('#autoexpress_family').val() || 'auto'),
-        method: String(root.find('#autoexpress_method').val() || ''),
-        customIntensity: root.find('#autoexpress_custom_intensity').prop('checked'),
-        intensity: Number(root.find('#autoexpress_intensity').val()),
-        prompt: String(root.find('#autoexpress_prompt').val() || '').trim(),
-        removeBackground: root.find('#autoexpress_remove_background').prop('checked'),
-        pose: root.find('#autoexpress_pose').prop('checked'),
-        animate: root.find('#autoexpress_animate').prop('checked'),
-        keepExisting: root.find('#autoexpress_keep_existing').prop('checked'),
+        checkpoint: String(root.find('#emotica_checkpoint').val() || ''),
+        family: String(root.find('#emotica_family').val() || 'auto'),
+        method: String(root.find('#emotica_method').val() || ''),
+        customIntensity: root.find('#emotica_custom_intensity').prop('checked'),
+        intensity: Number(root.find('#emotica_intensity').val()),
+        prompt: String(root.find('#emotica_prompt').val() || '').trim(),
+        removeBackground: root.find('#emotica_remove_background').prop('checked'),
+        pose: root.find('#emotica_pose').prop('checked'),
+        animate: root.find('#emotica_animate').prop('checked'),
+        keepExisting: root.find('#emotica_keep_existing').prop('checked'),
         selected: selected(),
     });
     save();
 
-    const useFile = root.find('input[name="autoexpress_source"]:checked').val() === 'file' && pickedFile;
+    const useFile = root.find('input[name="emotica_source"]:checked').val() === 'file' && pickedFile;
     generate({ character: character(), file: useFile ? pickedFile : null, expressions: selected() });
 }
 
@@ -529,7 +529,7 @@ async function generate({ character, file, expressions }) {
             wait: false,
         };
         // Redoing a sprite the character already has: a new seed, or the image's seed would draw the same face again.
-        // Prompts and settings saved per expression in AutoExpress (Output/<folder>) still apply, seeds included.
+        // Prompts and settings saved per expression in Emotica (Output/<folder>) still apply, seeds included.
         const have = new Set((await existingSprites(folder)).map((x) => x.label));
         if (expressions.some((name) => have.has(name))) body.seed = -1;
         if (s.prompt) body.ad_prompt = s.prompt;
@@ -546,10 +546,10 @@ async function generate({ character, file, expressions }) {
 
         const queued = await api('/generate', { method: 'POST', json: body });
         job.id = queued.job_id;
-        toastr.info(`Generating ${expressions.length} sprite${expressions.length === 1 ? '' : 's'} for ${character.name}. They appear in Character Expressions as they finish.`, 'AutoExpress');
+        toastr.info(`Generating ${expressions.length} sprite${expressions.length === 1 ? '' : 's'} for ${character.name}. They appear in Character Expressions as they finish.`, 'Emotica');
         await follow(job, queued.job);
     } catch (error) {
-        showError(error, `AutoExpress: ${character.name}`);
+        showError(error, `Emotica: ${character.name}`);
         renderProgress(null);
     } finally {
         activeJob = null;
@@ -564,7 +564,7 @@ async function follow(job, state) {
             const key = `${note.kind}:${note.message}`;
             if (seenNotes.has(key)) continue;
             seenNotes.add(key);
-            toastr.warning(note.message, note.title || 'AutoExpress', { timeOut: 15000 });
+            toastr.warning(note.message, note.title || 'Emotica', { timeOut: 15000 });
         }
 
         for (const image of state.images || []) {
@@ -577,9 +577,9 @@ async function follow(job, state) {
                 const response = await api(`${path}?t=${Date.now()}`, { raw: true });
                 const blob = await response.blob();
                 const extension = file.includes('.') ? file.split('.').pop() : 'png';
-                await uploadSprite(job.character, job.folder, label, s.keepExisting ? `${label}-autoexpress` : label, blob, extension);
+                await uploadSprite(job.character, job.folder, label, s.keepExisting ? `${label}-emotica` : label, blob, extension);
             } catch (error) {
-                showError(error, `AutoExpress: ${label}`);
+                showError(error, `Emotica: ${label}`);
             }
         }
 
@@ -598,12 +598,12 @@ async function follow(job, state) {
     renderProgress(null);
     const count = job.uploaded.size;
     if (state.status === 'completed') {
-        toastr.success(`Added ${count} sprite${count === 1 ? '' : 's'} to ${job.character.name}.`, 'AutoExpress');
+        toastr.success(`Added ${count} sprite${count === 1 ? '' : 's'} to ${job.character.name}.`, 'Emotica');
     } else if (state.status === 'cancelled') {
-        toastr.info(`Stopped. ${count} sprite${count === 1 ? ' was' : 's were'} added to ${job.character.name}.`, 'AutoExpress');
+        toastr.info(`Stopped. ${count} sprite${count === 1 ? ' was' : 's were'} added to ${job.character.name}.`, 'Emotica');
     } else {
-        const error = new AutoExpressError(state.error?.message || 'Generation failed.', { code: state.error?.code, fix: state.error?.fix });
-        showError(error, `AutoExpress: ${job.character.name}`);
+        const error = new EmoticaError(state.error?.message || 'Generation failed.', { code: state.error?.code, fix: state.error?.fix });
+        showError(error, `Emotica: ${job.character.name}`);
     }
 }
 
@@ -617,43 +617,43 @@ async function cancelJob() {
 }
 
 function renderProgress(state) {
-    const box = $('#autoexpress_progress');
+    const box = $('#emotica_progress');
     if (!state) {
         box.prop('hidden', true);
         return;
     }
     box.prop('hidden', false);
-    box.find('.autoexpress-progress-text').text(state.text);
-    box.find('.autoexpress-progress-bar > div').css('width', `${Math.round((state.fraction || 0) * 100)}%`);
+    box.find('.emotica-progress-text').text(state.text);
+    box.find('.emotica-progress-bar > div').css('width', `${Math.round((state.fraction || 0) * 100)}%`);
 }
 
 // Setup ---------------------------------------------------------------------------------
 
 function settingsHtml() {
     return `
-    <div class="autoexpress-settings">
+    <div class="emotica-settings">
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>AutoExpress</b>
+                <b>Emotica</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <small>Makes expression sprites for a character from one image, with the WebUI you already use. Needs the <a href="https://github.com/deepratna-awale/AutoExpress/blob/main/docs/sillytavern.md" target="_blank" rel="noopener">AutoExpress app</a> running.</small>
-                <label for="autoexpress_url">AutoExpress address</label>
+                <small>Makes expression sprites for a character from one image, with the WebUI you already use. Needs the <a href="https://github.com/deepratna-awale/Emotica/blob/main/docs/sillytavern.md" target="_blank" rel="noopener">Emotica app</a> running.</small>
+                <label for="emotica_url">Emotica address</label>
                 <div class="flex-container">
-                    <input id="autoexpress_url" class="text_pole flex1" type="text" placeholder="${DEFAULT_SETTINGS.url}">
+                    <input id="emotica_url" class="text_pole flex1" type="text" placeholder="${DEFAULT_SETTINGS.url}">
                 </div>
-                <label for="autoexpress_webui_url">WebUI address <small>(optional: point AutoExpress at a WebUI, e.g. a RunPod URL; it detects which one)</small></label>
+                <label for="emotica_webui_url">WebUI address <small>(optional: point Emotica at a WebUI, e.g. a RunPod URL; it detects which one)</small></label>
                 <div class="flex-container">
-                    <input id="autoexpress_webui_url" class="text_pole flex1" type="text" placeholder="http://127.0.0.1:7860">
-                    <div id="autoexpress_connect" class="menu_button menu_button_icon"><i class="fa-solid fa-plug"></i> Connect</div>
+                    <input id="emotica_webui_url" class="text_pole flex1" type="text" placeholder="http://127.0.0.1:7860">
+                    <div id="emotica_connect" class="menu_button menu_button_icon"><i class="fa-solid fa-plug"></i> Connect</div>
                 </div>
-                <div id="autoexpress_status" class="autoexpress-status"></div>
-                <div id="autoexpress_open" class="menu_button menu_button_icon"><i class="fa-solid fa-face-smile"></i> Generate expression sprites</div>
-                <div id="autoexpress_progress" class="autoexpress-progress" hidden>
-                    <div class="autoexpress-progress-text"></div>
-                    <div class="autoexpress-progress-bar"><div></div></div>
-                    <div id="autoexpress_cancel" class="menu_button menu_button_icon"><i class="fa-solid fa-stop"></i> Cancel</div>
+                <div id="emotica_status" class="emotica-status"></div>
+                <div id="emotica_open" class="menu_button menu_button_icon"><i class="fa-solid fa-face-smile"></i> Generate expression sprites</div>
+                <div id="emotica_progress" class="emotica-progress" hidden>
+                    <div class="emotica-progress-text"></div>
+                    <div class="emotica-progress-bar"><div></div></div>
+                    <div id="emotica_cancel" class="menu_button menu_button_icon"><i class="fa-solid fa-stop"></i> Cancel</div>
                 </div>
             </div>
         </div>
@@ -662,7 +662,7 @@ function settingsHtml() {
 
 function addWandButton() {
     const button = $(`
-        <div id="autoexpress_wand" class="list-group-item flex-container flexGap5" title="Make expression sprites for a character with AutoExpress">
+        <div id="emotica_wand" class="list-group-item flex-container flexGap5" title="Make expression sprites for a character with Emotica">
             <div class="fa-solid fa-face-smile extensionsMenuExtensionButton"></div>
             <span>Generate expression sprites</span>
         </div>`);
@@ -672,12 +672,12 @@ function addWandButton() {
 
 /** A button next to "Upload sprite pack" in the Character Expressions settings, when that panel exists. */
 function addExpressionsButton() {
-    if ($('#autoexpress_expressions_button').length) return;
+    if ($('#emotica_expressions_button').length) return;
     const anchor = $('#expression_upload_pack_button');
     if (!anchor.length) return;
     const button = $(`
-        <div id="autoexpress_expressions_button" class="menu_button menu_button_icon" title="Make this character's sprites with AutoExpress">
-            <i class="fa-solid fa-wand-magic-sparkles"></i><span>Generate with AutoExpress</span>
+        <div id="emotica_expressions_button" class="menu_button menu_button_icon" title="Make this character's sprites with Emotica">
+            <i class="fa-solid fa-wand-magic-sparkles"></i><span>Generate with Emotica</span>
         </div>`);
     button.on('click', openDialog);
     anchor.after(button);
@@ -687,16 +687,16 @@ function registerCommand() {
     const context = ctx();
     if (!context.SlashCommandParser || !context.SlashCommand) return;
     context.SlashCommandParser.addCommandObject(context.SlashCommand.fromProps({
-        name: 'autoexpress',
+        name: 'emotica',
         callback: async () => {
             await openDialog();
             return '';
         },
-        helpString: 'Open AutoExpress to generate expression sprites for a character.',
+        helpString: 'Open Emotica to generate expression sprites for a character.',
     }));
 }
 
-// Let the Live2D extension play AutoExpress puppets (*.puppet.model.json) as if they were Live2D models.
+// Let the Live2D extension play Emotica puppets (*.puppet.model.json) as if they were Live2D models.
 installPuppetLoader();
 
 /**
@@ -749,15 +749,15 @@ async function playPuppetEmotion(messageId) {
 jQuery(async () => {
     settings();
     $('#extensions_settings2').append(settingsHtml());
-    $('#autoexpress_url').val(settings().url).on('change', function () {
+    $('#emotica_url').val(settings().url).on('change', function () {
         settings().url = String($(this).val() || '').trim() || DEFAULT_SETTINGS.url;
         $(this).val(settings().url);
         save();
         checkConnection({ quiet: true });
     });
-    $('#autoexpress_connect').on('click', connectWebUI);
-    $('#autoexpress_open').on('click', openDialog);
-    $('#autoexpress_cancel').on('click', cancelJob);
+    $('#emotica_connect').on('click', connectWebUI);
+    $('#emotica_open').on('click', openDialog);
+    $('#emotica_cancel').on('click', cancelJob);
 
     addWandButton();
     registerCommand();

@@ -8,7 +8,7 @@ import types
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PACKAGE = "autoexpress_custom_node"
+PACKAGE = "emotica_custom_node"
 
 
 @pytest.fixture
@@ -64,21 +64,32 @@ def comfy(monkeypatch, tmp_path):
         sys.modules.pop(name)
 
 
+NODE_NAMES = {
+    "EmoticaExpressionPrompts",
+    "EmoticaExpressionPrompt",
+    "EmoticaExpressionLoras",
+    "EmoticaEditInstructions",
+    "EmoticaSaveExpressions",
+    "EmoticaSpriteSheet",
+}
+
+
 def test_nodes_are_registered(comfy):
-    assert set(comfy.nodes) == {
-        "AutoExpressExpressionPrompts",
-        "AutoExpressExpressionPrompt",
-        "AutoExpressExpressionLoras",
-        "AutoExpressEditInstructions",
-        "AutoExpressSaveExpressions",
-        "AutoExpressSpriteSheet",
-    }
+    legacy = {"AutoExpress" + name[len("Emotica"):] for name in NODE_NAMES}
+    assert set(comfy.nodes) == NODE_NAMES | legacy
     for node in comfy.nodes.values():
         node.INPUT_TYPES()
 
 
+def test_workflows_saved_under_the_old_name_still_load(comfy):
+    for name in NODE_NAMES:
+        old = comfy.nodes["AutoExpress" + name[len("Emotica"):]]
+        assert issubclass(old, comfy.nodes[name]) and old.DEPRECATED
+        assert not getattr(comfy.nodes[name], "DEPRECATED", False)
+
+
 def test_expression_prompts_auto_family_from_checkpoint(comfy):
-    node = comfy.nodes["AutoExpressExpressionPrompts"]()
+    node = comfy.nodes["EmoticaExpressionPrompts"]()
     prompts, names, negative, count = node.build(
         "auto", "1girl", "lowres", "joy, anger", ckpt_name="ponyDiffusionV6XL.safetensors",
         lora_trigger="cinematic expression style",
@@ -91,7 +102,7 @@ def test_expression_prompts_auto_family_from_checkpoint(comfy):
 
 def test_expression_loras_applies_installed_files(comfy):
     (comfy.lora_dir / "AutoExpress-expressions-pony.safetensors").write_bytes(b"x")
-    node = comfy.nodes["AutoExpressExpressionLoras"]()
+    node = comfy.nodes["EmoticaExpressionLoras"]()
 
     model, clip, trigger = node.apply(
         "model", "clip", "ponyDiffusionV6XL.safetensors", "auto", "auto", download_missing=False
@@ -103,13 +114,13 @@ def test_expression_loras_applies_installed_files(comfy):
 
 
 def test_expression_loras_skips_missing_files(comfy):
-    node = comfy.nodes["AutoExpressExpressionLoras"]()
+    node = comfy.nodes["EmoticaExpressionLoras"]()
     model, clip, trigger = node.apply("model", "clip", "", "auto", "flux", download_missing=False)
     assert comfy.applied == [] and (model, clip, trigger) == ("model", "clip", "")
 
 
 def test_edit_instructions_node(comfy):
-    node = comfy.nodes["AutoExpressEditInstructions"]()
+    node = comfy.nodes["EmoticaEditInstructions"]()
     instructions, names, count, denoise = node.build("joy, anger", "illustration", -1.0, "Keep the glasses on.")
     assert names == ["anger", "joy"] and count == 2 and denoise == [0.85, 0.85]
     assert all(text.startswith("Change only the facial expression.") and "Keep the glasses on." in text for text in instructions)
@@ -123,9 +134,9 @@ def test_edit_instructions_node(comfy):
 
 
 def test_nodes_apply_intensity(comfy):
-    prompts, *_ = comfy.nodes["AutoExpressExpressionPrompts"]().build("danbooru", "1girl", "", "joy", "", "", 0.25)
+    prompts, *_ = comfy.nodes["EmoticaExpressionPrompts"]().build("danbooru", "1girl", "", "joy", "", "", 0.25)
     assert prompts[0].startswith("(") is False and ":0.8)" in prompts[0]
-    plain, *_ = comfy.nodes["AutoExpressExpressionPrompts"]().build("danbooru", "1girl", "", "joy", "", "", -1.0)
+    plain, *_ = comfy.nodes["EmoticaExpressionPrompts"]().build("danbooru", "1girl", "", "joy", "", "", -1.0)
     assert ":0.8)" not in plain[0]
 
 
@@ -150,7 +161,7 @@ def test_expression_loras_reads_sd15_from_unnamed_checkpoint(comfy):
     (comfy.lora_dir / "AutoExpress-expressions-sd15.safetensors").write_bytes(b"x")
     model = _Model(weights={"diffusion_model.input_blocks.1.1.transformer_blocks.0.attn2.to_k.weight": (320, 768)})
 
-    comfy.nodes["AutoExpressExpressionLoras"]().apply(
+    comfy.nodes["EmoticaExpressionLoras"]().apply(
         model, "clip", "AAM_Anylora_AnimeMix.safetensors", "auto", "auto", download_missing=False
     )
 
@@ -160,7 +171,7 @@ def test_expression_loras_reads_sd15_from_unnamed_checkpoint(comfy):
 def test_model_base_architecture_from_config(comfy):
     import importlib
 
-    nodes = importlib.import_module("autoexpress_custom_node.autoexpress_comfy.nodes")
+    nodes = importlib.import_module("emotica_custom_node.emotica_comfy.nodes")
     SDXL = type("SDXL", (), {})
     SSD1B = type("SSD1B", (SDXL,), {})
     Flux = type("Flux", (), {})

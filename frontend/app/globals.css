@@ -228,7 +228,7 @@
   }
 }
 
-/* Custom responsive utilities for AutoExpress */
+/* Custom responsive utilities for Emotica */
 @layer utilities {
   /* Ensure proper touch targets on mobile */
   .touch-target {
