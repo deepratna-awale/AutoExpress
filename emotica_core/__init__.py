@@ -36,7 +36,7 @@ from .generator import ExpressionGenerator, Backend
 from .grid import make_sprite_sheet
 from . import images
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 __all__ = [
     "civitai_key",

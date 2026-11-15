@@ -7,7 +7,7 @@
     "js": "sillytavern/index.js",
     "css": "sillytavern/style.css",
     "author": "Deepratna Awale",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "homePage": "https://github.com/deepratna-awale/Emotica",
     "auto_update": true
 }
