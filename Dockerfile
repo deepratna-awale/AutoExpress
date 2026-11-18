@@ -8,7 +8,7 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ .
 RUN pnpm build
 
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 # Run as an unprivileged user with uid 1000,
 # so the app, its Output/uploads folders and the rembg model cache are writable
